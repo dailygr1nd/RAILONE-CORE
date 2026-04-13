@@ -1,7 +1,17 @@
+# messaging_templates.py
+
 from datetime import datetime
 
 
-def sender_success_message(amount, currency, recipient_name, masked_account, bank_name, ref_id, new_balance):
+def sender_success_message(
+    amount,
+    currency,
+    recipient_name,
+    masked_account,
+    bank_name,
+    ref_id,
+    new_balance
+):
     return (
         f"Confirmed: Your transfer of {currency} {amount:,.2f} "
         f"to {recipient_name} ({masked_account}) at {bank_name} "
@@ -11,7 +21,12 @@ def sender_success_message(amount, currency, recipient_name, masked_account, ban
     )
 
 
-def receiver_success_bank_message(amount, currency, sender_name, ref_id):
+def receiver_success_bank_message(
+    amount,
+    currency,
+    sender_name,
+    ref_id
+):
     return (
         f"ALERT: You have received a transfer of "
         f"{currency} {amount:,.2f} from {sender_name}. "
@@ -20,7 +35,12 @@ def receiver_success_bank_message(amount, currency, sender_name, ref_id):
     )
 
 
-def receiver_success_wallet_message(amount, recipient_name, balance, ref_id):
+def receiver_success_wallet_message(
+    amount,
+    recipient_name,
+    balance,
+    ref_id
+):
     today = datetime.now().strftime("%Y-%m-%d %H:%M")
     return (
         f"Transaction Successful: {amount:,.2f} received "
@@ -30,11 +50,29 @@ def receiver_success_wallet_message(amount, recipient_name, balance, ref_id):
     )
 
 
-def rollback_sms_template(amount, currency, ref_id, new_balance):
+def rollback_sms_template(
+    amount,
+    currency,
+    ref_id,
+    new_balance
+):
     return (
-        f"RailOne Update: Your transfer reversal of {currency} {amount:,.2f} "
-        f"has been completed successfully. "
+        f"RailOne Update: Your transfer reversal of "
+        f"{currency} {amount:,.2f} has been completed successfully. "
         f"The funds have been returned to your account. "
         f"Ref: {ref_id}. "
         f"New balance: {currency} {new_balance:,.2f}"
+    )
+
+
+def failed_tx_sms_template(
+    amount,
+    currency,
+    ref_id,
+    reason
+):
+    return (
+        f"RailOne Alert: Your transfer of {currency} {amount:,.2f} "
+        f"was unsuccessful. Reason: {reason}. "
+        f"Ref: {ref_id}. Please try again or contact support."
     )

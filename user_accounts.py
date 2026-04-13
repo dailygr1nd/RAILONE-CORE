@@ -1,7 +1,5 @@
-# user_accounts.py
 import random
 
-# Global storage of all users’ accounts
 ACCOUNTS = {}
 
 # --------------------------
@@ -10,112 +8,122 @@ ACCOUNTS = {}
 BANKS = {
     "TZ": "BANK_TZ",
     "KE": "BANK_KE",
-    "UG": "LEGACY_BANK"  # Use legacy for UG accounts
+    "UG": "BANK_UG"
 }
 
 # --------------------------
-# PSP / Mobile Money
+# PSP MOBILE MONEY
 # --------------------------
 PSP_WALLETS = {
-    "TZ": ["PSP-MPESA", "PSP-AIRTEL"],
-    "KE": ["PSP-MPESA", "PSP-AIRTEL"],
-    "UG": ["PSP-AIRTEL"]
+    "TZ": ["PSP_MPESA_TZ", "PSP_AIRTEL_TZ"],
+    "KE": ["PSP_MPESA_KE", "PSP_AIRTEL_KE"],
+    "UG": ["PSP_AIRTEL_UG"]
 }
 
 # --------------------------
-# USER ACCOUNT CREATION
+# SMOVE IMT WALLET (NEW)
+# --------------------------
+SMOVE_CURRENCIES = ["USD", "EUR", "GBP", "NGN", "ZAR", "EGP"]
+
+# --------------------------
+# ACCOUNT GENERATION
 # --------------------------
 def generate_accounts(nid, country):
-    """Generate accounts for a user in a given jurisdiction."""
     if nid in ACCOUNTS:
         return ACCOUNTS[nid]
 
     user_accounts = {}
 
-    # BANK ACCOUNTS
-    local_bank = BANKS.get(country)
-    if local_bank:
-        user_accounts[local_bank] = {}
-        for i in range(2):
-            acc_id = f"{local_bank[:3]}-BAN-{country}-{random.randint(100,999)}"
+    # ---------------- BANK ACCOUNTS ----------------
+    bank = BANKS.get(country)
+    if bank:
+        user_accounts[bank] = {}
+
+        for _ in range(2):
+            acc_id = f"{bank}-ACC-{country}-{random.randint(1000,9999)}"
+            currency = {"KE": "KES", "TZ": "TZS", "UG": "UGX"}[country]
             balance = random.randint(100_000, 5_000_000)
-            currency = {"TZ": "TZS", "KE": "KES", "UG": "UGX"}[country] if country != "UG" else "UGX"
-            user_accounts[local_bank][acc_id] = {"currency": currency, "balance": balance}
 
-    # LEGACY BANK USD ACCOUNT
-    user_accounts["LEGACY_BANK"] = {}
-    acc_id = f"LEG-INT-USD-{random.randint(100,999)}"
-    user_accounts["LEGACY_BANK"][acc_id] = {"currency": "USD", "balance": random.randint(500, 5000)}
+            user_accounts[bank][acc_id] = {
+                "currency": currency,
+                "balance": balance
+            }
 
-    # PSP MOBILE MONEY
+    # ---------------- PSP MOBILE MONEY ----------------
     user_accounts["PSP"] = {}
-    for psp in PSP_WALLETS.get(country, []):
-        acc_id = f"{psp}-{country}-{random.randint(100,999)}"
-        currency_map = {"PSP-MPESA": {"KE": "KES","TZ": "TZS"}, "PSP-AIRTEL": {"KE": "KES","TZ":"TZS","UG":"UGX"}}
-        currency = currency_map[psp][country]
-        balance = random.randint(50_000, 5_000_000)
-        user_accounts["PSP"][acc_id] = {"currency": currency, "balance": balance}
 
-    # WALLET / FAILURE RAIL
-    user_accounts["WALLET"] = {}
-    acc_id = f"WLT-{random.randint(100,999)}"
-    user_accounts["WALLET"][acc_id] = {"currency": "USD", "balance": random.randint(100, 800)}
+    for psp in PSP_WALLETS.get(country, []):
+        acc_id = f"{psp}-{random.randint(1000,9999)}"
+        currency = {"KE": "KES", "TZ": "TZS", "UG": "UGX"}[country]
+        balance = random.randint(50_000, 2_000_000)
+
+        user_accounts["PSP"][acc_id] = {
+            "currency": currency,
+            "balance": balance
+        }
+
+    # ---------------- SMOVE WALLET (IMT RAIL) ----------------
+    user_accounts["SMOVE_WALLET"] = {}
+
+    for ccy in SMOVE_CURRENCIES:
+        acc_id = f"SMV-{ccy}-{random.randint(1000,9999)}"
+        balance = random.randint(50, 10_000)
+
+        user_accounts["SMOVE_WALLET"][acc_id] = {
+            "currency": ccy,
+            "balance": balance
+        }
 
     ACCOUNTS[nid] = user_accounts
     return user_accounts
 
+
 # --------------------------
-# HELPER FUNCTIONS
+# HELPERS
 # --------------------------
 def get_accounts(nid, rail_type):
-    """Return the account dict for a given rail_type and user."""
     return ACCOUNTS.get(nid, {}).get(rail_type, {})
 
+
 def get_user_balance(nid, rail_type):
-    """Return the max balance across accounts in a rail_type for a user."""
     accounts = ACCOUNTS.get(nid, {}).get(rail_type, {})
     if not accounts:
         return None
-    return max(acc["balance"] for acc in accounts.values())
+    return max(a["balance"] for a in accounts.values())
 
 
 # --------------------------
-# BALANCE UPDATE FUNCTIONS
+# CORE LEDGER ACTIONS
 # --------------------------
 def debit_account(nid, account_id, amount):
-    """Debit a specific account if funds are sufficient."""
-    user_accounts = ACCOUNTS.get(nid, {})
+    user = ACCOUNTS.get(nid, {})
 
-    for rail_type, accounts in user_accounts.items():
+    for rail, accounts in user.items():
         if account_id in accounts:
-            current_balance = accounts[account_id]["balance"]
-
-            if current_balance < amount:
-                return False, "Insufficient funds"
+            if accounts[account_id]["balance"] < amount:
+                return False, "INSUFFICIENT_FUNDS"
 
             accounts[account_id]["balance"] -= amount
             return True, accounts[account_id]["balance"]
 
-    return False, "Account not found"
+    return False, "ACCOUNT_NOT_FOUND"
 
 
 def credit_account(nid, account_id, amount):
-    """Credit a specific account."""
-    user_accounts = ACCOUNTS.get(nid, {})
+    user = ACCOUNTS.get(nid, {})
 
-    for rail_type, accounts in user_accounts.items():
+    for rail, accounts in user.items():
         if account_id in accounts:
             accounts[account_id]["balance"] += amount
             return True, accounts[account_id]["balance"]
 
-    return False, "Account not found"
+    return False, "ACCOUNT_NOT_FOUND"
 
 
 def get_account_balance(nid, account_id):
-    """Return exact balance for one account."""
-    user_accounts = ACCOUNTS.get(nid, {})
+    user = ACCOUNTS.get(nid, {})
 
-    for rail_type, accounts in user_accounts.items():
+    for _, accounts in user.items():
         if account_id in accounts:
             return accounts[account_id]["balance"]
 

@@ -1,128 +1,75 @@
 # routing.py
+from telemetry import get_telemetry
 
-# =====================================
-# ROUTE CONFIGURATION
-# =====================================
-ROUTES = [
-    {"name": "BANK_RAIL", "type": "BANK", "speed": 2, "fee": 0},
-    {"name": "PSP_RAIL", "type": "PSP", "speed": 1, "fee": 0},
-    {"name": "LEGACY_BANK", "type": "LEGACY_BANK", "speed": 3, "fee": 2},
-    {"name": "CROSS_BORDER_PSP", "type": "CROSS_PSP", "speed": 2, "fee": 1}
+RAILS = [
+    "BANK_KE",
+    "BANK_TZ",
+    "BANK_UG",
+    "PSP_KE",
+    "PSP_TZ",
+    "PSP_UG",
+    "SMOVE"
 ]
 
-# =====================================
-# RAIL CLASSIFIER
-# =====================================
-def classify_rail(account_string):
-    if not account_string:
-        return None
 
-    rail_type = account_string.split("-", 1)[0]
+def classify_rail(account_id):
+    if account_id.startswith("BANK_KE"):
+        return "BANK_KE"
 
-    if rail_type in ["BANK_TZ", "BANK_KE", "BANK_UG"]:
-        return "BANK"
+    if account_id.startswith("BANK_TZ"):
+        return "BANK_TZ"
 
-    if rail_type == "PSP" or rail_type.startswith("WLT"):
-        return "PSP"
+    if account_id.startswith("BANK_UG"):
+        return "BANK_UG"
 
-    if rail_type == "LEGACY_BANK":
-        return "LEGACY_BANK"
+    if account_id.startswith("PSP_MPESA_KE") or account_id.startswith("PSP_AIRTEL_KE"):
+        return "PSP_KE"
 
-    if rail_type == "CROSS_PSP":
-        return "CROSS_PSP"
+    if account_id.startswith("PSP_MPESA_TZ") or account_id.startswith("PSP_AIRTEL_TZ"):
+        return "PSP_TZ"
 
-    return rail_type
+    if account_id.startswith("PSP_AIRTEL_UG"):
+        return "PSP_UG"
 
-# =====================================
-# ROUTE SCORING
-# =====================================
-def score_route(route, is_cross_border, debit_rail):
+    if account_id.startswith("SMV"):
+        return "SMOVE"
+
+    return "UNKNOWN"
+
+
+def score_route(route_type, cross_border=False):
+    metrics = get_telemetry(route_type)
+
+    if not metrics:
+        return -999
+
     score = 0
 
-    # Faster rails are better
-    score += max(0, 5 - route.get("speed", 3))
+    score += metrics["success_rate"] * 50
+    score += metrics["uptime"] * 20
+    score += metrics["capacity_score"] * 15
+    score += metrics["fx_strength"] * 10
 
-    # Lower fee better
-    score += max(0, 5 - route.get("fee", 2))
+    latency_penalty = metrics["avg_latency_ms"] / 1000
+    reversal_penalty = metrics["reversal_rate"] * 100
 
-    # Prefer same rail family
-    if route["type"] == debit_rail:
-        score += 4
+    score -= latency_penalty
+    score -= reversal_penalty
 
-    # Cross-border preference
-    if is_cross_border:
-        if route["type"] in ["CROSS_PSP", "LEGACY_BANK"]:
-            score += 5
-    else:
-        if route["type"] in ["BANK", "PSP"]:
-            score += 5
+    if cross_border and route_type == "SMOVE":
+        score += 8
 
-    return score
+    return round(score, 4)
 
-# =====================================
-# INTELLIGENT ROUTER
-# =====================================
-def auto_route(
-    amount,
-    sender,
-    bank_balances,
-    currency,
-    destination,
-    is_cross_border=False,
-    debit_account=None
-):
-    """
-    Select the best route automatically.
 
-    Parameters:
-        amount: float
-        sender: dict with user info
-        bank_balances: dict of sender's accounts & balances
-        currency: str (KES, TZS, UGX, USD)
-        destination: str (KE, TZ, UG, US)
-        is_cross_border: bool
-        debit_account: str (rail prefix + account ID)
+def select_best_route(sender_acc, receiver_acc, cross_border=False):
+    sender_rail = classify_rail(sender_acc)
+    receiver_rail = classify_rail(receiver_acc)
 
-    Returns:
-        dict: route info including selected rail
-    """
-    debit_rail = classify_rail(debit_account)
+    sender_score = score_route(sender_rail, cross_border)
+    receiver_score = score_route(receiver_rail, cross_border)
 
-    candidate_routes = []
+    if sender_score >= receiver_score:
+        return sender_rail
 
-    # =========================
-    # LOCAL LOGIC
-    # =========================
-    if not is_cross_border:
-        for route in ROUTES:
-            if route["type"] in ["BANK", "PSP"]:
-                candidate_routes.append(route)
-    # =========================
-    # CROSS-BORDER LOGIC
-    # =========================
-    else:
-        for route in ROUTES:
-            if route["type"] in ["LEGACY_BANK", "CROSS_PSP"]:
-                candidate_routes.append(route)
-            # fallback: allow local bank if no PSP available
-            if route["type"] == "BANK":
-                candidate_routes.append(route)
-
-    if not candidate_routes:
-        return None
-
-    # Score each candidate route
-    scored = [(route, score_route(route, is_cross_border, debit_rail))
-              for route in candidate_routes]
-
-    # Pick the highest score
-    best_route = sorted(scored, key=lambda x: x[1], reverse=True)[0][0].copy()
-
-    best_route.update({
-        "cross_border": is_cross_border,
-        "currency": currency,
-        "destination": destination,
-        "debit_rail": debit_rail
-    })
-
-    return best_route
+    return receiver_rail
