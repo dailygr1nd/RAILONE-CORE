@@ -10868,5 +10868,69 @@
         },
         "prev_hash": "0d739148986570f0365c5f79d93f17c9ff500f3222f0052f99b2ffe514332deb",
         "hash": "c34f8cadb2116db41b3823290c50b974712c576d49febe049f3a6496c4f318d8"
+    },
+    {
+        "timestamp": "2026-04-13T18:51:57.562011+00:00",
+        "event": "ROUTE_SELECTED",
+        "payload": {
+            "utt": "UTT-1776106317556",
+            "rtt": "RTT-1776106317556",
+            "sender_rail": "BANK_KE",
+            "receiver_rail": "BANK_TZ",
+            "amount": 65000.0,
+            "converted_amount": 1056250.0,
+            "fx_rate": 16.25
+        },
+        "prev_hash": "c34f8cadb2116db41b3823290c50b974712c576d49febe049f3a6496c4f318d8",
+        "chain_version": "v2_bank_defensible",
+        "hash": "f22781e16c9b7efb921ea38528399a1f19e3da9599fdb4c24bf8a6cc4302f1f7"
+    },
+    {
+        "timestamp": "2026-04-13T18:51:57.625389+00:00",
+        "event": "FINAL_STATE",
+        "payload": {
+            "tx_id": "RTT-1776106317556",
+            "utt": "UTT-1776106317556",
+            "sender": "10000891",
+            "receiver": "10000555",
+            "amount": 65000.0,
+            "converted_amount": 1056250.0,
+            "fx_rate": 16.25,
+            "sender_rail": "BANK_KE",
+            "receiver_rail": "BANK_TZ",
+            "status": "SUCCESS"
+        },
+        "prev_hash": "f22781e16c9b7efb921ea38528399a1f19e3da9599fdb4c24bf8a6cc4302f1f7",
+        "chain_version": "v2_bank_defensible",
+        "hash": "d1ba4d1becd13b6f563ecb2ca6612a3e2ed39d7c9f14501658384810778eeb52"
+    },
+    {
+        "timestamp": "2026-04-13T18:56:16.995855+00:00",
+        "event": "ROUTE_SELECTED",
+        "payload": {
+            "utt": "UTT-1776106576989",
+            "rtt": "RTT-1776106576989",
+            "sender_rail": "BANK_KE",
+            "receiver_rail": "UNKNOWN",
+            "amount": 8000.0,
+            "converted_amount": 8000.0,
+            "fx_rate": 1.0
+        },
+        "prev_hash": "d1ba4d1becd13b6f563ecb2ca6612a3e2ed39d7c9f14501658384810778eeb52",
+        "chain_version": "v2_bank_defensible",
+        "hash": "5fc4bdac80313d5adaa593c9f8d21da9077632d89d3cd7219cf3fedd32d7bece"
+    },
+    {
+        "timestamp": "2026-04-13T18:56:17.054126+00:00",
+        "event": "FINAL_STATE",
+        "payload": {
+            "tx_id": "RTT-1776106576989",
+            "utt": "UTT-1776106576989",
+            "status": "FAILED",
+            "reason": "NO_ROUTE_MATCH"
+        },
+        "prev_hash": "5fc4bdac80313d5adaa593c9f8d21da9077632d89d3cd7219cf3fedd32d7bece",
+        "chain_version": "v2_bank_defensible",
+        "hash": "038e626945ca2c5d157c99bf7e5eca48767a7003494ccb5ea027c4870baad519"
     }
 ]

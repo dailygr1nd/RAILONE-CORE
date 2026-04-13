@@ -1,7 +1,7 @@
 # zk_sd.py
 import hashlib
 import random
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 
 from identity_db import lookup_identity
 from user_accounts import generate_accounts
@@ -33,16 +33,14 @@ def generate_railone_id(identity_token: str) -> str:
 # --------------------------
 # ONBOARD USER
 # --------------------------
-def onboard_user(role: str):
-    print(f"\n=== {role.upper()} ONBOARDING ===")
 
-    name = input("Enter Full Name: ").strip()
-    nid = input("Enter National ID: ").strip()
+def onboard_user(name, nid, role="user"):
+    print("📤 Verifying identity with national registry...")
 
     # --------------------------
     # VALIDATION
     # --------------------------
-    if not nid.isdigit() or len(nid) != 8:
+    if not str(nid).isdigit() or len(str(nid)) != 8:
         print("❌ Invalid ID format")
         return None
 
@@ -53,8 +51,6 @@ def onboard_user(role: str):
     # --------------------------
     # REGISTRY LOOKUP
     # --------------------------
-    print("📤 Verifying identity with national registry...")
-
     record = lookup_identity(nid, name)
 
     if record is None:
@@ -89,7 +85,7 @@ def onboard_user(role: str):
         "issuer": f"NATIONAL_ID_{record['country']}",
         "verified": True,
         "kyc_level": kyc_level,
-        "timestamp": datetime.now(UTC).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
     attestation_signature = hash_str(str(attestation_payload))
@@ -102,9 +98,6 @@ def onboard_user(role: str):
         country=record["country"]
     )
 
-    # --------------------------
-    # LOCK USER ID
-    # --------------------------
     USED_IDS.add(nid)
 
     print(f"✅ {role} onboarded successfully")
