@@ -1,5 +1,14 @@
 # transaction_engine.py
 
+from compliance import (
+    check_blacklist,
+    check_tier,
+    check_daily_limit,
+    update_daily_total,
+)
+
+from rules import enforce_attestation
+
 from audit import append_log
 from fx_corridor import validate_corridor, quote_conversion
 from handshake import run_handshake
@@ -13,7 +22,7 @@ from smove_wallet import process_transfer as smove_transfer
 
 class TransactionEngine:
     def __init__(self):
-        pass
+        self.daily_totals = {}
 
     # ---------------------------------
     # RAIL RESOLUTION
@@ -121,6 +130,41 @@ class TransactionEngine:
 
         utt = handshake["utt"]
         rtt = handshake["rtt"]
+
+        # -----------------------------
+        # COMPLIANCE + RULES
+        # -----------------------------
+        sender_user = {
+            "username": sender_id,
+            "nid": sender_id,
+            "attestation": {
+                "verified": True,
+                "kyc_level": "TIER_2",
+            },
+        }
+
+        ok, reason = check_blacklist(sender_user["nid"])
+        if not ok:
+            return False, reason, utt
+
+        ok, reason = check_tier(sender_user, amount)
+        if not ok:
+            return False, reason, utt
+
+        ok, reason = check_daily_limit(
+            sender_user,
+            amount,
+            self.daily_totals,
+        )
+        if not ok:
+            return False, reason, utt
+
+        rule_violation = enforce_attestation(
+            sender_user,
+            amount,
+        )
+        if rule_violation:
+            return False, rule_violation, utt
 
         # -----------------------------
         # CORRIDOR VALIDATION
@@ -250,6 +294,12 @@ class TransactionEngine:
         # -----------------------------
         # SUCCESS FINALIZATION
         # -----------------------------
+        update_daily_total(
+            sender_user,
+            amount,
+            self.daily_totals,
+        )
+
         append_log(
             "FINAL_STATE",
             {
