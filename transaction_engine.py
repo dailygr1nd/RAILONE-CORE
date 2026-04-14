@@ -1,12 +1,11 @@
 # transaction_engine.py
-import time
 
 from audit import append_log
 from fx_corridor import validate_corridor, quote_conversion
+from handshake import run_handshake
 from user_accounts import (
     debit_account,
     credit_account,
-    get_account_balance,
 )
 
 from smove_wallet import process_transfer as smove_transfer
@@ -66,20 +65,21 @@ class TransactionEngine:
         rtt,
         utt,
     ):
-        # same-family transfers
+        # Bank ↔ Bank / PSP
         if sender_rail.startswith("BANK") and (
             receiver_rail.startswith("BANK")
             or receiver_rail.startswith("PSP")
         ):
             return {"success": True}
 
+        # PSP ↔ Bank / PSP
         if sender_rail.startswith("PSP") and (
             receiver_rail.startswith("BANK")
             or receiver_rail.startswith("PSP")
         ):
             return {"success": True}
 
-        # any SmOve corridor
+        # SmOve corridor
         if sender_rail == "SMOVE" or receiver_rail == "SMOVE":
             return smove_transfer(
                 sender_id=sender_id,
@@ -108,13 +108,23 @@ class TransactionEngine:
         credit_account_id,
         sender_currency,
         receiver_currency,
-        tx_id=None,
-        utt=None,
     ):
-        utt = utt or f"UTT-{int(time.time() * 1000)}"
-        rtt = tx_id or f"RTT-{int(time.time() * 1000)}"
+        # -----------------------------
+        # HANDSHAKE + TOKEN GENERATION
+        # -----------------------------
+        handshake = run_handshake(
+            sender_id=sender_id,
+            receiver_id=receiver_id,
+            amount=amount,
+            currency=sender_currency,
+        )
 
-        # corridor validation
+        utt = handshake["utt"]
+        rtt = handshake["rtt"]
+
+        # -----------------------------
+        # CORRIDOR VALIDATION
+        # -----------------------------
         if not validate_corridor(
             sender_currency,
             receiver_currency,
@@ -130,7 +140,9 @@ class TransactionEngine:
         converted_amount = quote["converted_amount"]
         fx_rate = quote["fx_rate"]
 
-        # lock sender funds
+        # -----------------------------
+        # LOCK SENDER FUNDS
+        # -----------------------------
         ok, msg = debit_account(
             sender_id,
             debit_account_id,
@@ -138,8 +150,20 @@ class TransactionEngine:
         )
 
         if not ok:
+            append_log(
+                "FINAL_STATE",
+                {
+                    "rtt": rtt,
+                    "utt": utt,
+                    "status": "FAILED",
+                    "reason": msg,
+                },
+            )
             return False, msg, utt
 
+        # -----------------------------
+        # ROUTE RESOLUTION
+        # -----------------------------
         sender_rail = self.resolve_rail(debit_account_id)
         receiver_rail = self.resolve_rail(credit_account_id)
 
@@ -153,10 +177,13 @@ class TransactionEngine:
                 "amount": amount,
                 "converted_amount": converted_amount,
                 "fx_rate": fx_rate,
-                "chain_version": "v2_bank_defensible",
+                "chain_version": "v3_fintech_state_machine",
             },
         )
 
+        # -----------------------------
+        # DISPATCH
+        # -----------------------------
         result = self.dispatch(
             sender_rail,
             receiver_rail,
@@ -169,6 +196,9 @@ class TransactionEngine:
             utt,
         )
 
+        # -----------------------------
+        # FAILURE ROLLBACK
+        # -----------------------------
         if not result["success"]:
             credit_account(
                 sender_id,
@@ -179,16 +209,18 @@ class TransactionEngine:
             append_log(
                 "FINAL_STATE",
                 {
-                    "tx_id": rtt,
+                    "rtt": rtt,
                     "utt": utt,
                     "status": "FAILED",
                     "reason": result["reason"],
-                    "chain_version": "v2_bank_defensible",
                 },
             )
 
             return False, result["reason"], utt
 
+        # -----------------------------
+        # RECEIVER CREDIT
+        # -----------------------------
         credit_ok, credit_msg = credit_account(
             receiver_id,
             credit_account_id,
@@ -196,18 +228,32 @@ class TransactionEngine:
         )
 
         if not credit_ok:
+            # rollback sender
             credit_account(
                 sender_id,
                 debit_account_id,
                 amount,
             )
 
+            append_log(
+                "FINAL_STATE",
+                {
+                    "rtt": rtt,
+                    "utt": utt,
+                    "status": "ROLLED_BACK",
+                    "reason": credit_msg,
+                },
+            )
+
             return False, credit_msg, utt
 
+        # -----------------------------
+        # SUCCESS FINALIZATION
+        # -----------------------------
         append_log(
             "FINAL_STATE",
             {
-                "tx_id": rtt,
+                "rtt": rtt,
                 "utt": utt,
                 "sender": sender_id,
                 "receiver": receiver_id,
@@ -217,7 +263,7 @@ class TransactionEngine:
                 "sender_rail": sender_rail,
                 "receiver_rail": receiver_rail,
                 "status": "SUCCESS",
-                "chain_version": "v2_bank_defensible",
+                "chain_version": "v3_fintech_state_machine",
             },
         )
 
