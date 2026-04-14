@@ -1,9 +1,7 @@
 # Simulation.py
+
 from transaction_engine import initiate_transaction
-from user_accounts import (
-    generate_accounts,
-    get_account_balance,
-)
+from user_accounts import generate_accounts
 from zk_sd import onboard_user
 
 
@@ -47,61 +45,71 @@ def show_accounts(accounts):
         )
 
 
+# ---------------------------------
+# SAFE ONBOARDING (BANK STYLE)
+# ---------------------------------
+def safe_onboard(role):
+    while True:
+        print(f"\n=== {role.upper()} ONBOARDING ===")
+
+        name = input("Enter Full Name: ")
+        nid = input("Enter National ID: ")
+
+        user = onboard_user(name, nid, role=role)
+
+        if user is not None:
+            return user
+
+        print("\n❌ ONBOARDING FAILED")
+        retry = input("Retry onboarding? (y/n): ").strip().lower()
+
+        if retry != "y":
+            print("🚫 Transaction aborted due to failed KYC.")
+            exit()
+
+
 def main():
     print("=== RAILONE PRODUCTION SIMULATOR ===")
 
-    print("\n=== SENDER ONBOARDING ===")
-    sender_name = input("Enter Full Name: ")
-    sender_nid = input("Enter National ID: ")
+    # -----------------------------
+    # SENDER
+    # -----------------------------
+    sender = safe_onboard("sender")
 
-    sender = onboard_user(
-        sender_name,
-        sender_nid,
-        role="sender",
-    )
+    self_transfer = input("\nSelf transfer? (y/n): ").strip().lower()
 
-    self_transfer = input(
-        "\nSelf transfer? (y/n): "
-    ).strip().lower()
-
+    # -----------------------------
+    # RECEIVER
+    # -----------------------------
     if self_transfer == "y":
         receiver = sender
         print("\n✅ Self-transfer mode enabled")
     else:
-        print("\n=== RECEIVER ONBOARDING ===")
-        receiver_name = input("Enter Full Name: ")
-        receiver_nid = input("Enter National ID: ")
+        receiver = safe_onboard("receiver")
 
-        receiver = onboard_user(
-            receiver_name,
-            receiver_nid,
-            role="receiver",
-        )
-
+    # -----------------------------
+    # ACCOUNTS
+    # -----------------------------
     sender_accounts = flatten_accounts(
-        generate_accounts(sender_nid, "KE")
+        generate_accounts(sender["nid"], "KE")
     )
 
     receiver_accounts = flatten_accounts(
         generate_accounts(receiver["nid"], "KE")
     )
 
-    sender_acc = choose_account(
-        sender_accounts,
-        "SELECT DEBIT ACCOUNT",
-    )
-
-    receiver_acc = choose_account(
-        receiver_accounts,
-        "SELECT CREDIT ACCOUNT",
-    )
+    sender_acc = choose_account(sender_accounts, "SELECT DEBIT ACCOUNT")
+    receiver_acc = choose_account(receiver_accounts, "SELECT CREDIT ACCOUNT")
 
     amount = float(input("\nEnter transfer amount: "))
 
     print("\n=== EXECUTING TRANSACTION ===")
 
+    # -----------------------------
+    # TRANSACTION EXECUTION
+    # -----------------------------
     success, message, utt = initiate_transaction(
-        sender_id=sender_nid,
+        sender_id=sender["nid"],
         receiver_id=receiver["nid"],
         amount=amount,
         debit_account_id=sender_acc["account_id"],
@@ -110,30 +118,31 @@ def main():
         receiver_currency=receiver_acc["currency"],
     )
 
-    print("\n=== RESULT ===")
+    # -----------------------------
+    # SMS SIMULATION OUTPUT
+    # -----------------------------
+    print("\n📩 === RAILONE SMS NOTIFICATIONS ===")
+
+    print(f"""
+    FROM: RailOne PAY
+    ----------------------------------
+    Transaction ID: {utt}
+    Status: {message}
+    Amount: {amount}
+    Sender: {sender['nid']}
+    Receiver: {receiver['nid']}
+    ----------------------------------
+    """)
+
+    # -----------------------------
+    # FINAL RESULT
+    # -----------------------------
+    print("\n=== FINAL RESULT ===")
     print(f"Success: {success}")
     print(f"Message: {message}")
     print(f"UTT: {utt}")
 
-    print("\n=== UPDATED BALANCES ===")
-    print("\nSENDER")
-    show_accounts(
-        flatten_accounts(
-            generate_accounts(sender_nid, "KE")
-        )
-    )
-
-    if self_transfer != "y":
-        print("\nRECEIVER")
-        show_accounts(
-            flatten_accounts(
-                generate_accounts(receiver['nid'], 'KE')
-            )
-        )
-
-    print("\n🧾 Logs written successfully")
-    print("Audit log stored separately")
-    print("Ledger stored separately")
+    print("\n🧾 Ledger + Audit logs updated automatically")
 
 
 if __name__ == "__main__":

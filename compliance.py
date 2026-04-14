@@ -101,3 +101,25 @@ class ComplianceEngine:
             self.daily_totals.get(username, 0)
             + amount
         )
+
+        _engine = ComplianceEngine()
+
+
+def check_blacklist(nid):
+    return _engine.check_blacklist(nid)
+
+
+def check_tier(sender, amount):
+    return _engine.check_limits(sender, amount)
+
+
+def check_daily_limit(sender, amount, daily_totals):
+    # inject external state into engine temporarily
+    _engine.daily_totals = daily_totals
+    return _engine.check_limits(sender, amount)
+
+
+def update_daily_total(sender, amount, daily_totals):
+    _engine.update_totals(sender, amount)
+    daily_totals.update(_engine.daily_totals)
+    

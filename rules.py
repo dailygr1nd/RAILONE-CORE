@@ -47,3 +47,14 @@ def is_high_risk_corridor(sender_currency, receiver_currency):
         sender_currency,
         receiver_currency,
     ) in HIGH_RISK_CORRIDORS
+
+def enforce_attestation(user, amount):
+    limits = get_tier_limits(user["attestation"]["kyc_level"])
+
+    if not user["attestation"].get("verified", False):
+        return "KYC_NOT_VERIFIED"
+
+    if amount > limits["single_tx"]:
+        return "TIER_SINGLE_TX_LIMIT_EXCEEDED"
+
+    return None
