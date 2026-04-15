@@ -5,6 +5,9 @@ from user_accounts import generate_accounts
 from zk_sd import onboard_user
 
 
+# ---------------------------------
+# ACCOUNT FLATTENER
+# ---------------------------------
 def flatten_accounts(accounts_dict):
     flat = []
 
@@ -15,16 +18,15 @@ def flatten_accounts(accounts_dict):
                 "account_id": account_id,
                 "currency": details["currency"],
                 "available": details["available"],
-                "reserved": details["reserved"],
-                "display_balance": (
-                    f'{details["available"]} '
-                    f'(locked: {details["reserved"]})'
-                )
+                "reserved": details["reserved"]
             })
 
     return flat
 
 
+# ---------------------------------
+# ACCOUNT PICKER
+# ---------------------------------
 def choose_account(accounts, title):
     print(f"\n=== {title} ===")
 
@@ -48,7 +50,7 @@ def choose_account(accounts, title):
 
 
 # ---------------------------------
-# SAFE ONBOARDING (BANK STYLE)
+# SAFE ONBOARDING
 # ---------------------------------
 def safe_onboard(role):
     while True:
@@ -66,10 +68,13 @@ def safe_onboard(role):
         retry = input("Retry onboarding? (y/n): ").strip().lower()
 
         if retry != "y":
-            print("🚫 Transaction aborted due to failed KYC.")
+            print("🚫 Transaction aborted.")
             exit()
 
 
+# ---------------------------------
+# MAIN
+# ---------------------------------
 def main():
     print("=== RAILONE PRODUCTION SIMULATOR ===")
 
@@ -90,7 +95,8 @@ def main():
         receiver = safe_onboard("receiver")
 
     # -----------------------------
-    # ACCOUNTS
+    # AUTO ACCOUNT GENERATION
+    # NO COUNTRY INPUT NEEDED
     # -----------------------------
     sender_accounts = flatten_accounts(
         generate_accounts(sender["nid"], "KE")
@@ -108,26 +114,28 @@ def main():
     print("\n=== EXECUTING TRANSACTION ===")
 
     # -----------------------------
-    # TRANSACTION EXECUTION
+    # FIXED ENGINE CALL
+    # PASS CURRENCIES DIRECTLY
     # -----------------------------
     tx = initiate_transaction(
         sender_account=sender_acc["account_id"],
         receiver_account=receiver_acc["account_id"],
         amount=amount,
-        corridor="LOCAL"
+        sender_currency=sender_acc["currency"],
+        receiver_currency=receiver_acc["currency"]
     )
 
     # -----------------------------
-    # DERIVED VALUES (NO MORE PYLANCE ERRORS)
+    # RESULT DISPLAY
     # -----------------------------
     tx_id = tx.get("tx_id", "UNKNOWN")
     status = tx.get("status", "UNKNOWN")
     reason = tx.get("reason")
-    route = tx.get("route")
 
-    SUCCESS_STATES = {"SETTLED"}
+    route_result = tx.get("route_result", {})
+    best_route = route_result.get("best_route", {})
 
-    success = tx["status"] in SUCCESS_STATES
+    success = status == "SETTLED"
 
     print("\n=== TRANSACTION RESULT ===")
     print(f"Transaction ID: {tx_id}")
@@ -136,11 +144,13 @@ def main():
     if reason:
         print(f"Reason: {reason}")
 
-    if route:
-        print(f"Route: {route}")
+    if best_route:
+        print(f"Best Route: {best_route.get('rail')}")
+        print(f"FX Rate: {best_route.get('fx_rate')}")
+        print(f"Converted Amount: {best_route.get('converted_amount')}")
 
     # -----------------------------
-    # SMS SIMULATION OUTPUT
+    # SMS SIMULATION
     # -----------------------------
     print("\n📩 === RAILONE SMS NOTIFICATIONS ===")
 

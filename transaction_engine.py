@@ -2,6 +2,7 @@
 
 from datetime import datetime, UTC
 from uuid import uuid4
+import random
 
 from ledger import write_ledger_entry
 from corridor_pricing_engine import calculate_pricing
@@ -29,7 +30,6 @@ def initiate_transaction(
     sender_currency,
     receiver_currency
 ):
-
     tx_id = generate_rtt()
 
     tx = {
@@ -43,9 +43,14 @@ def initiate_transaction(
         "status": "INITIATED",
     }
 
+    # --------------------------------
+    # STEP 1: INITIATE
+    # --------------------------------
     log_event("TX_INITIATED", tx)
 
-    # STEP 1: LOCK FUNDS
+    # --------------------------------
+    # STEP 2: LOCK FUNDS
+    # --------------------------------
     if not lock_funds(sender_account, amount):
         tx["status"] = "FAILED"
         tx["reason"] = "INSUFFICIENT_FUNDS"
@@ -55,7 +60,9 @@ def initiate_transaction(
     tx["status"] = "FUNDS_LOCKED"
     log_event("FUNDS_LOCKED", tx)
 
-    # STEP 2: CORRIDOR ENGINE
+    # --------------------------------
+    # STEP 3: BUILD CORRIDOR
+    # --------------------------------
     route_result = build_corridor(
         sender_account,
         receiver_account,
@@ -68,52 +75,99 @@ def initiate_transaction(
     tx["status"] = "ROUTE_SELECTED"
     log_event("ROUTE_SELECTED", tx)
 
-    # STEP 3: SIMULATED DISPATCH
-    dispatch_success = True
+    # --------------------------------
+    # STEP 4: PRICING
+    # --------------------------------
+    best_route = route_result.get("best_route", {})
 
-    if not dispatch_success:
-        release_funds(sender_account, amount)
-        tx["status"] = "REVERSED"
-        tx["reason"] = "DISPATCH_FAILED"
-        log_event("TX_REVERSED", tx)
-        return tx
+    pricing = calculate_pricing(
+    amount=amount,
+    from_ccy=sender_currency,
+    to_ccy=receiver_currency,
+    route_type=best_route.get("type", "SMOVE")
+)
 
+    # --------------------------------
+    # STEP 5: DISPATCH
+    # --------------------------------
     tx["status"] = "DISPATCHED"
     log_event("TX_DISPATCHED", tx)
 
-    # STEP 4: SETTLEMENT
-    best_route = route_result["best_route"]["rail"]
+    # --------------------------------
+    # STEP 6: SIMULATED RAIL SUCCESS
+    # --------------------------------
+    best_route = route_result.get("best_route", {})
+    success_probability = best_route.get(
+        "success_probability",
+        0.99
+    )
 
-    pricing = calculate_pricing(
-    amount,
-    sender_currency,
-    receiver_currency,
-    best_route
-)
+    rail_success = random.random() < success_probability
 
-    tx["pricing"] = pricing
+    # --------------------------------
+    # SUCCESS PATH
+    # --------------------------------
+    if rail_success:
+        # permanently debit locked funds
+        settle_locked_funds(
+            sender_account,
+            amount
+        )
 
-    if not settle_locked_funds(sender_account, amount):
-     tx["status"] = "FAILED"
-     tx["reason"] = "SETTLEMENT_ERROR"
+        # credit receiver
+        credit_success = credit_account(
+            receiver_account,
+            pricing["net_amount"]
+        )
+
+        if not credit_success:
+            release_funds(sender_account, amount)
+
+            tx["status"] = "REVERSED"
+            tx["reason"] = "RECEIVER_CREDIT_FAILED"
+
+            log_event("TX_REVERSED", tx)
+            return tx
+
+        tx["status"] = "SETTLED"
+
+        write_ledger_entry({
+            "tx_id": tx["tx_id"],
+            "timestamp": tx["timestamp"],
+            "sender_account": sender_account,
+            "receiver_account": receiver_account,
+            "gross_amount": amount,
+            "net_amount": pricing["net_amount"],
+            "fees": pricing["total_fee"],
+            "currency_from": sender_currency,
+            "currency_to": receiver_currency,
+            "status": "SETTLED",
+            "route": best_route.get("rail"),
+        })
+
+        log_event("TX_SETTLED", tx)
+
+        # learning feedback
+        learn_corridor(
+            route_result,
+            success=True
+        )
+
+        return tx
+
+    # --------------------------------
+    # FAILURE PATH
+    # --------------------------------
+    release_funds(sender_account, amount)
+
+    tx["status"] = "FAILED"
+    tx["reason"] = "RAIL_TIMEOUT"
+
     log_event("TX_FAILED", tx)
-    return tx
 
-    if not credit_account(
-    receiver_account,
-    pricing["net_amount"]
-):
-     release_funds(sender_account, amount)
-
-    tx["status"] = "REVERSED"
-    tx["reason"] = "RECEIVER_CREDIT_FAILED"
-    log_event("TX_REVERSED", tx)
-    return tx
-
-    tx["status"] = "SETTLED"
-
-    write_ledger_entry(tx)
-
-    log_event("TX_SETTLED", tx)
+    learn_corridor(
+        route_result,
+        success=False
+    )
 
     return tx

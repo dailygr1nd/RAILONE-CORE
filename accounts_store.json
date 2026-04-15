@@ -8,15 +8,15 @@
       },
       "BANK_KE-ACC-KE-4680": {
         "currency": "KES",
-        "available": 3529376.0,
-        "reserved": 0.0
+        "available": 2194376.0,
+        "reserved": 1300000.0
       }
     },
     "PSP_MPESA_KE": {
       "PSP_MPESA_KE-WALLET-7171": {
         "currency": "KES",
-        "available": 1349686,
-        "reserved": 0
+        "available": 1273686.0,
+        "reserved": 0.0
       }
     },
     "PSP_AIRTEL_KE": {
@@ -63,7 +63,7 @@
     "BANK_TZ": {
       "BANK_TZ-ACC-TZ-1126": {
         "currency": "TZS",
-        "available": 2458297.0,
+        "available": 2208297.0,
         "reserved": 0.0
       },
       "BANK_TZ-ACC-TZ-4934": {
@@ -142,7 +142,7 @@
     "PSP_AIRTEL_KE": {
       "PSP_AIRTEL_KE-WALLET-5128": {
         "currency": "KES",
-        "available": 1721267.0,
+        "available": 1754817.0,
         "reserved": 0
       }
     },
@@ -173,6 +173,66 @@
         "reserved": 0
       },
       "SMOVE-EGP-2159": {
+        "currency": "EGP",
+        "available": 10000,
+        "reserved": 0
+      }
+    }
+  },
+  "10000554": {
+    "BANK_TZ": {
+      "BANK_TZ-ACC-TZ-8368": {
+        "currency": "TZS",
+        "available": 1300977,
+        "reserved": 0
+      },
+      "BANK_TZ-ACC-TZ-9625": {
+        "currency": "TZS",
+        "available": 3302111,
+        "reserved": 0
+      }
+    },
+    "PSP_MPESA_TZ": {
+      "PSP_MPESA_TZ-WALLET-9780": {
+        "currency": "TZS",
+        "available": 3637195,
+        "reserved": 0
+      }
+    },
+    "PSP_AIRTEL_TZ": {
+      "PSP_AIRTEL_TZ-WALLET-9647": {
+        "currency": "TZS",
+        "available": 551223,
+        "reserved": 0
+      }
+    },
+    "SMOVE_WALLET": {
+      "SMOVE-USD-8597": {
+        "currency": "USD",
+        "available": 10000,
+        "reserved": 0
+      },
+      "SMOVE-EUR-4200": {
+        "currency": "EUR",
+        "available": 10000,
+        "reserved": 0
+      },
+      "SMOVE-GBP-5655": {
+        "currency": "GBP",
+        "available": 10000,
+        "reserved": 0
+      },
+      "SMOVE-NGN-1530": {
+        "currency": "NGN",
+        "available": 10000,
+        "reserved": 0
+      },
+      "SMOVE-ZAR-2220": {
+        "currency": "ZAR",
+        "available": 10000,
+        "reserved": 0
+      },
+      "SMOVE-EGP-1535": {
         "currency": "EGP",
         "available": 10000,
         "reserved": 0
