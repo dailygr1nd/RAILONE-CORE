@@ -230,38 +230,4 @@ System Layer   → UTT assignment
 Ledger Layer   → Immutable recording
 ```
 
----
-
-# 🚀 Why this matters (engineering view)
-
-This system gives RailOne:
-
-* Bank-grade auditability
-* Multi-rail reconciliation capability
-* Strong anti-replay protection
-* Deterministic transaction tracing
-* Cross-institution compatibility layer
-
----
-
-# 📌 Next Step (important)
-
-Now that your cryptographic model is defined, the *next engineering step* is:
-
-## 🔥 Build the Transaction Engine State Machine
-
-We implement:
-
-```
-INIT → ETK-S → ROUTING → ETK-R → RTT → UTT → SETTLED / FAILED
-```
-
-with:
-
-* locking system
-* rollback logic
-* ledger append-only integrity
-
----
-
 
