@@ -2,7 +2,7 @@ import time
 import random
 from datetime import datetime
 
-from fx_corridor import quote_conversion, validate_corridor
+from corridor_fx_model import quote_conversion, validate_corridor
 from user_accounts import debit_account, credit_account
 from ledger import log_transaction
 

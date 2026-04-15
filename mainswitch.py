@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 from zk_sd import onboard_user, USED_IDS
-from fx_corridor import validate_corridor, quote_conversion
+from corridor_fx_model import validate_corridor, quote_conversion
 from transaction_engine import TransactionEngine
 from routing_brain import compute_rail_health
 from compliance import get_compliance_alerts
