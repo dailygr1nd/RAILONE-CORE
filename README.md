@@ -1,4 +1,65 @@
 
+                        ┌────────────────────────────┐
+                        │      TRANSACTION INPUT     │
+                        │  (sender, receiver, amt)   │
+                        └────────────┬───────────────┘
+                                     │
+                                     ▼
+                ┌─────────────────────────────────────┐
+                │          routing.py                 │
+                │  (Candidate Rail Generator)        │
+                │                                     │
+                │ - classify rails                   │
+                │ - list possible paths             │
+                └────────────┬────────────────────────┘
+                                     │
+                                     ▼
+        ┌────────────────────────────────────────────────────┐
+        │            routing_brain.py                       │
+        │        (Rail Intelligence Layer)                 │
+        │                                                    │
+        │ - success rates                                   │
+        │ - latency intelligence                            │
+        │ - rail health scoring                             │
+        └────────────┬──────────────────────────────────────┘
+                                     │
+                                     ▼
+        ┌────────────────────────────────────────────────────┐
+        │          corridor_engine.py ⭐ (CORE BRAIN)       │
+        │                                                    │
+        │ - simulates real-world outcomes                   │
+        │ - applies FX + liquidity + failure models         │
+        │ - evaluates ALL candidate paths                   │
+        │ - chooses best expected outcome                   │
+        └────────────┬──────────────────────────────────────┘
+                                     │
+                                     ▼
+        ┌────────────────────────────────────────────────────┐
+        │              tx_engine.py                         │
+        │        (Execution Layer / Settlement)             │
+        │                                                    │
+        │ - executes selected rail path                     │
+        └────────────┬──────────────────────────────────────┘
+                                     │
+                                     ▼
+        ┌────────────────────────────────────────────────────┐
+        │        routing_metrics.py (Memory Layer)         │
+        │                                                    │
+        │ - logs success/failure                            │
+        │ - updates latency                                 │
+        │ - feeds learning system                           │
+        └────────────┬──────────────────────────────────────┘
+                                     │
+                                     ▼
+        ┌────────────────────────────────────────────────────┐
+        │      corridor_learning.py ⭐ (ADAPTATION)         │
+        │                                                    │
+        │ - adjusts probabilities                           │
+        │ - improves routing intelligence                   │
+        │ - evolves corridor behavior                       │
+        └────────────────────────────────────────────────────┘
+
+
 
 # 🧠 RailOne Core Cryptographic & Transaction Terminology
 
