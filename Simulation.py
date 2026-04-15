@@ -5,19 +5,22 @@ from user_accounts import generate_accounts
 from zk_sd import onboard_user
 
 
-def flatten_accounts(accounts):
+def flatten_accounts(accounts_dict):
     flat = []
 
-    for rail_name, rail_accounts in accounts.items():
-        for acc_id, details in rail_accounts.items():
-            flat.append(
-                {
-                    "rail": rail_name,
-                    "account_id": acc_id,
-                    "currency": details["currency"],
-                    "balance": details["balance"],
-                }
-            )
+    for provider, accounts in accounts_dict.items():
+        for account_id, details in accounts.items():
+            flat.append({
+                "provider": provider,
+                "account_id": account_id,
+                "currency": details["currency"],
+                "available": details["available"],
+                "reserved": details["reserved"],
+                "display_balance": (
+                    f'{details["available"]} '
+                    f'(locked: {details["reserved"]})'
+                )
+            })
 
     return flat
 
@@ -27,22 +30,21 @@ def choose_account(accounts, title):
 
     for i, acc in enumerate(accounts, 1):
         print(
-            f"{i}. {acc['account_id']} | "
-            f"{acc['currency']} "
-            f"{acc['balance']:,.2f}"
-        )
-
-    idx = int(input("\nChoose account number: ")) - 1
-    return accounts[idx]
-
-
-def show_accounts(accounts):
-    for acc in accounts:
-        print(
+            f"{i}. {acc['provider']} | "
             f"{acc['account_id']} | "
-            f"{acc['currency']} "
-            f"{acc['balance']:,.2f}"
+            f"{acc['currency']} | "
+            f"Available: {acc['available']:,.2f} | "
+            f"Locked: {acc['reserved']:,.2f}"
         )
+
+    while True:
+        try:
+            choice = int(input("\nChoose account number: "))
+            if 1 <= choice <= len(accounts):
+                return accounts[choice - 1]
+            print("❌ Invalid selection")
+        except ValueError:
+            print("❌ Please enter a valid number")
 
 
 # ---------------------------------
@@ -108,15 +110,32 @@ def main():
     # -----------------------------
     # TRANSACTION EXECUTION
     # -----------------------------
-    success, message, utt = initiate_transaction(
-        sender_id=sender["nid"],
-        receiver_id=receiver["nid"],
+    tx = initiate_transaction(
+        sender_account=sender_acc["account_id"],
+        receiver_account=receiver_acc["account_id"],
         amount=amount,
-        debit_account_id=sender_acc["account_id"],
-        credit_account_id=receiver_acc["account_id"],
-        sender_currency=sender_acc["currency"],
-        receiver_currency=receiver_acc["currency"],
+        corridor="LOCAL"
     )
+
+    # -----------------------------
+    # DERIVED VALUES (NO MORE PYLANCE ERRORS)
+    # -----------------------------
+    tx_id = tx.get("tx_id", "UNKNOWN")
+    status = tx.get("status", "UNKNOWN")
+    reason = tx.get("reason")
+    route = tx.get("route")
+
+    success = status.upper() in ["SUCCESS", "COMPLETED"]
+
+    print("\n=== TRANSACTION RESULT ===")
+    print(f"Transaction ID: {tx_id}")
+    print(f"Status: {status}")
+
+    if reason:
+        print(f"Reason: {reason}")
+
+    if route:
+        print(f"Route: {route}")
 
     # -----------------------------
     # SMS SIMULATION OUTPUT
@@ -124,23 +143,23 @@ def main():
     print("\n📩 === RAILONE SMS NOTIFICATIONS ===")
 
     print(f"""
-    FROM: RailOne PAY
-    ----------------------------------
-    Transaction ID: {utt}
-    Status: {message}
-    Amount: {amount}
-    Sender: {sender['nid']}
-    Receiver: {receiver['nid']}
-    ----------------------------------
-    """)
+FROM: RailOne PAY
+----------------------------------
+Transaction ID: {tx_id}
+Status: {status}
+Amount: {amount}
+Sender: {sender['nid']}
+Receiver: {receiver['nid']}
+----------------------------------
+""")
 
     # -----------------------------
     # FINAL RESULT
     # -----------------------------
     print("\n=== FINAL RESULT ===")
     print(f"Success: {success}")
-    print(f"Message: {message}")
-    print(f"UTT: {utt}")
+    print(f"Message: {status}")
+    print(f"UTT: {tx_id}")
 
     print("\n🧾 Ledger + Audit logs updated automatically")
 

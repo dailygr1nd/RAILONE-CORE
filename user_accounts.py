@@ -1,130 +1,157 @@
+import json
 import random
+from pathlib import Path
+from threading import Lock
+from typing import Dict, Optional, Tuple
 
-ACCOUNTS = {}
+STORE_PATH = Path("accounts_store.json")
+STORE_LOCK = Lock()
 
-# --------------------------
-# BANKS PER JURISDICTION
-# --------------------------
 BANKS = {
     "TZ": "BANK_TZ",
     "KE": "BANK_KE",
-    "UG": "BANK_UG"
+    "UG": "BANK_UG",
 }
 
-# --------------------------
-# PSP MOBILE MONEY
-# --------------------------
 PSP_WALLETS = {
     "TZ": ["PSP_MPESA_TZ", "PSP_AIRTEL_TZ"],
     "KE": ["PSP_MPESA_KE", "PSP_AIRTEL_KE"],
-    "UG": ["PSP_AIRTEL_UG"]
+    "UG": ["PSP_AIRTEL_UG"],
 }
 
-# --------------------------
-# SMOVE IMT WALLET (NEW)
-# --------------------------
 SMOVE_CURRENCIES = ["USD", "EUR", "GBP", "NGN", "ZAR", "EGP"]
 
-# --------------------------
-# ACCOUNT GENERATION
-# --------------------------
-def generate_accounts(nid, country):
-    if nid in ACCOUNTS:
-        return ACCOUNTS[nid]
-
-    user_accounts = {}
-
-    # ---------------- BANK ACCOUNTS ----------------
-    bank = BANKS.get(country)
-    if bank:
-        user_accounts[bank] = {}
-
-        for _ in range(2):
-            acc_id = f"{bank}-ACC-{country}-{random.randint(1000,9999)}"
-            currency = {"KE": "KES", "TZ": "TZS", "UG": "UGX"}[country]
-            balance = random.randint(100_000, 5_000_000)
-
-            user_accounts[bank][acc_id] = {
-                "currency": currency,
-                "balance": balance
-            }
-
-    # ---------------- PSP MOBILE MONEY ----------------
-    user_accounts["PSP"] = {}
-
-    for psp in PSP_WALLETS.get(country, []):
-        acc_id = f"{psp}-{random.randint(1000,9999)}"
-        currency = {"KE": "KES", "TZ": "TZS", "UG": "UGX"}[country]
-        balance = random.randint(50_000, 2_000_000)
-
-        user_accounts["PSP"][acc_id] = {
-            "currency": currency,
-            "balance": balance
-        }
-
-    # ---------------- SMOVE WALLET (IMT RAIL) ----------------
-    user_accounts["SMOVE_WALLET"] = {}
-
-    for ccy in SMOVE_CURRENCIES:
-        acc_id = f"SMV-{ccy}-{random.randint(1000,9999)}"
-        balance = random.randint(50, 10_000)
-
-        user_accounts["SMOVE_WALLET"][acc_id] = {
-            "currency": ccy,
-            "balance": balance
-        }
-
-    ACCOUNTS[nid] = user_accounts
-    return user_accounts
+LOCAL_CURRENCY = {
+    "KE": "KES",
+    "TZ": "TZS",
+    "UG": "UGX",
+}
 
 
-# --------------------------
-# HELPERS
-# --------------------------
-def get_accounts(nid, rail_type):
-    return ACCOUNTS.get(nid, {}).get(rail_type, {})
+def _load_store() -> Dict:
+    if not STORE_PATH.exists():
+        return {}
+
+    with STORE_PATH.open("r", encoding="utf-8") as f:
+        return json.load(f)
 
 
-def get_user_balance(nid, rail_type):
-    accounts = ACCOUNTS.get(nid, {}).get(rail_type, {})
-    if not accounts:
-        return None
-    return max(a["balance"] for a in accounts.values())
+def _save_store(data: Dict):
+    with STORE_PATH.open("w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
 
 
-# --------------------------
-# CORE LEDGER ACTIONS
-# --------------------------
-def debit_account(nid, account_id, amount):
-    user = ACCOUNTS.get(nid, {})
-
-    for rail, accounts in user.items():
-        if account_id in accounts:
-            if accounts[account_id]["balance"] < amount:
-                return False, "INSUFFICIENT_FUNDS"
-
-            accounts[account_id]["balance"] -= amount
-            return True, accounts[account_id]["balance"]
-
-    return False, "ACCOUNT_NOT_FOUND"
+def _new_balance(currency: str, amount: Optional[int] = None):
+    return {
+        "currency": currency,
+        "available": amount if amount is not None else random.randint(100_000, 5_000_000),
+        "reserved": 0,
+    }
 
 
-def credit_account(nid, account_id, amount):
-    user = ACCOUNTS.get(nid, {})
+def generate_accounts(nid: str, country: str):
+    with STORE_LOCK:
+        data = _load_store()
 
-    for rail, accounts in user.items():
-        if account_id in accounts:
-            accounts[account_id]["balance"] += amount
-            return True, accounts[account_id]["balance"]
+        if nid in data:
+            return data[nid]
 
-    return False, "ACCOUNT_NOT_FOUND"
+        accounts = {}
+        currency = LOCAL_CURRENCY[country]
+
+        bank = BANKS.get(country)
+        if bank:
+            accounts[bank] = {}
+            for _ in range(2):
+                acc_id = f"{bank}-ACC-{country}-{random.randint(1000,9999)}"
+                accounts[bank][acc_id] = _new_balance(currency)
+
+        for wallet in PSP_WALLETS.get(country, []):
+            accounts[wallet] = {}
+            wallet_id = f"{wallet}-WALLET-{random.randint(1000,9999)}"
+            accounts[wallet][wallet_id] = _new_balance(currency)
+
+        accounts["SMOVE_WALLET"] = {}
+        for fx in SMOVE_CURRENCIES:
+            wallet_id = f"SMOVE-{fx}-{random.randint(1000,9999)}"
+            accounts["SMOVE_WALLET"][wallet_id] = _new_balance(fx, 10_000)
+
+        data[nid] = accounts
+        _save_store(data)
+        return accounts
 
 
-def get_account_balance(nid, account_id):
-    user = ACCOUNTS.get(nid, {})
+def get_accounts(nid: str):
+    with STORE_LOCK:
+        return _load_store().get(nid, {})
 
-    for _, accounts in user.items():
-        if account_id in accounts:
-            return accounts[account_id]["balance"]
 
-    return None
+def find_account(account_id: str) -> Tuple[Optional[str], Optional[str], Optional[dict], Dict]:
+    data = _load_store()
+
+    for nid, providers in data.items():
+        for provider, accounts in providers.items():
+            if account_id in accounts:
+                return nid, provider, accounts[account_id], data
+
+    return None, None, None, data
+
+
+def lock_funds(account_id: str, amount: float) -> bool:
+    with STORE_LOCK:
+        nid, provider, account, data = find_account(account_id)
+        if not account:
+            return False
+
+        if account["available"] < amount:
+            return False
+
+        account["available"] -= amount
+        account["reserved"] += amount
+        _save_store(data)
+        return True
+
+
+def release_funds(account_id: str, amount: float) -> bool:
+    with STORE_LOCK:
+        nid, provider, account, data = find_account(account_id)
+        if not account:
+            return False
+
+        if account["reserved"] < amount:
+            return False
+
+        account["reserved"] -= amount
+        account["available"] += amount
+        _save_store(data)
+        return True
+
+
+def settle_locked_funds(account_id: str, amount: float) -> bool:
+    with STORE_LOCK:
+        nid, provider, account, data = find_account(account_id)
+        if not account:
+            return False
+
+        if account["reserved"] < amount:
+            return False
+
+        account["reserved"] -= amount
+        _save_store(data)
+        return True
+
+
+def credit_account(account_id: str, amount: float) -> bool:
+    with STORE_LOCK:
+        nid, provider, account, data = find_account(account_id)
+        if not account:
+            return False
+
+        account["available"] += amount
+        _save_store(data)
+        return True
+
+
+def get_balance(account_id: str):
+    _, _, account, _ = find_account(account_id)
+    return account
