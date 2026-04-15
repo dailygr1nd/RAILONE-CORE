@@ -9,15 +9,15 @@ ROUTE_METRICS = {
     "PSP_TZ": {"attempts": 0, "successes": 0, "failures": 0, "avg_latency_ms": 700},
     "PSP_UG": {"attempts": 0, "successes": 0, "failures": 0, "avg_latency_ms": 800},
 
-    "SMOVE": {"attempts": 0, "successes": 0, "failures": 0, "avg_latency_ms": 1800}
+    "SMOVE": {"attempts": 0, "successes": 0, "failures": 0, "avg_latency_ms": 1800},
 }
 
 
 def record_route_result(route_type, success, latency_ms):
-    if route_type not in ROUTE_METRICS:
+    route = ROUTE_METRICS.get(route_type)
+    if not route:
         return
 
-    route = ROUTE_METRICS[route_type]
     route["attempts"] += 1
 
     if success:
@@ -34,16 +34,13 @@ def record_route_result(route_type, success, latency_ms):
 
 def get_live_success_rate(route_type):
     route = ROUTE_METRICS.get(route_type)
-
     if not route or route["attempts"] == 0:
-        return 0.93  # optimistic default
-
+        return 0.93
     return route["successes"] / route["attempts"]
 
 
 def get_latency_score(route_type):
     route = ROUTE_METRICS.get(route_type)
-
     if not route:
         return 0.5
 
@@ -57,5 +54,4 @@ def get_latency_score(route_type):
         return 0.65
     elif latency <= 2500:
         return 0.5
-    else:
-        return 0.3
+    return 0.3

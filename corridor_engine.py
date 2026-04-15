@@ -1,114 +1,46 @@
 # corridor_engine.py
 
-import random
-from routing_brain import compute_rail_health
-from routing_metrics import get_live_success_rate, get_latency_score
+from routing import classify_rail, get_best_rail
 from corridor_fx_model import quote_conversion
+from routing_metrics import record_route_result
 
 
-class CorridorEngine:
-    """
-    RailOne Core Intelligence Layer
-    Simulates real-world money movement across fragmented African rails.
-    """
+def build_corridor(sender_account, receiver_account, amount, sender_ccy, receiver_ccy):
 
-    def __init__(self):
-        pass
+    sender_rail = classify_rail(sender_account)
+    receiver_rail = classify_rail(receiver_account)
 
-    # --------------------------
-    # BUILD EXECUTION OPTIONS
-    # --------------------------
-    def build_paths(self, sender_rail, receiver_rail):
-        return [
-            {
-                "type": "DIRECT_BANK",
-                "path": f"{sender_rail} -> {receiver_rail}",
-                "base_success": 0.85,
-                "latency": 300,
-                "cost": 2.5
-            },
-            {
-                "type": "PSP_ROUTE",
-                "path": f"{sender_rail} -> PSP -> {receiver_rail}",
-                "base_success": 0.93,
-                "latency": 80,
-                "cost": 1.0
-            },
-            {
-                "type": "SMOVE_BRIDGE",
-                "path": f"{sender_rail} -> SMOVE -> {receiver_rail}",
-                "base_success": 0.88,
-                "latency": 180,
-                "cost": 1.5
-            }
-        ]
+    candidate_rails = [sender_rail, receiver_rail, "SMOVE"]
 
-    # --------------------------
-    # SIMULATE PATH
-    # --------------------------
-    def simulate(self, path, transaction):
-        success_rate_boost = (
-            get_live_success_rate(path["type"]) * 0.3
-        )
+    best_rail = get_best_rail(candidate_rails, cross_border=(sender_rail != receiver_rail))
 
-        success_probability = min(
-            path["base_success"] + success_rate_boost,
-            0.99
-        )
+    fx_result = quote_conversion(amount, sender_ccy, receiver_ccy)
 
-        success = random.random() < success_probability
-
-        latency = max(1, random.gauss(path["latency"], 25))
-        cost = path["cost"]
-
-        fx = quote_conversion(
-            transaction["amount"],
-            transaction["currency_from"],
-            transaction["currency_to"]
-        )
-
-        return {
-            "path": path["path"],
-            "type": path["type"],
-            "success": success,
-            "latency": latency,
-            "cost": cost,
-            "converted_amount": fx["converted_amount"]
+    route_result = {
+        "candidates": [],
+        "best_route": {
+            "rail": best_rail,
+            "type": best_rail,
+            "converted_amount": fx_result["converted_amount"],
+            "fx_rate": fx_result["fx_rate"]
         }
+    }
 
-    # --------------------------
-    # SCORE OUTCOME
-    # --------------------------
-    def score(self, result):
-        if not result["success"]:
-            return -1000
+    for rail in candidate_rails:
+        route_result["candidates"].append({
+            "rail": rail,
+            "type": rail,
+            "health": 0,  # placeholder for future ML expansion
+            "converted_amount": fx_result["converted_amount"],
+            "fx_rate": fx_result["fx_rate"],
+            "success_probability": 0.99
+        })
 
-        score = 0
-        score -= result["latency"] * 0.01
-        score -= result["cost"] * 5
-        score += result["converted_amount"] * 0.1
+    return route_result
 
-        return score
 
-    # --------------------------
-    # MAIN DECISION ENGINE
-    # --------------------------
-    def route(self, sender_rail, receiver_rail, transaction):
-        paths = self.build_paths(sender_rail, receiver_rail)
-
-        best = None
-        best_score = float("-inf")
-
-        for path in paths:
-            result = self.simulate(path, transaction)
-            score = self.score(result)
-
-            if score > best_score:
-                best_score = score
-                best = result
-
-        return {
-            "best_route": best,
-            "score": best_score,
-            "paths_tested": len(paths)
-        }
+def evaluate_route(route_type, success, latency_ms):
+    """
+    Feedback loop hook
+    """
+    record_route_result(route_type, success, latency_ms)

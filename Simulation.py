@@ -125,7 +125,9 @@ def main():
     reason = tx.get("reason")
     route = tx.get("route")
 
-    success = status.upper() in ["SUCCESS", "COMPLETED"]
+    SUCCESS_STATES = {"SETTLED"}
+
+    success = tx["status"] in SUCCESS_STATES
 
     print("\n=== TRANSACTION RESULT ===")
     print(f"Transaction ID: {tx_id}")

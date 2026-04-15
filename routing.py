@@ -1,5 +1,6 @@
 # routing.py
-from telemetry import get_telemetry
+
+from routing_brain import compute_rail_health
 
 RAILS = [
     "BANK_KE",
@@ -15,10 +16,8 @@ RAILS = [
 def classify_rail(account_id):
     if account_id.startswith("BANK_KE"):
         return "BANK_KE"
-
     if account_id.startswith("BANK_TZ"):
         return "BANK_TZ"
-
     if account_id.startswith("BANK_UG"):
         return "BANK_UG"
 
@@ -31,18 +30,28 @@ def classify_rail(account_id):
     if account_id.startswith("PSP_AIRTEL_UG"):
         return "PSP_UG"
 
-    if account_id.startswith("SMV"):
+    if account_id.startswith("SMOVE"):
         return "SMOVE"
 
     return "UNKNOWN"
 
 
-def get_candidate_rails(sender_acc, receiver_acc):
-    sender = classify_rail(sender_acc)
-    receiver = classify_rail(receiver_acc)
+def get_best_rail(candidate_rails, cross_border=False):
+    """
+    Returns best rail based on intelligence scoring.
+    """
 
-    return {
-        "sender": sender,
-        "receiver": receiver,
-        "cross_border": sender != receiver
-    }
+    best = None
+    best_score = -999
+
+    for rail in candidate_rails:
+        score = compute_rail_health(rail)
+
+        if cross_border and rail == "SMOVE":
+            score += 2
+
+        if score > best_score:
+            best_score = score
+            best = rail
+
+    return best

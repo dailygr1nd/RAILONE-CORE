@@ -10962,5 +10962,334 @@
     },
     "hash": "2e0878bbb0a121f10fb01834870a833e397be897e1365f13fd9d614f1f2641ac",
     "previous_hash": "ed89a5cfb229738f8d9291c4f95278e4e971b2d8a99d22304e71b2bb22a50779"
+  },
+  {
+    "timestamp": "2026-04-15T15:03:35.434090+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "RTT-6B1C018F91E7",
+      "timestamp": "2026-04-15T15:03:35.368401+00:00",
+      "sender_account": "BANK_KE-ACC-KE-4680",
+      "receiver_account": "BANK_KE-ACC-KE-7171",
+      "amount": 1000000.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "corridor": "LOCAL",
+      "status": "INITIATED"
+    },
+    "hash": "07424ee7d6e2b6ef2e35e264529022ae557b3ab684de8610ff9352c977a7d77d",
+    "previous_hash": "2e0878bbb0a121f10fb01834870a833e397be897e1365f13fd9d614f1f2641ac"
+  },
+  {
+    "timestamp": "2026-04-15T15:03:35.483949+00:00",
+    "event": "FUNDS_LOCKED",
+    "payload": {
+      "tx_id": "RTT-6B1C018F91E7",
+      "timestamp": "2026-04-15T15:03:35.368401+00:00",
+      "sender_account": "BANK_KE-ACC-KE-4680",
+      "receiver_account": "BANK_KE-ACC-KE-7171",
+      "amount": 1000000.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "corridor": "LOCAL",
+      "status": "FUNDS_LOCKED"
+    },
+    "hash": "6a0a05490bae13eca36e6644659216f9d7d26d3def9eac02c6c153eaed640958",
+    "previous_hash": "07424ee7d6e2b6ef2e35e264529022ae557b3ab684de8610ff9352c977a7d77d"
+  },
+  {
+    "timestamp": "2026-04-15T15:03:35.524855+00:00",
+    "event": "ROUTE_DECIDED",
+    "payload": {
+      "tx_id": "RTT-6B1C018F91E7",
+      "timestamp": "2026-04-15T15:03:35.368401+00:00",
+      "sender_account": "BANK_KE-ACC-KE-4680",
+      "receiver_account": "BANK_KE-ACC-KE-7171",
+      "amount": 1000000.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "corridor": "LOCAL",
+      "status": "ROUTE_DECIDED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_KE",
+            "success": true,
+            "success_probability": 0.99,
+            "health": 11.7575,
+            "converted_amount": 1000000.0,
+            "fx_rate": 1.0,
+            "type": "BANK_KE"
+          }
+        ],
+        "best_route": {
+          "rail": "BANK_KE",
+          "success": true,
+          "success_probability": 0.99,
+          "health": 11.7575,
+          "converted_amount": 1000000.0,
+          "fx_rate": 1.0,
+          "type": "BANK_KE"
+        }
+      }
+    },
+    "hash": "e70e825ec5a3462b908fd3349a46f8ca1d53940cb891218d1fdb87bce8cac0d7",
+    "previous_hash": "6a0a05490bae13eca36e6644659216f9d7d26d3def9eac02c6c153eaed640958"
+  },
+  {
+    "timestamp": "2026-04-15T15:03:35.561230+00:00",
+    "event": "TX_DISPATCHED",
+    "payload": {
+      "tx_id": "RTT-6B1C018F91E7",
+      "timestamp": "2026-04-15T15:03:35.368401+00:00",
+      "sender_account": "BANK_KE-ACC-KE-4680",
+      "receiver_account": "BANK_KE-ACC-KE-7171",
+      "amount": 1000000.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "corridor": "LOCAL",
+      "status": "DISPATCHED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_KE",
+            "success": true,
+            "success_probability": 0.99,
+            "health": 11.7575,
+            "converted_amount": 1000000.0,
+            "fx_rate": 1.0,
+            "type": "BANK_KE"
+          }
+        ],
+        "best_route": {
+          "rail": "BANK_KE",
+          "success": true,
+          "success_probability": 0.99,
+          "health": 11.7575,
+          "converted_amount": 1000000.0,
+          "fx_rate": 1.0,
+          "type": "BANK_KE"
+        }
+      }
+    },
+    "hash": "f34dc6707db7f4f41070135e41bce3cd4341bc968390934583228ea7b7100db9",
+    "previous_hash": "e70e825ec5a3462b908fd3349a46f8ca1d53940cb891218d1fdb87bce8cac0d7"
+  },
+  {
+    "timestamp": "2026-04-15T15:03:35.632062+00:00",
+    "event": "TX_SETTLED",
+    "payload": {
+      "tx_id": "RTT-6B1C018F91E7",
+      "timestamp": "2026-04-15T15:03:35.368401+00:00",
+      "sender_account": "BANK_KE-ACC-KE-4680",
+      "receiver_account": "BANK_KE-ACC-KE-7171",
+      "amount": 1000000.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "corridor": "LOCAL",
+      "status": "SETTLED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_KE",
+            "success": true,
+            "success_probability": 0.99,
+            "health": 11.7575,
+            "converted_amount": 1000000.0,
+            "fx_rate": 1.0,
+            "type": "BANK_KE"
+          }
+        ],
+        "best_route": {
+          "rail": "BANK_KE",
+          "success": true,
+          "success_probability": 0.99,
+          "health": 11.7575,
+          "converted_amount": 1000000.0,
+          "fx_rate": 1.0,
+          "type": "BANK_KE"
+        }
+      }
+    },
+    "hash": "bc47e7d9d840a00ab294324d19e444897dbeb394ccdfa9d5ec8d7d5eb0fb9c38",
+    "previous_hash": "f34dc6707db7f4f41070135e41bce3cd4341bc968390934583228ea7b7100db9"
+  },
+  {
+    "timestamp": "2026-04-15T15:06:48.181597+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "RTT-3A8CCA8CFCAD",
+      "timestamp": "2026-04-15T15:06:48.176340+00:00",
+      "sender_account": "BANK_TZ-ACC-TZ-1126",
+      "receiver_account": "PSP_AIRTEL_KE-WALLET-5128",
+      "amount": 785000.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "corridor": "LOCAL",
+      "status": "INITIATED"
+    },
+    "hash": "0f67334326f6a35cdd3f74574afa7faa121cf1318bb4ef41113a53ae9751e020",
+    "previous_hash": "bc47e7d9d840a00ab294324d19e444897dbeb394ccdfa9d5ec8d7d5eb0fb9c38"
+  },
+  {
+    "timestamp": "2026-04-15T15:06:48.225286+00:00",
+    "event": "FUNDS_LOCKED",
+    "payload": {
+      "tx_id": "RTT-3A8CCA8CFCAD",
+      "timestamp": "2026-04-15T15:06:48.176340+00:00",
+      "sender_account": "BANK_TZ-ACC-TZ-1126",
+      "receiver_account": "PSP_AIRTEL_KE-WALLET-5128",
+      "amount": 785000.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "corridor": "LOCAL",
+      "status": "FUNDS_LOCKED"
+    },
+    "hash": "0cafd4e04c6ba897d307d81dd7fa95238561a85fc03824cab44fe4a4e383a3ff",
+    "previous_hash": "0f67334326f6a35cdd3f74574afa7faa121cf1318bb4ef41113a53ae9751e020"
+  },
+  {
+    "timestamp": "2026-04-15T15:06:48.260397+00:00",
+    "event": "ROUTE_DECIDED",
+    "payload": {
+      "tx_id": "RTT-3A8CCA8CFCAD",
+      "timestamp": "2026-04-15T15:06:48.176340+00:00",
+      "sender_account": "BANK_TZ-ACC-TZ-1126",
+      "receiver_account": "PSP_AIRTEL_KE-WALLET-5128",
+      "amount": 785000.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "corridor": "LOCAL",
+      "status": "ROUTE_DECIDED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "PSP_KE",
+            "success": true,
+            "success_probability": 0.99,
+            "health": 12.082,
+            "converted_amount": 785000.0,
+            "fx_rate": 1.0,
+            "type": "PSP_KE"
+          },
+          {
+            "rail": "BANK_TZ",
+            "success": true,
+            "success_probability": 0.99,
+            "health": 11.249,
+            "converted_amount": 785000.0,
+            "fx_rate": 1.0,
+            "type": "BANK_TZ"
+          }
+        ],
+        "best_route": {
+          "rail": "PSP_KE",
+          "success": true,
+          "success_probability": 0.99,
+          "health": 12.082,
+          "converted_amount": 785000.0,
+          "fx_rate": 1.0,
+          "type": "PSP_KE"
+        }
+      }
+    },
+    "hash": "e1fc27f7154b7f519ca90b1733996cfe2349281018e21ac8575eb5a64e01138c",
+    "previous_hash": "0cafd4e04c6ba897d307d81dd7fa95238561a85fc03824cab44fe4a4e383a3ff"
+  },
+  {
+    "timestamp": "2026-04-15T15:06:48.297356+00:00",
+    "event": "TX_DISPATCHED",
+    "payload": {
+      "tx_id": "RTT-3A8CCA8CFCAD",
+      "timestamp": "2026-04-15T15:06:48.176340+00:00",
+      "sender_account": "BANK_TZ-ACC-TZ-1126",
+      "receiver_account": "PSP_AIRTEL_KE-WALLET-5128",
+      "amount": 785000.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "corridor": "LOCAL",
+      "status": "DISPATCHED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "PSP_KE",
+            "success": true,
+            "success_probability": 0.99,
+            "health": 12.082,
+            "converted_amount": 785000.0,
+            "fx_rate": 1.0,
+            "type": "PSP_KE"
+          },
+          {
+            "rail": "BANK_TZ",
+            "success": true,
+            "success_probability": 0.99,
+            "health": 11.249,
+            "converted_amount": 785000.0,
+            "fx_rate": 1.0,
+            "type": "BANK_TZ"
+          }
+        ],
+        "best_route": {
+          "rail": "PSP_KE",
+          "success": true,
+          "success_probability": 0.99,
+          "health": 12.082,
+          "converted_amount": 785000.0,
+          "fx_rate": 1.0,
+          "type": "PSP_KE"
+        }
+      }
+    },
+    "hash": "1e274ac73d3390441a6399cda08d8f7751f4497e4751625de92c07078986092f",
+    "previous_hash": "e1fc27f7154b7f519ca90b1733996cfe2349281018e21ac8575eb5a64e01138c"
+  },
+  {
+    "timestamp": "2026-04-15T15:06:48.354503+00:00",
+    "event": "TX_SETTLED",
+    "payload": {
+      "tx_id": "RTT-3A8CCA8CFCAD",
+      "timestamp": "2026-04-15T15:06:48.176340+00:00",
+      "sender_account": "BANK_TZ-ACC-TZ-1126",
+      "receiver_account": "PSP_AIRTEL_KE-WALLET-5128",
+      "amount": 785000.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "corridor": "LOCAL",
+      "status": "SETTLED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "PSP_KE",
+            "success": true,
+            "success_probability": 0.99,
+            "health": 12.082,
+            "converted_amount": 785000.0,
+            "fx_rate": 1.0,
+            "type": "PSP_KE"
+          },
+          {
+            "rail": "BANK_TZ",
+            "success": true,
+            "success_probability": 0.99,
+            "health": 11.249,
+            "converted_amount": 785000.0,
+            "fx_rate": 1.0,
+            "type": "BANK_TZ"
+          }
+        ],
+        "best_route": {
+          "rail": "PSP_KE",
+          "success": true,
+          "success_probability": 0.99,
+          "health": 12.082,
+          "converted_amount": 785000.0,
+          "fx_rate": 1.0,
+          "type": "PSP_KE"
+        }
+      }
+    },
+    "hash": "dc23929549a697bef2d52149baa75ab30f637ce08be9ece6fbf48527bd887aa3",
+    "previous_hash": "1e274ac73d3390441a6399cda08d8f7751f4497e4751625de92c07078986092f"
   }
 ]

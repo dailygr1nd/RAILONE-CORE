@@ -1,4 +1,4 @@
-# fx_corridor.py
+# corridor_fx_model.py
 
 SUPPORTED_CURRENCIES = [
     "TZS", "KES", "UGX",
@@ -7,8 +7,7 @@ SUPPORTED_CURRENCIES = [
 ]
 
 # --------------------------
-# FX MATRIX (SIMPLIFIED REALISTIC RATES)
-# base = USD anchor
+# FX MATRIX (USD ANCHOR MODEL)
 # --------------------------
 FX_RATES = {
     ("USD", "KES"): 160,
@@ -29,48 +28,34 @@ FX_RATES = {
     ("EGP", "USD"): 1/50,
     ("EUR", "USD"): 1.09,
     ("GBP", "USD"): 1.28,
-
-    # cross African corridors via USD
-    ("KES", "TZS"): 2600/160,
-    ("TZS", "KES"): 160/2600,
-    ("KES", "UGX"): 3850/160,
-    ("UGX", "KES"): 160/3850,
-    ("TZS", "UGX"): 3850/2600,
-    ("UGX", "TZS"): 2600/3850,
 }
 
-
-# --------------------------
-# VALIDATION
-# --------------------------
 def validate_corridor(from_ccy, to_ccy):
     return from_ccy in SUPPORTED_CURRENCIES and to_ccy in SUPPORTED_CURRENCIES
 
 
-# --------------------------
-# FX QUOTE ENGINE
-# --------------------------
 def quote_conversion(amount, from_ccy, to_ccy):
+
     if from_ccy == to_ccy:
         return {
             "converted_amount": amount,
             "fx_rate": 1.0
         }
 
-    # direct match
     rate = FX_RATES.get((from_ccy, to_ccy))
 
     # fallback via USD bridge
     if not rate:
-        try:
-            usd_amount = amount / FX_RATES[(from_ccy, "USD")]
-            rate = FX_RATES[("USD", to_ccy)]
-            return {
-                "converted_amount": round(usd_amount * rate, 2),
-                "fx_rate": rate
-            }
-        except:
-            raise Exception("Unsupported FX corridor")
+        if (from_ccy, "USD") not in FX_RATES or ("USD", to_ccy) not in FX_RATES:
+            raise Exception(f"Unsupported FX corridor: {from_ccy} -> {to_ccy}")
+
+        usd_amount = amount * FX_RATES[(from_ccy, "USD")]
+        rate = FX_RATES[("USD", to_ccy)]
+
+        return {
+            "converted_amount": round(usd_amount * rate, 2),
+            "fx_rate": rate
+        }
 
     return {
         "converted_amount": round(amount * rate, 2),
