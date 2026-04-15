@@ -46,33 +46,3 @@ def compute_rail_health(rail_type):
     score = (expected * 0.4) + (live * 0.5) + (stability * 10 * 0.1)
 
     return round(score, 4)
-
-
-# --------------------------
-# RAIL COMPARATOR
-# --------------------------
-def compare_rails(rail_a, rail_b):
-    score_a = compute_rail_health(rail_a)
-    score_b = compute_rail_health(rail_b)
-
-    if score_a > score_b:
-        return rail_a
-    return rail_b
-
-
-# --------------------------
-# RAIL RECOMMENDER (FOR ROUTER)
-# --------------------------
-def rank_candidate_rails(candidate_rails):
-    """
-    Input: list of rails
-    Output: sorted rails (best first)
-    """
-
-    scored = []
-
-    for rail in candidate_rails:
-        score = compute_rail_health(rail["name"])
-        scored.append((rail, score))
-
-    return sorted(scored, key=lambda x: x[1], reverse=True)

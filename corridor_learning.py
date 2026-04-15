@@ -2,58 +2,38 @@
 
 class CorridorLearningEngine:
     """
-    RailOne adaptive learning layer.
-    Updates corridor behavior based on transaction history.
+    Learns from every transaction outcome.
+    Improves RailOne decision intelligence over time.
     """
 
     def __init__(self):
-        self.stats = {}
+        self.memory = {}
 
-    # --------------------------
-    # 1. LOG OUTCOME
-    # --------------------------
-    def log_transaction(self, result):
-        path = result["best_path"]["path"]
+    def log(self, result):
+        path = result["best_route"]["path"]
 
-        if path not in self.stats:
-            self.stats[path] = {
+        if path not in self.memory:
+            self.memory[path] = {
                 "attempts": 0,
-                "successes": 0,
+                "success": 0,
                 "avg_latency": 0
             }
 
-        record = self.stats[path]
-
+        record = self.memory[path]
         record["attempts"] += 1
 
-        if result["best_path"]["success"]:
-            record["successes"] += 1
+        if result["best_route"]["success"]:
+            record["success"] += 1
 
-        # update rolling latency
         record["avg_latency"] = (
             (record["avg_latency"] * (record["attempts"] - 1)
-            + result["best_path"]["latency"])
+            + result["best_route"]["latency"])
             / record["attempts"]
         )
 
-    # --------------------------
-    # 2. GET UPDATED SUCCESS RATE
-    # --------------------------
-    def get_success_rate(self, path):
-        if path not in self.stats:
-            return 0.85  # default prior assumption
+    def success_rate(self, path):
+        if path not in self.memory:
+            return 0.85
 
-        record = self.stats[path]
-        return record["successes"] / record["attempts"]
-
-    # --------------------------
-    # 3. FEEDBACK TO ROUTING SYSTEM
-    # --------------------------
-    def adjust_path_score(self, base_score, path):
-        """
-        Adjust routing score based on real-world performance.
-        """
-
-        success_rate = self.get_success_rate(path)
-
-        return base_score * success_rate
+        r = self.memory[path]
+        return r["success"] / r["attempts"]

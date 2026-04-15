@@ -1,139 +1,114 @@
 # corridor_engine.py
 
 import random
+from routing_brain import compute_rail_health
+from routing_metrics import get_live_success_rate, get_latency_score
 from corridor_fx_model import quote_conversion
 
 
 class CorridorEngine:
     """
-    Core RailOne corridor intelligence layer.
-    Simulates how money moves across fragmented African rails.
+    RailOne Core Intelligence Layer
+    Simulates real-world money movement across fragmented African rails.
     """
 
-    def __init__(self, rails_registry, fx_model):
-        self.rails = rails_registry
-        self.fx = fx_model
+    def __init__(self):
+        pass
 
     # --------------------------
-    # 1. BUILD POSSIBLE PATHS
+    # BUILD EXECUTION OPTIONS
     # --------------------------
-    def generate_paths(self, transaction):
-        """
-        Create possible execution paths across rails.
-        """
-
-        from_country = transaction["from_country"]
-        to_country = transaction["to_country"]
-
-        paths = []
-
-        # Path 1: Bank-to-bank
-        paths.append({
-            "type": "BANK",
-            "route": f"bank_{from_country} -> bank_{to_country}",
-            "base_success_rate": 0.85,
-            "base_latency": 300,
-            "cost": 2.5
-        })
-
-        # Path 2: PSP mobile money
-        paths.append({
-            "type": "PSP",
-            "route": f"mpesa/airtel route {from_country}->{to_country}",
-            "base_success_rate": 0.93,
-            "base_latency": 60,
-            "cost": 1.0
-        })
-
-        # Path 3: Smove wallet bridge
-        paths.append({
-            "type": "SMOVE",
-            "route": f"smove bridge {from_country}->{to_country}",
-            "base_success_rate": 0.88,
-            "base_latency": 180,
-            "cost": 1.5
-        })
-
-        return paths
+    def build_paths(self, sender_rail, receiver_rail):
+        return [
+            {
+                "type": "DIRECT_BANK",
+                "path": f"{sender_rail} -> {receiver_rail}",
+                "base_success": 0.85,
+                "latency": 300,
+                "cost": 2.5
+            },
+            {
+                "type": "PSP_ROUTE",
+                "path": f"{sender_rail} -> PSP -> {receiver_rail}",
+                "base_success": 0.93,
+                "latency": 80,
+                "cost": 1.0
+            },
+            {
+                "type": "SMOVE_BRIDGE",
+                "path": f"{sender_rail} -> SMOVE -> {receiver_rail}",
+                "base_success": 0.88,
+                "latency": 180,
+                "cost": 1.5
+            }
+        ]
 
     # --------------------------
-    # 2. SIMULATE PATH OUTCOME
+    # SIMULATE PATH
     # --------------------------
-    def simulate_path(self, path, transaction):
-        """
-        Simulate real-world behavior of a path.
-        """
+    def simulate(self, path, transaction):
+        success_rate_boost = (
+            get_live_success_rate(path["type"]) * 0.3
+        )
 
-        amount = transaction["amount"]
-        from_ccy = transaction["currency_from"]
-        to_ccy = transaction["currency_to"]
+        success_probability = min(
+            path["base_success"] + success_rate_boost,
+            0.99
+        )
 
-        # FX conversion impact
-        fx_result = self.fx.quote_conversion(amount, from_ccy, to_ccy)
+        success = random.random() < success_probability
 
-        # Simulate success/failure
-        success = random.random() < path["base_success_rate"]
-
-        # Add noise (real-world uncertainty)
-        latency = max(1, random.gauss(path["base_latency"], 30))
+        latency = max(1, random.gauss(path["latency"], 25))
         cost = path["cost"]
 
+        fx = quote_conversion(
+            transaction["amount"],
+            transaction["currency_from"],
+            transaction["currency_to"]
+        )
+
         return {
-            "path": path["route"],
+            "path": path["path"],
+            "type": path["type"],
             "success": success,
             "latency": latency,
             "cost": cost,
-            "converted_amount": fx_result["converted_amount"],
-            "fx_rate": fx_result["fx_rate"]
+            "converted_amount": fx["converted_amount"]
         }
 
     # --------------------------
-    # 3. SCORE OUTCOME
+    # SCORE OUTCOME
     # --------------------------
-    def score_result(self, result):
-        """
-        Convert outcome into a utility score.
-        """
-
+    def score(self, result):
         if not result["success"]:
-            return -1000  # heavy penalty for failure
+            return -1000
 
         score = 0
-
-        # lower latency = better
         score -= result["latency"] * 0.01
-
-        # lower cost = better
         score -= result["cost"] * 5
-
-        # higher converted value = better
         score += result["converted_amount"] * 0.1
 
         return score
 
     # --------------------------
-    # 4. MAIN DECISION ENGINE
+    # MAIN DECISION ENGINE
     # --------------------------
-    def route_transaction(self, transaction):
-        """
-        Main RailOne decision function.
-        """
+    def route(self, sender_rail, receiver_rail, transaction):
+        paths = self.build_paths(sender_rail, receiver_rail)
 
-        paths = self.generate_paths(transaction)
-
-        best_path = None
+        best = None
         best_score = float("-inf")
 
         for path in paths:
-            result = self.simulate_path(path, transaction)
-            score = self.score_result(result)
+            result = self.simulate(path, transaction)
+            score = self.score(result)
 
             if score > best_score:
                 best_score = score
-                best_path = result
+                best = result
 
         return {
-            "best_path": best_path,
+            "best_route": best,
             "score": best_score,
-            "all_paths_tested": len(paths)
+            "paths_tested": len(paths)
         }
