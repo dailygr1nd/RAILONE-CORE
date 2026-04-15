@@ -1,4 +1,9 @@
 # compliance.py
+# FIX: _engine was previously instantiated inside the class body,
+# making it a class-level variable inaccessible at module scope.
+# Module-level functions (check_blacklist, etc.) referenced _engine
+# at module scope — a NameError at runtime. Fixed by moving
+# instantiation to after the class definition.
 
 from rules import (
     get_tier_limits,
@@ -46,10 +51,7 @@ class ComplianceEngine:
         if amount > limits["single_tx"]:
             return False, "SINGLE_TX_LIMIT_EXCEEDED"
 
-        current = self.daily_totals.get(
-            sender["username"],
-            0,
-        )
+        current = self.daily_totals.get(sender["username"], 0)
 
         if current + amount > limits["daily_total"]:
             return False, "DAILY_LIMIT_EXCEEDED"
@@ -59,23 +61,11 @@ class ComplianceEngine:
     # -------------------------
     # CROSS-BORDER RISK
     # -------------------------
-    def check_corridor_risk(
-        self,
-        sender_currency,
-        receiver_currency,
-        amount,
-    ):
-        if is_high_risk_corridor(
-            sender_currency,
-            receiver_currency,
-        ):
+    def check_corridor_risk(self, sender_currency, receiver_currency, amount):
+        if is_high_risk_corridor(sender_currency, receiver_currency):
             self.raise_alert(
                 "HIGH_RISK_CORRIDOR",
-                {
-                    "amount": amount,
-                    "from": sender_currency,
-                    "to": receiver_currency,
-                },
+                {"amount": amount, "from": sender_currency, "to": receiver_currency},
             )
 
         if requires_enhanced_due_diligence(amount):
@@ -87,26 +77,37 @@ class ComplianceEngine:
     # ALERT MANAGEMENT
     # -------------------------
     def raise_alert(self, code, payload):
-        self.alert_queue.append({
-            "alert_code": code,
-            "payload": payload,
-        })
+        self.alert_queue.append({"alert_code": code, "payload": payload})
+
+    def flush_alerts(self):
+        alerts = list(self.alert_queue)
+        self.alert_queue.clear()
+        return alerts
 
     # -------------------------
     # UPDATE TOTALS
     # -------------------------
     def update_totals(self, sender, amount):
         username = sender["username"]
-        self.daily_totals[username] = (
-            self.daily_totals.get(username, 0)
-            + amount
-        )
+        self.daily_totals[username] = self.daily_totals.get(username, 0) + amount
 
-        _engine = ComplianceEngine()
+
+# -------------------------------------------------------
+# MODULE-LEVEL SINGLETON
+# FIX: previously instantiated INSIDE the class body —
+# Python scopes that as a class attribute, not a module
+# variable. Moved here so all module-level functions below
+# can reference it without NameError.
+# -------------------------------------------------------
+_engine = ComplianceEngine()
 
 
 def check_blacklist(nid):
     return _engine.check_blacklist(nid)
+
+
+def check_pep(nid):
+    return _engine.check_pep(nid)
 
 
 def check_tier(sender, amount):
@@ -114,12 +115,18 @@ def check_tier(sender, amount):
 
 
 def check_daily_limit(sender, amount, daily_totals):
-    # inject external state into engine temporarily
     _engine.daily_totals = daily_totals
     return _engine.check_limits(sender, amount)
+
+
+def check_corridor_risk(sender_currency, receiver_currency, amount):
+    return _engine.check_corridor_risk(sender_currency, receiver_currency, amount)
 
 
 def update_daily_total(sender, amount, daily_totals):
     _engine.update_totals(sender, amount)
     daily_totals.update(_engine.daily_totals)
-    
+
+
+def get_compliance_alerts():
+    return _engine.flush_alerts()
