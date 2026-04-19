@@ -11885,5 +11885,3907 @@
     },
     "hash": "dd819720f8025e0c6c208040a8ba2d95ada27e845c0d390d18b4aaeb2b1dfe1e",
     "previous_hash": "916db6d45fa36cedfa7983834fe8ff745b9f1bcc4a0799596b4297619f8e677e"
+  },
+  {
+    "timestamp": "2026-04-16T06:41:02.517851+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-05E3FB",
+      "utt": null,
+      "rtt": null,
+      "etk_s": null,
+      "etk_r": null,
+      "timestamp": "2026-04-16T06:41:02Z",
+      "sender_account": "BANK_KE-ACC-KE-4680",
+      "receiver_account": "BANK_KE-ACC-KE-7171",
+      "amount": 65000.0,
+      "gross_amount": 65000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "a81520bf1b1ee2b876cf1c956478a831107d51985dc83443174b68fb0f55dc57",
+    "previous_hash": "dd819720f8025e0c6c208040a8ba2d95ada27e845c0d390d18b4aaeb2b1dfe1e"
+  },
+  {
+    "timestamp": "2026-04-16T06:41:02.572290+00:00",
+    "event": "ETK_S_GENERATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-05E3FB",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "37cf779074e11f38ea8999af46e80f14",
+      "etk_r": null,
+      "timestamp": "2026-04-16T06:41:02Z",
+      "sender_account": "BANK_KE-ACC-KE-4680",
+      "receiver_account": "BANK_KE-ACC-KE-7171",
+      "amount": 65000.0,
+      "gross_amount": 65000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "6054d4face6cf826b4e808d506acfe2de9ba48e46d8fbff674c6b681122c76ae",
+    "previous_hash": "a81520bf1b1ee2b876cf1c956478a831107d51985dc83443174b68fb0f55dc57"
+  },
+  {
+    "timestamp": "2026-04-16T06:41:02.641012+00:00",
+    "event": "FUNDS_LOCKED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-05E3FB",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "37cf779074e11f38ea8999af46e80f14",
+      "etk_r": null,
+      "timestamp": "2026-04-16T06:41:02Z",
+      "sender_account": "BANK_KE-ACC-KE-4680",
+      "receiver_account": "BANK_KE-ACC-KE-7171",
+      "amount": 65000.0,
+      "gross_amount": 65000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "98fb201f9a7ec83a6dd75bbb117051fed9309497eccf2068ab8e4b992924c4b9",
+    "previous_hash": "6054d4face6cf826b4e808d506acfe2de9ba48e46d8fbff674c6b681122c76ae"
+  },
+  {
+    "timestamp": "2026-04-16T06:41:02.705589+00:00",
+    "event": "ETK_R_GENERATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-05E3FB",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "37cf779074e11f38ea8999af46e80f14",
+      "etk_r": "f7ed118d8daae4d370f9e337865cc3dd",
+      "timestamp": "2026-04-16T06:41:02Z",
+      "sender_account": "BANK_KE-ACC-KE-4680",
+      "receiver_account": "BANK_KE-ACC-KE-7171",
+      "amount": 65000.0,
+      "gross_amount": 65000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "6cd16625952b31371affa5145eb30943318d0cb3d0ef2f4857fefb26197df945",
+    "previous_hash": "98fb201f9a7ec83a6dd75bbb117051fed9309497eccf2068ab8e4b992924c4b9"
+  },
+  {
+    "timestamp": "2026-04-16T06:41:02.745098+00:00",
+    "event": "RTT_VERIFIED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-05E3FB",
+      "utt": null,
+      "rtt": "d733e5ab42c347817ac8bb6a84f006bb",
+      "etk_s": "37cf779074e11f38ea8999af46e80f14",
+      "etk_r": "f7ed118d8daae4d370f9e337865cc3dd",
+      "timestamp": "2026-04-16T06:41:02Z",
+      "sender_account": "BANK_KE-ACC-KE-4680",
+      "receiver_account": "BANK_KE-ACC-KE-7171",
+      "amount": 65000.0,
+      "gross_amount": 65000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "HANDSHAKE_VERIFIED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "411e1b222f4ab19881d35384fee03817b6ebedcdce1b9880e165f846d6fbbdca",
+    "previous_hash": "6cd16625952b31371affa5145eb30943318d0cb3d0ef2f4857fefb26197df945"
+  },
+  {
+    "timestamp": "2026-04-16T06:41:02.802818+00:00",
+    "event": "ROUTE_SELECTED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-05E3FB",
+      "utt": null,
+      "rtt": "d733e5ab42c347817ac8bb6a84f006bb",
+      "etk_s": "37cf779074e11f38ea8999af46e80f14",
+      "etk_r": "f7ed118d8daae4d370f9e337865cc3dd",
+      "timestamp": "2026-04-16T06:41:02Z",
+      "sender_account": "BANK_KE-ACC-KE-4680",
+      "receiver_account": "BANK_KE-ACC-KE-7171",
+      "amount": 65000.0,
+      "gross_amount": 65000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_KE",
+            "type": "BANK_KE",
+            "health": 0,
+            "converted_amount": 65000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "BANK_KE",
+            "type": "BANK_KE",
+            "health": 0,
+            "converted_amount": 65000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 65000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "BANK_KE",
+          "type": "BANK_KE",
+          "converted_amount": 65000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "32aafe523ef2962d0922c4873429f0dc7d1874cfed89ae662d544d78ea5dab77",
+    "previous_hash": "411e1b222f4ab19881d35384fee03817b6ebedcdce1b9880e165f846d6fbbdca"
+  },
+  {
+    "timestamp": "2026-04-16T06:41:02.841246+00:00",
+    "event": "PRICING_COMPUTED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-05E3FB",
+      "utt": null,
+      "rtt": "d733e5ab42c347817ac8bb6a84f006bb",
+      "etk_s": "37cf779074e11f38ea8999af46e80f14",
+      "etk_r": "f7ed118d8daae4d370f9e337865cc3dd",
+      "timestamp": "2026-04-16T06:41:02Z",
+      "sender_account": "BANK_KE-ACC-KE-4680",
+      "receiver_account": "BANK_KE-ACC-KE-7171",
+      "amount": 65000.0,
+      "gross_amount": 65000.0,
+      "net_amount": 62200.0,
+      "fees": 2800.0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_KE",
+            "type": "BANK_KE",
+            "health": 0,
+            "converted_amount": 65000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "BANK_KE",
+            "type": "BANK_KE",
+            "health": 0,
+            "converted_amount": 65000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 65000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "BANK_KE",
+          "type": "BANK_KE",
+          "converted_amount": 65000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 1500,
+        "spread": 0.02,
+        "spread_fee": 1300.0,
+        "total_fee": 2800.0,
+        "net_amount": 62200.0,
+        "margin": 1300.0
+      },
+      "reason": null
+    },
+    "hash": "83fb1f1f724b0592dcb720d7d497f6a13437c51cf38f80fd59d337146a44e6a7",
+    "previous_hash": "32aafe523ef2962d0922c4873429f0dc7d1874cfed89ae662d544d78ea5dab77"
+  },
+  {
+    "timestamp": "2026-04-16T06:41:02.886609+00:00",
+    "event": "TX_DISPATCHED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-05E3FB",
+      "utt": null,
+      "rtt": "d733e5ab42c347817ac8bb6a84f006bb",
+      "etk_s": "37cf779074e11f38ea8999af46e80f14",
+      "etk_r": "f7ed118d8daae4d370f9e337865cc3dd",
+      "timestamp": "2026-04-16T06:41:02Z",
+      "sender_account": "BANK_KE-ACC-KE-4680",
+      "receiver_account": "BANK_KE-ACC-KE-7171",
+      "amount": 65000.0,
+      "gross_amount": 65000.0,
+      "net_amount": 62200.0,
+      "fees": 2800.0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "DISPATCHED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_KE",
+            "type": "BANK_KE",
+            "health": 0,
+            "converted_amount": 65000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "BANK_KE",
+            "type": "BANK_KE",
+            "health": 0,
+            "converted_amount": 65000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 65000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "BANK_KE",
+          "type": "BANK_KE",
+          "converted_amount": 65000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 1500,
+        "spread": 0.02,
+        "spread_fee": 1300.0,
+        "total_fee": 2800.0,
+        "net_amount": 62200.0,
+        "margin": 1300.0
+      },
+      "reason": null
+    },
+    "hash": "65ecb836a700cee7f3af0b06fc22851bd818df7f09ba5813106050cb6886707e",
+    "previous_hash": "83fb1f1f724b0592dcb720d7d497f6a13437c51cf38f80fd59d337146a44e6a7"
+  },
+  {
+    "timestamp": "2026-04-16T06:41:02.945891+00:00",
+    "event": "TX_SETTLED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-05E3FB",
+      "utt": "UTT-BANK_KE-20260416T064102Z-0939FDDF",
+      "rtt": "d733e5ab42c347817ac8bb6a84f006bb",
+      "etk_s": "37cf779074e11f38ea8999af46e80f14",
+      "etk_r": "f7ed118d8daae4d370f9e337865cc3dd",
+      "timestamp": "2026-04-16T06:41:02Z",
+      "sender_account": "BANK_KE-ACC-KE-4680",
+      "receiver_account": "BANK_KE-ACC-KE-7171",
+      "amount": 65000.0,
+      "gross_amount": 65000.0,
+      "net_amount": 62200.0,
+      "fees": 2800.0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "SETTLED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_KE",
+            "type": "BANK_KE",
+            "health": 0,
+            "converted_amount": 65000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "BANK_KE",
+            "type": "BANK_KE",
+            "health": 0,
+            "converted_amount": 65000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 65000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "BANK_KE",
+          "type": "BANK_KE",
+          "converted_amount": 65000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 1500,
+        "spread": 0.02,
+        "spread_fee": 1300.0,
+        "total_fee": 2800.0,
+        "net_amount": 62200.0,
+        "margin": 1300.0
+      },
+      "reason": null
+    },
+    "hash": "1359fdc360dc60fad9bb4cd3c519a4b67315e71c1c58ebb6677fcca3d9183a3d",
+    "previous_hash": "65ecb836a700cee7f3af0b06fc22851bd818df7f09ba5813106050cb6886707e"
+  },
+  {
+    "timestamp": "2026-04-16T06:58:40.723925+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-34237A",
+      "utt": null,
+      "rtt": null,
+      "etk_s": null,
+      "etk_r": null,
+      "timestamp": "2026-04-16T06:58:40Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_MPESA_KE-WALLET-3795",
+      "amount": 89000.0,
+      "gross_amount": 89000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "08e6a397309b7ef1a33a6ebcf55a379155c09c50f133b315a00172aa2d2b7525",
+    "previous_hash": "1359fdc360dc60fad9bb4cd3c519a4b67315e71c1c58ebb6677fcca3d9183a3d"
+  },
+  {
+    "timestamp": "2026-04-16T06:58:40.779311+00:00",
+    "event": "ETK_S_GENERATED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-34237A",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "4da4d00e2492f890a5f9645528bc1693",
+      "etk_r": null,
+      "timestamp": "2026-04-16T06:58:40Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_MPESA_KE-WALLET-3795",
+      "amount": 89000.0,
+      "gross_amount": 89000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "c1724ecd49422410d4e87a1392943c9a599efdda3f07cd2c76075d2abbeb5864",
+    "previous_hash": "08e6a397309b7ef1a33a6ebcf55a379155c09c50f133b315a00172aa2d2b7525"
+  },
+  {
+    "timestamp": "2026-04-16T06:58:40.822786+00:00",
+    "event": "FUNDS_LOCKED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-34237A",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "4da4d00e2492f890a5f9645528bc1693",
+      "etk_r": null,
+      "timestamp": "2026-04-16T06:58:40Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_MPESA_KE-WALLET-3795",
+      "amount": 89000.0,
+      "gross_amount": 89000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "b70e8a824c5329d159547706914b5529716cc4d7d208cefdaae751042b023a03",
+    "previous_hash": "c1724ecd49422410d4e87a1392943c9a599efdda3f07cd2c76075d2abbeb5864"
+  },
+  {
+    "timestamp": "2026-04-16T06:58:40.892792+00:00",
+    "event": "ETK_R_GENERATED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-34237A",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "4da4d00e2492f890a5f9645528bc1693",
+      "etk_r": "30f59c24235ff0d8feddacaff13aaabc",
+      "timestamp": "2026-04-16T06:58:40Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_MPESA_KE-WALLET-3795",
+      "amount": 89000.0,
+      "gross_amount": 89000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "831cd705d87d615ec01bd8e7313881560e5559ffb9467ab85c4827132e156017",
+    "previous_hash": "b70e8a824c5329d159547706914b5529716cc4d7d208cefdaae751042b023a03"
+  },
+  {
+    "timestamp": "2026-04-16T06:58:40.934015+00:00",
+    "event": "RTT_VERIFIED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-34237A",
+      "utt": null,
+      "rtt": "c0cb58c4b2a60c936d78f10e91b3e5a1",
+      "etk_s": "4da4d00e2492f890a5f9645528bc1693",
+      "etk_r": "30f59c24235ff0d8feddacaff13aaabc",
+      "timestamp": "2026-04-16T06:58:40Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_MPESA_KE-WALLET-3795",
+      "amount": 89000.0,
+      "gross_amount": 89000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "HANDSHAKE_VERIFIED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "fe9e0c348661ada5a2590341a2c2edae13adfe4a9de91e445ba3715a18154f5c",
+    "previous_hash": "831cd705d87d615ec01bd8e7313881560e5559ffb9467ab85c4827132e156017"
+  },
+  {
+    "timestamp": "2026-04-16T06:58:40.977718+00:00",
+    "event": "ROUTE_SELECTED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-34237A",
+      "utt": null,
+      "rtt": "c0cb58c4b2a60c936d78f10e91b3e5a1",
+      "etk_s": "4da4d00e2492f890a5f9645528bc1693",
+      "etk_r": "30f59c24235ff0d8feddacaff13aaabc",
+      "timestamp": "2026-04-16T06:58:40Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_MPESA_KE-WALLET-3795",
+      "amount": 89000.0,
+      "gross_amount": 89000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 89000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 89000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 89000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "PSP_KE",
+          "type": "PSP_KE",
+          "converted_amount": 89000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "9fc309ea54861eaee413c8ce4375dad53c398c0ae13abe1f9077d97d3742c37d",
+    "previous_hash": "fe9e0c348661ada5a2590341a2c2edae13adfe4a9de91e445ba3715a18154f5c"
+  },
+  {
+    "timestamp": "2026-04-16T06:58:41.017136+00:00",
+    "event": "PRICING_COMPUTED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-34237A",
+      "utt": null,
+      "rtt": "c0cb58c4b2a60c936d78f10e91b3e5a1",
+      "etk_s": "4da4d00e2492f890a5f9645528bc1693",
+      "etk_r": "30f59c24235ff0d8feddacaff13aaabc",
+      "timestamp": "2026-04-16T06:58:40Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_MPESA_KE-WALLET-3795",
+      "amount": 89000.0,
+      "gross_amount": 89000.0,
+      "net_amount": 86720.0,
+      "fees": 2280.0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 89000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 89000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 89000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "PSP_KE",
+          "type": "PSP_KE",
+          "converted_amount": 89000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 500,
+        "spread": 0.02,
+        "spread_fee": 1780.0,
+        "total_fee": 2280.0,
+        "net_amount": 86720.0,
+        "margin": 1780.0
+      },
+      "reason": null
+    },
+    "hash": "40ad5468a191eee1e320747e15b74f310ba5463c5c772d4e2939dbfab4604ebf",
+    "previous_hash": "9fc309ea54861eaee413c8ce4375dad53c398c0ae13abe1f9077d97d3742c37d"
+  },
+  {
+    "timestamp": "2026-04-16T06:58:41.060523+00:00",
+    "event": "TX_DISPATCHED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-34237A",
+      "utt": null,
+      "rtt": "c0cb58c4b2a60c936d78f10e91b3e5a1",
+      "etk_s": "4da4d00e2492f890a5f9645528bc1693",
+      "etk_r": "30f59c24235ff0d8feddacaff13aaabc",
+      "timestamp": "2026-04-16T06:58:40Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_MPESA_KE-WALLET-3795",
+      "amount": 89000.0,
+      "gross_amount": 89000.0,
+      "net_amount": 86720.0,
+      "fees": 2280.0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "DISPATCHED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 89000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 89000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 89000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "PSP_KE",
+          "type": "PSP_KE",
+          "converted_amount": 89000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 500,
+        "spread": 0.02,
+        "spread_fee": 1780.0,
+        "total_fee": 2280.0,
+        "net_amount": 86720.0,
+        "margin": 1780.0
+      },
+      "reason": null
+    },
+    "hash": "8edf2c7d1383e1a41d4c5887a206a18f2253f2ffd9f82b2cf8d1813cbcc804f5",
+    "previous_hash": "40ad5468a191eee1e320747e15b74f310ba5463c5c772d4e2939dbfab4604ebf"
+  },
+  {
+    "timestamp": "2026-04-16T06:58:41.210017+00:00",
+    "event": "TX_SETTLED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-34237A",
+      "utt": "UTT-PSP_KE-20260416T065841Z-3D92A4A1",
+      "rtt": "c0cb58c4b2a60c936d78f10e91b3e5a1",
+      "etk_s": "4da4d00e2492f890a5f9645528bc1693",
+      "etk_r": "30f59c24235ff0d8feddacaff13aaabc",
+      "timestamp": "2026-04-16T06:58:40Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_MPESA_KE-WALLET-3795",
+      "amount": 89000.0,
+      "gross_amount": 89000.0,
+      "net_amount": 86720.0,
+      "fees": 2280.0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "SETTLED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 89000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 89000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 89000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "PSP_KE",
+          "type": "PSP_KE",
+          "converted_amount": 89000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 500,
+        "spread": 0.02,
+        "spread_fee": 1780.0,
+        "total_fee": 2280.0,
+        "net_amount": 86720.0,
+        "margin": 1780.0
+      },
+      "reason": null
+    },
+    "hash": "ecfebf66a02091491bd579298be39caa083c18380a1deff828ab7996544cc319",
+    "previous_hash": "8edf2c7d1383e1a41d4c5887a206a18f2253f2ffd9f82b2cf8d1813cbcc804f5"
+  },
+  {
+    "timestamp": "2026-04-16T07:04:34.565550+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-2DF0CB",
+      "utt": null,
+      "rtt": null,
+      "etk_s": null,
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:04:34Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_AIRTEL_KE-WALLET-5128",
+      "amount": 100000.0,
+      "gross_amount": 100000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "36d92c2544b760ff627e94f36b1eb991bd1384088fc84e702740c424d805aa4c",
+    "previous_hash": "ecfebf66a02091491bd579298be39caa083c18380a1deff828ab7996544cc319"
+  },
+  {
+    "timestamp": "2026-04-16T07:04:34.616975+00:00",
+    "event": "ETK_S_GENERATED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-2DF0CB",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "7ddef99732fb8d4829858805d5bfff8f",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:04:34Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_AIRTEL_KE-WALLET-5128",
+      "amount": 100000.0,
+      "gross_amount": 100000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "5e829acf62c2a9459fb413f82bc7060d561b09ab00d9d269377b5f8e60925111",
+    "previous_hash": "36d92c2544b760ff627e94f36b1eb991bd1384088fc84e702740c424d805aa4c"
+  },
+  {
+    "timestamp": "2026-04-16T07:04:34.667052+00:00",
+    "event": "FUNDS_LOCKED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-2DF0CB",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "7ddef99732fb8d4829858805d5bfff8f",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:04:34Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_AIRTEL_KE-WALLET-5128",
+      "amount": 100000.0,
+      "gross_amount": 100000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "9050b2e28c5f33403f42a9c4b40a982f27b2405aab5d6d9c29a3b1257e051dc9",
+    "previous_hash": "5e829acf62c2a9459fb413f82bc7060d561b09ab00d9d269377b5f8e60925111"
+  },
+  {
+    "timestamp": "2026-04-16T07:04:34.729466+00:00",
+    "event": "ETK_R_GENERATED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-2DF0CB",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "7ddef99732fb8d4829858805d5bfff8f",
+      "etk_r": "0838bbc90314ee9d449a987e87290999",
+      "timestamp": "2026-04-16T07:04:34Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_AIRTEL_KE-WALLET-5128",
+      "amount": 100000.0,
+      "gross_amount": 100000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "092e16fb3b8ba3a8d65333f084d41d5292b22cad4de1c0980a16222abe3d117a",
+    "previous_hash": "9050b2e28c5f33403f42a9c4b40a982f27b2405aab5d6d9c29a3b1257e051dc9"
+  },
+  {
+    "timestamp": "2026-04-16T07:04:34.770445+00:00",
+    "event": "RTT_VERIFIED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-2DF0CB",
+      "utt": null,
+      "rtt": "efdf1087a98275a3ed50b7fdb1b1b394",
+      "etk_s": "7ddef99732fb8d4829858805d5bfff8f",
+      "etk_r": "0838bbc90314ee9d449a987e87290999",
+      "timestamp": "2026-04-16T07:04:34Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_AIRTEL_KE-WALLET-5128",
+      "amount": 100000.0,
+      "gross_amount": 100000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "HANDSHAKE_VERIFIED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "a296b1c045ca067dc266d224272c747b5df99a61c1c868ded7e67cfcb3f3213e",
+    "previous_hash": "092e16fb3b8ba3a8d65333f084d41d5292b22cad4de1c0980a16222abe3d117a"
+  },
+  {
+    "timestamp": "2026-04-16T07:04:34.808097+00:00",
+    "event": "ROUTE_SELECTED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-2DF0CB",
+      "utt": null,
+      "rtt": "efdf1087a98275a3ed50b7fdb1b1b394",
+      "etk_s": "7ddef99732fb8d4829858805d5bfff8f",
+      "etk_r": "0838bbc90314ee9d449a987e87290999",
+      "timestamp": "2026-04-16T07:04:34Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_AIRTEL_KE-WALLET-5128",
+      "amount": 100000.0,
+      "gross_amount": 100000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 100000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 100000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 100000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "PSP_KE",
+          "type": "PSP_KE",
+          "converted_amount": 100000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "8cb78d5c0f528aa93d0966f6ca0e574cf185ec7948313ed60f0f048e8520c70c",
+    "previous_hash": "a296b1c045ca067dc266d224272c747b5df99a61c1c868ded7e67cfcb3f3213e"
+  },
+  {
+    "timestamp": "2026-04-16T07:04:34.846670+00:00",
+    "event": "PRICING_COMPUTED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-2DF0CB",
+      "utt": null,
+      "rtt": "efdf1087a98275a3ed50b7fdb1b1b394",
+      "etk_s": "7ddef99732fb8d4829858805d5bfff8f",
+      "etk_r": "0838bbc90314ee9d449a987e87290999",
+      "timestamp": "2026-04-16T07:04:34Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_AIRTEL_KE-WALLET-5128",
+      "amount": 100000.0,
+      "gross_amount": 100000.0,
+      "net_amount": 97500.0,
+      "fees": 2500.0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 100000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 100000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 100000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "PSP_KE",
+          "type": "PSP_KE",
+          "converted_amount": 100000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 500,
+        "spread": 0.02,
+        "spread_fee": 2000.0,
+        "total_fee": 2500.0,
+        "net_amount": 97500.0,
+        "margin": 2000.0
+      },
+      "reason": null
+    },
+    "hash": "1a69cb26beb636b6f69294c6e69bada8f36a1f1c852a2ad5e5dcffc710cac5b5",
+    "previous_hash": "8cb78d5c0f528aa93d0966f6ca0e574cf185ec7948313ed60f0f048e8520c70c"
+  },
+  {
+    "timestamp": "2026-04-16T07:04:34.886870+00:00",
+    "event": "TX_DISPATCHED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-2DF0CB",
+      "utt": null,
+      "rtt": "efdf1087a98275a3ed50b7fdb1b1b394",
+      "etk_s": "7ddef99732fb8d4829858805d5bfff8f",
+      "etk_r": "0838bbc90314ee9d449a987e87290999",
+      "timestamp": "2026-04-16T07:04:34Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_AIRTEL_KE-WALLET-5128",
+      "amount": 100000.0,
+      "gross_amount": 100000.0,
+      "net_amount": 97500.0,
+      "fees": 2500.0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "DISPATCHED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 100000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 100000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 100000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "PSP_KE",
+          "type": "PSP_KE",
+          "converted_amount": 100000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 500,
+        "spread": 0.02,
+        "spread_fee": 2000.0,
+        "total_fee": 2500.0,
+        "net_amount": 97500.0,
+        "margin": 2000.0
+      },
+      "reason": null
+    },
+    "hash": "f805a27e0e589586f9417d87efc219b40f376f20ccacba65aec4ac2434177b80",
+    "previous_hash": "1a69cb26beb636b6f69294c6e69bada8f36a1f1c852a2ad5e5dcffc710cac5b5"
+  },
+  {
+    "timestamp": "2026-04-16T07:04:34.962177+00:00",
+    "event": "TX_SETTLED",
+    "payload": {
+      "tx_id": "PSP_MPESA_KE-RN-2DF0CB",
+      "utt": "UTT-PSP_KE-20260416T070434Z-3F3C940F",
+      "rtt": "efdf1087a98275a3ed50b7fdb1b1b394",
+      "etk_s": "7ddef99732fb8d4829858805d5bfff8f",
+      "etk_r": "0838bbc90314ee9d449a987e87290999",
+      "timestamp": "2026-04-16T07:04:34Z",
+      "sender_account": "PSP_MPESA_KE-WALLET-7171",
+      "receiver_account": "PSP_AIRTEL_KE-WALLET-5128",
+      "amount": 100000.0,
+      "gross_amount": 100000.0,
+      "net_amount": 97500.0,
+      "fees": 2500.0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "SETTLED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 100000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 100000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 100000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "PSP_KE",
+          "type": "PSP_KE",
+          "converted_amount": 100000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 500,
+        "spread": 0.02,
+        "spread_fee": 2000.0,
+        "total_fee": 2500.0,
+        "net_amount": 97500.0,
+        "margin": 2000.0
+      },
+      "reason": null
+    },
+    "hash": "f6e102219a760b333ead965e601a24cda58feffcbfc0643a40558b294d01a619",
+    "previous_hash": "f805a27e0e589586f9417d87efc219b40f376f20ccacba65aec4ac2434177b80"
+  },
+  {
+    "timestamp": "2026-04-16T07:14:22.293712+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "BANK_TZ-RN-572938",
+      "utt": null,
+      "rtt": null,
+      "etk_s": null,
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:14:22Z",
+      "sender_account": "BANK_TZ-ACC-TZ-9625",
+      "receiver_account": "BANK_TZ-ACC-TZ-4934",
+      "amount": 320000.0,
+      "gross_amount": 320000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "TZS",
+      "currency_to": "TZS",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "d35155d25e0929e9e3495ffb60cb7e66a1b582704e554073efb18a00d9313f3a",
+    "previous_hash": "f6e102219a760b333ead965e601a24cda58feffcbfc0643a40558b294d01a619"
+  },
+  {
+    "timestamp": "2026-04-16T07:14:22.353884+00:00",
+    "event": "ETK_S_GENERATED",
+    "payload": {
+      "tx_id": "BANK_TZ-RN-572938",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "e8de362cf384f9b78aa577f8f00d7533",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:14:22Z",
+      "sender_account": "BANK_TZ-ACC-TZ-9625",
+      "receiver_account": "BANK_TZ-ACC-TZ-4934",
+      "amount": 320000.0,
+      "gross_amount": 320000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "TZS",
+      "currency_to": "TZS",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "a4236bf1134d07ff8de183921b6efa012ba57e74c27ea1bed77b21b6981b8b59",
+    "previous_hash": "d35155d25e0929e9e3495ffb60cb7e66a1b582704e554073efb18a00d9313f3a"
+  },
+  {
+    "timestamp": "2026-04-16T07:14:22.416975+00:00",
+    "event": "FUNDS_LOCKED",
+    "payload": {
+      "tx_id": "BANK_TZ-RN-572938",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "e8de362cf384f9b78aa577f8f00d7533",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:14:22Z",
+      "sender_account": "BANK_TZ-ACC-TZ-9625",
+      "receiver_account": "BANK_TZ-ACC-TZ-4934",
+      "amount": 320000.0,
+      "gross_amount": 320000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "TZS",
+      "currency_to": "TZS",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "8fa500e52e18f9804761afb15aee67a9681b6914997c1e5d85d986957035a23f",
+    "previous_hash": "a4236bf1134d07ff8de183921b6efa012ba57e74c27ea1bed77b21b6981b8b59"
+  },
+  {
+    "timestamp": "2026-04-16T07:14:22.484350+00:00",
+    "event": "ETK_R_GENERATED",
+    "payload": {
+      "tx_id": "BANK_TZ-RN-572938",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "e8de362cf384f9b78aa577f8f00d7533",
+      "etk_r": "6cff1e48923251b5a1b27acb8a916734",
+      "timestamp": "2026-04-16T07:14:22Z",
+      "sender_account": "BANK_TZ-ACC-TZ-9625",
+      "receiver_account": "BANK_TZ-ACC-TZ-4934",
+      "amount": 320000.0,
+      "gross_amount": 320000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "TZS",
+      "currency_to": "TZS",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "ec1c621e4759f73f95014cfb7c4aad06dedca3400d34e599fe35e0344cf78cdc",
+    "previous_hash": "8fa500e52e18f9804761afb15aee67a9681b6914997c1e5d85d986957035a23f"
+  },
+  {
+    "timestamp": "2026-04-16T07:14:22.534082+00:00",
+    "event": "RTT_VERIFIED",
+    "payload": {
+      "tx_id": "BANK_TZ-RN-572938",
+      "utt": null,
+      "rtt": "896ce52e23c7999248a864fb57ee973f",
+      "etk_s": "e8de362cf384f9b78aa577f8f00d7533",
+      "etk_r": "6cff1e48923251b5a1b27acb8a916734",
+      "timestamp": "2026-04-16T07:14:22Z",
+      "sender_account": "BANK_TZ-ACC-TZ-9625",
+      "receiver_account": "BANK_TZ-ACC-TZ-4934",
+      "amount": 320000.0,
+      "gross_amount": 320000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "TZS",
+      "currency_to": "TZS",
+      "status": "HANDSHAKE_VERIFIED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "7169f4076c8f5aac31dcb7b0e8c192921cde91b0b5a38b88461cb32255c0c790",
+    "previous_hash": "ec1c621e4759f73f95014cfb7c4aad06dedca3400d34e599fe35e0344cf78cdc"
+  },
+  {
+    "timestamp": "2026-04-16T07:14:22.570630+00:00",
+    "event": "ROUTE_SELECTED",
+    "payload": {
+      "tx_id": "BANK_TZ-RN-572938",
+      "utt": null,
+      "rtt": "896ce52e23c7999248a864fb57ee973f",
+      "etk_s": "e8de362cf384f9b78aa577f8f00d7533",
+      "etk_r": "6cff1e48923251b5a1b27acb8a916734",
+      "timestamp": "2026-04-16T07:14:22Z",
+      "sender_account": "BANK_TZ-ACC-TZ-9625",
+      "receiver_account": "BANK_TZ-ACC-TZ-4934",
+      "amount": 320000.0,
+      "gross_amount": 320000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "TZS",
+      "currency_to": "TZS",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_TZ",
+            "type": "BANK_TZ",
+            "health": 0,
+            "converted_amount": 320000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "BANK_TZ",
+            "type": "BANK_TZ",
+            "health": 0,
+            "converted_amount": 320000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 320000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "BANK_TZ",
+          "type": "BANK_TZ",
+          "converted_amount": 320000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "426afea79e518b26fd14c4bf44bc91570cb47128f7b268aaaad0326f91b07ebd",
+    "previous_hash": "7169f4076c8f5aac31dcb7b0e8c192921cde91b0b5a38b88461cb32255c0c790"
+  },
+  {
+    "timestamp": "2026-04-16T07:14:22.609423+00:00",
+    "event": "PRICING_COMPUTED",
+    "payload": {
+      "tx_id": "BANK_TZ-RN-572938",
+      "utt": null,
+      "rtt": "896ce52e23c7999248a864fb57ee973f",
+      "etk_s": "e8de362cf384f9b78aa577f8f00d7533",
+      "etk_r": "6cff1e48923251b5a1b27acb8a916734",
+      "timestamp": "2026-04-16T07:14:22Z",
+      "sender_account": "BANK_TZ-ACC-TZ-9625",
+      "receiver_account": "BANK_TZ-ACC-TZ-4934",
+      "amount": 320000.0,
+      "gross_amount": 320000.0,
+      "net_amount": 312100.0,
+      "fees": 7900.0,
+      "currency_from": "TZS",
+      "currency_to": "TZS",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_TZ",
+            "type": "BANK_TZ",
+            "health": 0,
+            "converted_amount": 320000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "BANK_TZ",
+            "type": "BANK_TZ",
+            "health": 0,
+            "converted_amount": 320000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 320000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "BANK_TZ",
+          "type": "BANK_TZ",
+          "converted_amount": 320000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 1500,
+        "spread": 0.02,
+        "spread_fee": 6400.0,
+        "total_fee": 7900.0,
+        "net_amount": 312100.0,
+        "margin": 6400.0
+      },
+      "reason": null
+    },
+    "hash": "8315fe75b8fc89ac7854939523d18952cbe4f0da2286be5bad4e0827b9cd35ba",
+    "previous_hash": "426afea79e518b26fd14c4bf44bc91570cb47128f7b268aaaad0326f91b07ebd"
+  },
+  {
+    "timestamp": "2026-04-16T07:14:22.653633+00:00",
+    "event": "TX_DISPATCHED",
+    "payload": {
+      "tx_id": "BANK_TZ-RN-572938",
+      "utt": null,
+      "rtt": "896ce52e23c7999248a864fb57ee973f",
+      "etk_s": "e8de362cf384f9b78aa577f8f00d7533",
+      "etk_r": "6cff1e48923251b5a1b27acb8a916734",
+      "timestamp": "2026-04-16T07:14:22Z",
+      "sender_account": "BANK_TZ-ACC-TZ-9625",
+      "receiver_account": "BANK_TZ-ACC-TZ-4934",
+      "amount": 320000.0,
+      "gross_amount": 320000.0,
+      "net_amount": 312100.0,
+      "fees": 7900.0,
+      "currency_from": "TZS",
+      "currency_to": "TZS",
+      "status": "DISPATCHED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_TZ",
+            "type": "BANK_TZ",
+            "health": 0,
+            "converted_amount": 320000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "BANK_TZ",
+            "type": "BANK_TZ",
+            "health": 0,
+            "converted_amount": 320000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 320000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "BANK_TZ",
+          "type": "BANK_TZ",
+          "converted_amount": 320000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 1500,
+        "spread": 0.02,
+        "spread_fee": 6400.0,
+        "total_fee": 7900.0,
+        "net_amount": 312100.0,
+        "margin": 6400.0
+      },
+      "reason": null
+    },
+    "hash": "9db98c68a165c89c04dcb44390be0725e72cfa36dba722c1b96535b386002a27",
+    "previous_hash": "8315fe75b8fc89ac7854939523d18952cbe4f0da2286be5bad4e0827b9cd35ba"
+  },
+  {
+    "timestamp": "2026-04-16T07:14:22.710691+00:00",
+    "event": "TX_SETTLED",
+    "payload": {
+      "tx_id": "BANK_TZ-RN-572938",
+      "utt": "UTT-BANK_TZ-20260416T071422Z-DF58E491",
+      "rtt": "896ce52e23c7999248a864fb57ee973f",
+      "etk_s": "e8de362cf384f9b78aa577f8f00d7533",
+      "etk_r": "6cff1e48923251b5a1b27acb8a916734",
+      "timestamp": "2026-04-16T07:14:22Z",
+      "sender_account": "BANK_TZ-ACC-TZ-9625",
+      "receiver_account": "BANK_TZ-ACC-TZ-4934",
+      "amount": 320000.0,
+      "gross_amount": 320000.0,
+      "net_amount": 312100.0,
+      "fees": 7900.0,
+      "currency_from": "TZS",
+      "currency_to": "TZS",
+      "status": "SETTLED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_TZ",
+            "type": "BANK_TZ",
+            "health": 0,
+            "converted_amount": 320000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "BANK_TZ",
+            "type": "BANK_TZ",
+            "health": 0,
+            "converted_amount": 320000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 320000.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "BANK_TZ",
+          "type": "BANK_TZ",
+          "converted_amount": 320000.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 1500,
+        "spread": 0.02,
+        "spread_fee": 6400.0,
+        "total_fee": 7900.0,
+        "net_amount": 312100.0,
+        "margin": 6400.0
+      },
+      "reason": null
+    },
+    "hash": "94084f214025bafbe8478c5eb69358f9016f2681fb0f91e327e2caa7965495b4",
+    "previous_hash": "9db98c68a165c89c04dcb44390be0725e72cfa36dba722c1b96535b386002a27"
+  },
+  {
+    "timestamp": "2026-04-16T07:16:32.398601+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "SMOVE-RN-9C1737",
+      "utt": null,
+      "rtt": null,
+      "etk_s": null,
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:16:32Z",
+      "sender_account": "SMOVE-USD-6038",
+      "receiver_account": "SMOVE-USD-1666",
+      "amount": 1200.0,
+      "gross_amount": 1200.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "9f0056a19ffd720941a2fde7b3006c46afb44651b1908982d633af6003dac8f3",
+    "previous_hash": "94084f214025bafbe8478c5eb69358f9016f2681fb0f91e327e2caa7965495b4"
+  },
+  {
+    "timestamp": "2026-04-16T07:16:32.460932+00:00",
+    "event": "ETK_S_GENERATED",
+    "payload": {
+      "tx_id": "SMOVE-RN-9C1737",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "a1a693499dc4d3f3c43c55e6429e9d8d",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:16:32Z",
+      "sender_account": "SMOVE-USD-6038",
+      "receiver_account": "SMOVE-USD-1666",
+      "amount": 1200.0,
+      "gross_amount": 1200.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "aabf8d37b2703dc2d97d4babf14a062384de3e45e3fac074e65af95b8d32469a",
+    "previous_hash": "9f0056a19ffd720941a2fde7b3006c46afb44651b1908982d633af6003dac8f3"
+  },
+  {
+    "timestamp": "2026-04-16T07:16:32.529134+00:00",
+    "event": "FUNDS_LOCKED",
+    "payload": {
+      "tx_id": "SMOVE-RN-9C1737",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "a1a693499dc4d3f3c43c55e6429e9d8d",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:16:32Z",
+      "sender_account": "SMOVE-USD-6038",
+      "receiver_account": "SMOVE-USD-1666",
+      "amount": 1200.0,
+      "gross_amount": 1200.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "791014769a26935fbc7ec4f87a14767aa1c68fe0933e8699fd0c99853891bafe",
+    "previous_hash": "aabf8d37b2703dc2d97d4babf14a062384de3e45e3fac074e65af95b8d32469a"
+  },
+  {
+    "timestamp": "2026-04-16T07:16:32.587801+00:00",
+    "event": "ETK_R_GENERATED",
+    "payload": {
+      "tx_id": "SMOVE-RN-9C1737",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "a1a693499dc4d3f3c43c55e6429e9d8d",
+      "etk_r": "c01d0e50a574255da21f47e55ea924d6",
+      "timestamp": "2026-04-16T07:16:32Z",
+      "sender_account": "SMOVE-USD-6038",
+      "receiver_account": "SMOVE-USD-1666",
+      "amount": 1200.0,
+      "gross_amount": 1200.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "d61f7de50998ef6f48218f49ac127787609f58ccadf61dfee35a605fd5a63724",
+    "previous_hash": "791014769a26935fbc7ec4f87a14767aa1c68fe0933e8699fd0c99853891bafe"
+  },
+  {
+    "timestamp": "2026-04-16T07:16:32.626488+00:00",
+    "event": "RTT_VERIFIED",
+    "payload": {
+      "tx_id": "SMOVE-RN-9C1737",
+      "utt": null,
+      "rtt": "eb893f690bb6aac8763b2a1781acbe58",
+      "etk_s": "a1a693499dc4d3f3c43c55e6429e9d8d",
+      "etk_r": "c01d0e50a574255da21f47e55ea924d6",
+      "timestamp": "2026-04-16T07:16:32Z",
+      "sender_account": "SMOVE-USD-6038",
+      "receiver_account": "SMOVE-USD-1666",
+      "amount": 1200.0,
+      "gross_amount": 1200.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "HANDSHAKE_VERIFIED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "a1cebb4992f24d785aedc56318a0291c7389a394ca4c72aae611c163b1e4cf0f",
+    "previous_hash": "d61f7de50998ef6f48218f49ac127787609f58ccadf61dfee35a605fd5a63724"
+  },
+  {
+    "timestamp": "2026-04-16T07:16:32.673025+00:00",
+    "event": "ROUTE_SELECTED",
+    "payload": {
+      "tx_id": "SMOVE-RN-9C1737",
+      "utt": null,
+      "rtt": "eb893f690bb6aac8763b2a1781acbe58",
+      "etk_s": "a1a693499dc4d3f3c43c55e6429e9d8d",
+      "etk_r": "c01d0e50a574255da21f47e55ea924d6",
+      "timestamp": "2026-04-16T07:16:32Z",
+      "sender_account": "SMOVE-USD-6038",
+      "receiver_account": "SMOVE-USD-1666",
+      "amount": 1200.0,
+      "gross_amount": 1200.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1200.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1200.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1200.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 1200.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "59f7f5f9ece99f74e6965fd40f98a66551085596cbf9e1b2dfbbcd8e8f0910dc",
+    "previous_hash": "a1cebb4992f24d785aedc56318a0291c7389a394ca4c72aae611c163b1e4cf0f"
+  },
+  {
+    "timestamp": "2026-04-16T07:16:32.724997+00:00",
+    "event": "PRICING_COMPUTED",
+    "payload": {
+      "tx_id": "SMOVE-RN-9C1737",
+      "utt": null,
+      "rtt": "eb893f690bb6aac8763b2a1781acbe58",
+      "etk_s": "a1a693499dc4d3f3c43c55e6429e9d8d",
+      "etk_r": "c01d0e50a574255da21f47e55ea924d6",
+      "timestamp": "2026-04-16T07:16:32Z",
+      "sender_account": "SMOVE-USD-6038",
+      "receiver_account": "SMOVE-USD-1666",
+      "amount": 1200.0,
+      "gross_amount": 1200.0,
+      "net_amount": 426.0,
+      "fees": 774.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1200.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1200.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1200.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 1200.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.02,
+        "spread_fee": 24.0,
+        "total_fee": 774.0,
+        "net_amount": 426.0,
+        "margin": 24.0
+      },
+      "reason": null
+    },
+    "hash": "9495298263d99b5c7a146fff2668a5bdd27029d2617dfdf67a628884baf23302",
+    "previous_hash": "59f7f5f9ece99f74e6965fd40f98a66551085596cbf9e1b2dfbbcd8e8f0910dc"
+  },
+  {
+    "timestamp": "2026-04-16T07:16:32.776826+00:00",
+    "event": "TX_DISPATCHED",
+    "payload": {
+      "tx_id": "SMOVE-RN-9C1737",
+      "utt": null,
+      "rtt": "eb893f690bb6aac8763b2a1781acbe58",
+      "etk_s": "a1a693499dc4d3f3c43c55e6429e9d8d",
+      "etk_r": "c01d0e50a574255da21f47e55ea924d6",
+      "timestamp": "2026-04-16T07:16:32Z",
+      "sender_account": "SMOVE-USD-6038",
+      "receiver_account": "SMOVE-USD-1666",
+      "amount": 1200.0,
+      "gross_amount": 1200.0,
+      "net_amount": 426.0,
+      "fees": 774.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "DISPATCHED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1200.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1200.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1200.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 1200.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.02,
+        "spread_fee": 24.0,
+        "total_fee": 774.0,
+        "net_amount": 426.0,
+        "margin": 24.0
+      },
+      "reason": null
+    },
+    "hash": "2ed3330341e4a26a5e8057bd60d2aa2dce0a9e1cc8426013627ed6409f35d18e",
+    "previous_hash": "9495298263d99b5c7a146fff2668a5bdd27029d2617dfdf67a628884baf23302"
+  },
+  {
+    "timestamp": "2026-04-16T07:16:32.842772+00:00",
+    "event": "TX_SETTLED",
+    "payload": {
+      "tx_id": "SMOVE-RN-9C1737",
+      "utt": "UTT-SMOVE-20260416T071632Z-2CDFD7E9",
+      "rtt": "eb893f690bb6aac8763b2a1781acbe58",
+      "etk_s": "a1a693499dc4d3f3c43c55e6429e9d8d",
+      "etk_r": "c01d0e50a574255da21f47e55ea924d6",
+      "timestamp": "2026-04-16T07:16:32Z",
+      "sender_account": "SMOVE-USD-6038",
+      "receiver_account": "SMOVE-USD-1666",
+      "amount": 1200.0,
+      "gross_amount": 1200.0,
+      "net_amount": 426.0,
+      "fees": 774.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "SETTLED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1200.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1200.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1200.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 1200.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.02,
+        "spread_fee": 24.0,
+        "total_fee": 774.0,
+        "net_amount": 426.0,
+        "margin": 24.0
+      },
+      "reason": null
+    },
+    "hash": "628f78208f89be0fc3e10b9c5796311aecb7958a1e043ad0bc49661d29748b9b",
+    "previous_hash": "2ed3330341e4a26a5e8057bd60d2aa2dce0a9e1cc8426013627ed6409f35d18e"
+  },
+  {
+    "timestamp": "2026-04-16T07:18:07.230311+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "SMOVE-RN-2072E3",
+      "utt": null,
+      "rtt": null,
+      "etk_s": null,
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:18:07Z",
+      "sender_account": "SMOVE-GBP-3039",
+      "receiver_account": "SMOVE-USD-8597",
+      "amount": 345.0,
+      "gross_amount": 345.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "GBP",
+      "currency_to": "USD",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "11cf7750299c55f41e60fd88342939ded2261d70ecbafa147aa0ac42cbd5661d",
+    "previous_hash": "628f78208f89be0fc3e10b9c5796311aecb7958a1e043ad0bc49661d29748b9b"
+  },
+  {
+    "timestamp": "2026-04-16T07:18:07.295788+00:00",
+    "event": "ETK_S_GENERATED",
+    "payload": {
+      "tx_id": "SMOVE-RN-2072E3",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "1007e56c460467ae1a34abc585f6fd78",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:18:07Z",
+      "sender_account": "SMOVE-GBP-3039",
+      "receiver_account": "SMOVE-USD-8597",
+      "amount": 345.0,
+      "gross_amount": 345.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "GBP",
+      "currency_to": "USD",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "df7dc73996a1c36625e6e7480f5de850ee508366b38a3258d1082bcb3e15fa1a",
+    "previous_hash": "11cf7750299c55f41e60fd88342939ded2261d70ecbafa147aa0ac42cbd5661d"
+  },
+  {
+    "timestamp": "2026-04-16T07:18:07.360410+00:00",
+    "event": "FUNDS_LOCKED",
+    "payload": {
+      "tx_id": "SMOVE-RN-2072E3",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "1007e56c460467ae1a34abc585f6fd78",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:18:07Z",
+      "sender_account": "SMOVE-GBP-3039",
+      "receiver_account": "SMOVE-USD-8597",
+      "amount": 345.0,
+      "gross_amount": 345.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "GBP",
+      "currency_to": "USD",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "7fd265a3b49369e9b5dc957e4b0cf97def3cfbbfbda038559d0c39eb17d36968",
+    "previous_hash": "df7dc73996a1c36625e6e7480f5de850ee508366b38a3258d1082bcb3e15fa1a"
+  },
+  {
+    "timestamp": "2026-04-16T07:18:07.411515+00:00",
+    "event": "ETK_R_GENERATED",
+    "payload": {
+      "tx_id": "SMOVE-RN-2072E3",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "1007e56c460467ae1a34abc585f6fd78",
+      "etk_r": "530470be6b7b7517f4a51521aaa3d2ae",
+      "timestamp": "2026-04-16T07:18:07Z",
+      "sender_account": "SMOVE-GBP-3039",
+      "receiver_account": "SMOVE-USD-8597",
+      "amount": 345.0,
+      "gross_amount": 345.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "GBP",
+      "currency_to": "USD",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "2c824c4ca6217ba46f91e5e1849fd40bfb37bde9f092390fa83a168fa0c63fc1",
+    "previous_hash": "7fd265a3b49369e9b5dc957e4b0cf97def3cfbbfbda038559d0c39eb17d36968"
+  },
+  {
+    "timestamp": "2026-04-16T07:18:07.450287+00:00",
+    "event": "RTT_VERIFIED",
+    "payload": {
+      "tx_id": "SMOVE-RN-2072E3",
+      "utt": null,
+      "rtt": "09da88bd3198e24c102fd2e9e82c460d",
+      "etk_s": "1007e56c460467ae1a34abc585f6fd78",
+      "etk_r": "530470be6b7b7517f4a51521aaa3d2ae",
+      "timestamp": "2026-04-16T07:18:07Z",
+      "sender_account": "SMOVE-GBP-3039",
+      "receiver_account": "SMOVE-USD-8597",
+      "amount": 345.0,
+      "gross_amount": 345.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "GBP",
+      "currency_to": "USD",
+      "status": "HANDSHAKE_VERIFIED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "1804dccfa6cb42090a6ae6e46bfc272307674d776279bcd9f78eeb5186790352",
+    "previous_hash": "2c824c4ca6217ba46f91e5e1849fd40bfb37bde9f092390fa83a168fa0c63fc1"
+  },
+  {
+    "timestamp": "2026-04-16T07:18:07.508556+00:00",
+    "event": "ROUTE_SELECTED",
+    "payload": {
+      "tx_id": "SMOVE-RN-2072E3",
+      "utt": null,
+      "rtt": "09da88bd3198e24c102fd2e9e82c460d",
+      "etk_s": "1007e56c460467ae1a34abc585f6fd78",
+      "etk_r": "530470be6b7b7517f4a51521aaa3d2ae",
+      "timestamp": "2026-04-16T07:18:07Z",
+      "sender_account": "SMOVE-GBP-3039",
+      "receiver_account": "SMOVE-USD-8597",
+      "amount": 345.0,
+      "gross_amount": 345.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "GBP",
+      "currency_to": "USD",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 441.6,
+            "fx_rate": 1.28,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 441.6,
+            "fx_rate": 1.28,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 441.6,
+            "fx_rate": 1.28,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 441.6,
+          "fx_rate": 1.28
+        }
+      },
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "9b7d11d7307d2cbe53896143dc1d2907e82780bb86309c237543b14c9d414eed",
+    "previous_hash": "1804dccfa6cb42090a6ae6e46bfc272307674d776279bcd9f78eeb5186790352"
+  },
+  {
+    "timestamp": "2026-04-16T07:18:07.562564+00:00",
+    "event": "PRICING_COMPUTED",
+    "payload": {
+      "tx_id": "SMOVE-RN-2072E3",
+      "utt": null,
+      "rtt": "09da88bd3198e24c102fd2e9e82c460d",
+      "etk_s": "1007e56c460467ae1a34abc585f6fd78",
+      "etk_r": "530470be6b7b7517f4a51521aaa3d2ae",
+      "timestamp": "2026-04-16T07:18:07Z",
+      "sender_account": "SMOVE-GBP-3039",
+      "receiver_account": "SMOVE-USD-8597",
+      "amount": 345.0,
+      "gross_amount": 345.0,
+      "net_amount": -411.9,
+      "fees": 756.9,
+      "currency_from": "GBP",
+      "currency_to": "USD",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 441.6,
+            "fx_rate": 1.28,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 441.6,
+            "fx_rate": 1.28,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 441.6,
+            "fx_rate": 1.28,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 441.6,
+          "fx_rate": 1.28
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.02,
+        "spread_fee": 6.9,
+        "total_fee": 756.9,
+        "net_amount": -411.9,
+        "margin": 6.9
+      },
+      "reason": null
+    },
+    "hash": "13b407f034788ad4538921f9b3da44c07738316a1b93c23f85912d9605d67c21",
+    "previous_hash": "9b7d11d7307d2cbe53896143dc1d2907e82780bb86309c237543b14c9d414eed"
+  },
+  {
+    "timestamp": "2026-04-16T07:18:07.618311+00:00",
+    "event": "TX_DISPATCHED",
+    "payload": {
+      "tx_id": "SMOVE-RN-2072E3",
+      "utt": null,
+      "rtt": "09da88bd3198e24c102fd2e9e82c460d",
+      "etk_s": "1007e56c460467ae1a34abc585f6fd78",
+      "etk_r": "530470be6b7b7517f4a51521aaa3d2ae",
+      "timestamp": "2026-04-16T07:18:07Z",
+      "sender_account": "SMOVE-GBP-3039",
+      "receiver_account": "SMOVE-USD-8597",
+      "amount": 345.0,
+      "gross_amount": 345.0,
+      "net_amount": -411.9,
+      "fees": 756.9,
+      "currency_from": "GBP",
+      "currency_to": "USD",
+      "status": "DISPATCHED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 441.6,
+            "fx_rate": 1.28,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 441.6,
+            "fx_rate": 1.28,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 441.6,
+            "fx_rate": 1.28,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 441.6,
+          "fx_rate": 1.28
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.02,
+        "spread_fee": 6.9,
+        "total_fee": 756.9,
+        "net_amount": -411.9,
+        "margin": 6.9
+      },
+      "reason": null
+    },
+    "hash": "f3e446d054edf9d82e5bb6a62a5adb5f81258f803b7593fa58e1e3fbd7477d9e",
+    "previous_hash": "13b407f034788ad4538921f9b3da44c07738316a1b93c23f85912d9605d67c21"
+  },
+  {
+    "timestamp": "2026-04-16T07:18:07.679575+00:00",
+    "event": "TX_SETTLED",
+    "payload": {
+      "tx_id": "SMOVE-RN-2072E3",
+      "utt": "UTT-SMOVE-20260416T071807Z-5200CDC1",
+      "rtt": "09da88bd3198e24c102fd2e9e82c460d",
+      "etk_s": "1007e56c460467ae1a34abc585f6fd78",
+      "etk_r": "530470be6b7b7517f4a51521aaa3d2ae",
+      "timestamp": "2026-04-16T07:18:07Z",
+      "sender_account": "SMOVE-GBP-3039",
+      "receiver_account": "SMOVE-USD-8597",
+      "amount": 345.0,
+      "gross_amount": 345.0,
+      "net_amount": -411.9,
+      "fees": 756.9,
+      "currency_from": "GBP",
+      "currency_to": "USD",
+      "status": "SETTLED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 441.6,
+            "fx_rate": 1.28,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 441.6,
+            "fx_rate": 1.28,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 441.6,
+            "fx_rate": 1.28,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 441.6,
+          "fx_rate": 1.28
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.02,
+        "spread_fee": 6.9,
+        "total_fee": 756.9,
+        "net_amount": -411.9,
+        "margin": 6.9
+      },
+      "reason": null
+    },
+    "hash": "df60d3a495ab08ef07615454f6236a8c9230140c7abd35e9448b2dec8dc7636e",
+    "previous_hash": "f3e446d054edf9d82e5bb6a62a5adb5f81258f803b7593fa58e1e3fbd7477d9e"
+  },
+  {
+    "timestamp": "2026-04-16T07:34:21.006852+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "SMOVE-RN-592A6D",
+      "utt": null,
+      "rtt": null,
+      "etk_s": null,
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:34:21Z",
+      "sender_account": "SMOVE-USD-1666",
+      "receiver_account": "SMOVE-USD-4325",
+      "amount": 1400.0,
+      "gross_amount": 1400.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "7ceed0e0b2e02fa0db95e7a28e4b289005e472cf3807873950fea8ca843523f8",
+    "previous_hash": "df60d3a495ab08ef07615454f6236a8c9230140c7abd35e9448b2dec8dc7636e"
+  },
+  {
+    "timestamp": "2026-04-16T07:34:21.065784+00:00",
+    "event": "ETK_S_GENERATED",
+    "payload": {
+      "tx_id": "SMOVE-RN-592A6D",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "6641c29ea67fabec742be090d2379394",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:34:21Z",
+      "sender_account": "SMOVE-USD-1666",
+      "receiver_account": "SMOVE-USD-4325",
+      "amount": 1400.0,
+      "gross_amount": 1400.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "11249f5e583adae6fd2567f243d855418991f09fd4b78350c3afa40fdae270be",
+    "previous_hash": "7ceed0e0b2e02fa0db95e7a28e4b289005e472cf3807873950fea8ca843523f8"
+  },
+  {
+    "timestamp": "2026-04-16T07:34:21.135726+00:00",
+    "event": "FUNDS_LOCKED",
+    "payload": {
+      "tx_id": "SMOVE-RN-592A6D",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "6641c29ea67fabec742be090d2379394",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:34:21Z",
+      "sender_account": "SMOVE-USD-1666",
+      "receiver_account": "SMOVE-USD-4325",
+      "amount": 1400.0,
+      "gross_amount": 1400.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "e764c8b6db80d80df44e1a3d59f2d3a1815d74432400138cc80341465f071134",
+    "previous_hash": "11249f5e583adae6fd2567f243d855418991f09fd4b78350c3afa40fdae270be"
+  },
+  {
+    "timestamp": "2026-04-16T07:34:21.211396+00:00",
+    "event": "ETK_R_GENERATED",
+    "payload": {
+      "tx_id": "SMOVE-RN-592A6D",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "6641c29ea67fabec742be090d2379394",
+      "etk_r": "d4d349943614d6fbb33f25aaaab76e3f",
+      "timestamp": "2026-04-16T07:34:21Z",
+      "sender_account": "SMOVE-USD-1666",
+      "receiver_account": "SMOVE-USD-4325",
+      "amount": 1400.0,
+      "gross_amount": 1400.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "567fbb54b2fff83490acab8ed3b11f827b743ab1877f4b0c25a8bad3ce3babba",
+    "previous_hash": "e764c8b6db80d80df44e1a3d59f2d3a1815d74432400138cc80341465f071134"
+  },
+  {
+    "timestamp": "2026-04-16T07:34:21.260511+00:00",
+    "event": "RTT_VERIFIED",
+    "payload": {
+      "tx_id": "SMOVE-RN-592A6D",
+      "utt": null,
+      "rtt": "9b9379530cc151c8d5781430b8221b25",
+      "etk_s": "6641c29ea67fabec742be090d2379394",
+      "etk_r": "d4d349943614d6fbb33f25aaaab76e3f",
+      "timestamp": "2026-04-16T07:34:21Z",
+      "sender_account": "SMOVE-USD-1666",
+      "receiver_account": "SMOVE-USD-4325",
+      "amount": 1400.0,
+      "gross_amount": 1400.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "HANDSHAKE_VERIFIED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "c9a0df104f2c3be331a17ce0d5889c37824638d77df0460b99fb41852ffbc78a",
+    "previous_hash": "567fbb54b2fff83490acab8ed3b11f827b743ab1877f4b0c25a8bad3ce3babba"
+  },
+  {
+    "timestamp": "2026-04-16T07:34:21.300982+00:00",
+    "event": "ROUTE_SELECTED",
+    "payload": {
+      "tx_id": "SMOVE-RN-592A6D",
+      "utt": null,
+      "rtt": "9b9379530cc151c8d5781430b8221b25",
+      "etk_s": "6641c29ea67fabec742be090d2379394",
+      "etk_r": "d4d349943614d6fbb33f25aaaab76e3f",
+      "timestamp": "2026-04-16T07:34:21Z",
+      "sender_account": "SMOVE-USD-1666",
+      "receiver_account": "SMOVE-USD-4325",
+      "amount": 1400.0,
+      "gross_amount": 1400.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1400.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1400.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1400.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 1400.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "6ee0a10597fefec92de70b1d2db8847e4c6c58f43afc3f703e5115fb51ca8933",
+    "previous_hash": "c9a0df104f2c3be331a17ce0d5889c37824638d77df0460b99fb41852ffbc78a"
+  },
+  {
+    "timestamp": "2026-04-16T07:34:21.342715+00:00",
+    "event": "PRICING_COMPUTED",
+    "payload": {
+      "tx_id": "SMOVE-RN-592A6D",
+      "utt": null,
+      "rtt": "9b9379530cc151c8d5781430b8221b25",
+      "etk_s": "6641c29ea67fabec742be090d2379394",
+      "etk_r": "d4d349943614d6fbb33f25aaaab76e3f",
+      "timestamp": "2026-04-16T07:34:21Z",
+      "sender_account": "SMOVE-USD-1666",
+      "receiver_account": "SMOVE-USD-4325",
+      "amount": 1400.0,
+      "gross_amount": 1400.0,
+      "net_amount": 622.0,
+      "fees": 778.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1400.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1400.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1400.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 1400.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.02,
+        "spread_fee": 28.0,
+        "total_fee": 778.0,
+        "net_amount": 622.0,
+        "margin": 28.0
+      },
+      "reason": null
+    },
+    "hash": "e8a2d815e0cccd690fb8dcd1e302780cc0f6e08f5eb579c02e9cf6a394360986",
+    "previous_hash": "6ee0a10597fefec92de70b1d2db8847e4c6c58f43afc3f703e5115fb51ca8933"
+  },
+  {
+    "timestamp": "2026-04-16T07:34:21.394212+00:00",
+    "event": "TX_FAILED",
+    "payload": {
+      "tx_id": "SMOVE-RN-592A6D",
+      "utt": null,
+      "rtt": "9b9379530cc151c8d5781430b8221b25",
+      "etk_s": "6641c29ea67fabec742be090d2379394",
+      "etk_r": "d4d349943614d6fbb33f25aaaab76e3f",
+      "timestamp": "2026-04-16T07:34:21Z",
+      "sender_account": "SMOVE-USD-1666",
+      "receiver_account": "SMOVE-USD-4325",
+      "amount": 1400.0,
+      "gross_amount": 1400.0,
+      "net_amount": 622.0,
+      "fees": 778.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "FAILED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1400.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1400.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1400.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 1400.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.02,
+        "spread_fee": 28.0,
+        "total_fee": 778.0,
+        "net_amount": 622.0,
+        "margin": 28.0
+      },
+      "reason": "FEE_EXCEEDS_TRANSFER_AMOUNT"
+    },
+    "hash": "165b3c9093d57426125126ce0b8235ef57d1cfcfa99702f744083f7ed08485e5",
+    "previous_hash": "e8a2d815e0cccd690fb8dcd1e302780cc0f6e08f5eb579c02e9cf6a394360986"
+  },
+  {
+    "timestamp": "2026-04-16T07:34:21.449308+00:00",
+    "event": "TX_DISPATCHED",
+    "payload": {
+      "tx_id": "SMOVE-RN-592A6D",
+      "utt": null,
+      "rtt": "9b9379530cc151c8d5781430b8221b25",
+      "etk_s": "6641c29ea67fabec742be090d2379394",
+      "etk_r": "d4d349943614d6fbb33f25aaaab76e3f",
+      "timestamp": "2026-04-16T07:34:21Z",
+      "sender_account": "SMOVE-USD-1666",
+      "receiver_account": "SMOVE-USD-4325",
+      "amount": 1400.0,
+      "gross_amount": 1400.0,
+      "net_amount": 622.0,
+      "fees": 778.0,
+      "currency_from": "USD",
+      "currency_to": "USD",
+      "status": "DISPATCHED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1400.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1400.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 1400.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 1400.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.02,
+        "spread_fee": 28.0,
+        "total_fee": 778.0,
+        "net_amount": 622.0,
+        "margin": 28.0
+      },
+      "reason": "FEE_EXCEEDS_TRANSFER_AMOUNT"
+    },
+    "hash": "65de5a648f9595c5955e64bce2a693d308ae97ada59ccc59fc256c08d13e37ea",
+    "previous_hash": "165b3c9093d57426125126ce0b8235ef57d1cfcfa99702f744083f7ed08485e5"
+  },
+  {
+    "timestamp": "2026-04-16T07:36:10.063948+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "SMOVE-RN-24223C",
+      "utt": null,
+      "rtt": null,
+      "etk_s": null,
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:36:10Z",
+      "sender_account": "SMOVE-EUR-9648",
+      "receiver_account": "SMOVE-GBP-4205",
+      "amount": 800.0,
+      "gross_amount": 800.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "EUR",
+      "currency_to": "GBP",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "3b192bbd1ba2d4c7b88418a95cfa611db7c66b62c1e89855368fdcc3e168262f",
+    "previous_hash": "65de5a648f9595c5955e64bce2a693d308ae97ada59ccc59fc256c08d13e37ea"
+  },
+  {
+    "timestamp": "2026-04-16T07:36:10.125465+00:00",
+    "event": "ETK_S_GENERATED",
+    "payload": {
+      "tx_id": "SMOVE-RN-24223C",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "c2abee955ac334e13df09140da1d5825",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:36:10Z",
+      "sender_account": "SMOVE-EUR-9648",
+      "receiver_account": "SMOVE-GBP-4205",
+      "amount": 800.0,
+      "gross_amount": 800.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "EUR",
+      "currency_to": "GBP",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "e8ed21c1a74404c7f178597bb1fa4c1e19bc3b6ef5146fe752367f06ab60f1a1",
+    "previous_hash": "3b192bbd1ba2d4c7b88418a95cfa611db7c66b62c1e89855368fdcc3e168262f"
+  },
+  {
+    "timestamp": "2026-04-16T07:36:10.190999+00:00",
+    "event": "FUNDS_LOCKED",
+    "payload": {
+      "tx_id": "SMOVE-RN-24223C",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "c2abee955ac334e13df09140da1d5825",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:36:10Z",
+      "sender_account": "SMOVE-EUR-9648",
+      "receiver_account": "SMOVE-GBP-4205",
+      "amount": 800.0,
+      "gross_amount": 800.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "EUR",
+      "currency_to": "GBP",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "c9bece0a1259b5a1ca479ec690e99a8c4a0c9c65d4856c55d7f8991a3cf1c52e",
+    "previous_hash": "e8ed21c1a74404c7f178597bb1fa4c1e19bc3b6ef5146fe752367f06ab60f1a1"
+  },
+  {
+    "timestamp": "2026-04-16T07:36:10.258959+00:00",
+    "event": "ETK_R_GENERATED",
+    "payload": {
+      "tx_id": "SMOVE-RN-24223C",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "c2abee955ac334e13df09140da1d5825",
+      "etk_r": "67b54133831b7534f387eecb44cb3af8",
+      "timestamp": "2026-04-16T07:36:10Z",
+      "sender_account": "SMOVE-EUR-9648",
+      "receiver_account": "SMOVE-GBP-4205",
+      "amount": 800.0,
+      "gross_amount": 800.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "EUR",
+      "currency_to": "GBP",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "a7c0fb255d07311180a700cc63c29482152c77ba3a4c49c0836cc48112db0312",
+    "previous_hash": "c9bece0a1259b5a1ca479ec690e99a8c4a0c9c65d4856c55d7f8991a3cf1c52e"
+  },
+  {
+    "timestamp": "2026-04-16T07:36:10.302646+00:00",
+    "event": "RTT_VERIFIED",
+    "payload": {
+      "tx_id": "SMOVE-RN-24223C",
+      "utt": null,
+      "rtt": "8341d1b274653ed29982ad6142f354ec",
+      "etk_s": "c2abee955ac334e13df09140da1d5825",
+      "etk_r": "67b54133831b7534f387eecb44cb3af8",
+      "timestamp": "2026-04-16T07:36:10Z",
+      "sender_account": "SMOVE-EUR-9648",
+      "receiver_account": "SMOVE-GBP-4205",
+      "amount": 800.0,
+      "gross_amount": 800.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "EUR",
+      "currency_to": "GBP",
+      "status": "HANDSHAKE_VERIFIED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "10e711e33b8889c97e1757c14a7d6163875a660af39b166cf7e0f3b32101182a",
+    "previous_hash": "a7c0fb255d07311180a700cc63c29482152c77ba3a4c49c0836cc48112db0312"
+  },
+  {
+    "timestamp": "2026-04-16T07:36:10.350389+00:00",
+    "event": "ROUTE_SELECTED",
+    "payload": {
+      "tx_id": "SMOVE-RN-24223C",
+      "utt": null,
+      "rtt": "8341d1b274653ed29982ad6142f354ec",
+      "etk_s": "c2abee955ac334e13df09140da1d5825",
+      "etk_r": "67b54133831b7534f387eecb44cb3af8",
+      "timestamp": "2026-04-16T07:36:10Z",
+      "sender_account": "SMOVE-EUR-9648",
+      "receiver_account": "SMOVE-GBP-4205",
+      "amount": 800.0,
+      "gross_amount": 800.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "EUR",
+      "currency_to": "GBP",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 680.16,
+            "fx_rate": 0.78,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 680.16,
+            "fx_rate": 0.78,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 680.16,
+            "fx_rate": 0.78,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 680.16,
+          "fx_rate": 0.78
+        }
+      },
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "e5b533351dd866f4525c0e7141f83ade0bc321837566d2ff7ff111e7844a95b5",
+    "previous_hash": "10e711e33b8889c97e1757c14a7d6163875a660af39b166cf7e0f3b32101182a"
+  },
+  {
+    "timestamp": "2026-04-16T07:36:10.401856+00:00",
+    "event": "PRICING_COMPUTED",
+    "payload": {
+      "tx_id": "SMOVE-RN-24223C",
+      "utt": null,
+      "rtt": "8341d1b274653ed29982ad6142f354ec",
+      "etk_s": "c2abee955ac334e13df09140da1d5825",
+      "etk_r": "67b54133831b7534f387eecb44cb3af8",
+      "timestamp": "2026-04-16T07:36:10Z",
+      "sender_account": "SMOVE-EUR-9648",
+      "receiver_account": "SMOVE-GBP-4205",
+      "amount": 800.0,
+      "gross_amount": 800.0,
+      "net_amount": 34.0,
+      "fees": 766.0,
+      "currency_from": "EUR",
+      "currency_to": "GBP",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 680.16,
+            "fx_rate": 0.78,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 680.16,
+            "fx_rate": 0.78,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 680.16,
+            "fx_rate": 0.78,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 680.16,
+          "fx_rate": 0.78
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.02,
+        "spread_fee": 16.0,
+        "total_fee": 766.0,
+        "net_amount": 34.0,
+        "margin": 16.0
+      },
+      "reason": null
+    },
+    "hash": "5583b1607cb8b6a438319831f0b11c9f536bc4f002dc2ced9e231bb5568505e5",
+    "previous_hash": "e5b533351dd866f4525c0e7141f83ade0bc321837566d2ff7ff111e7844a95b5"
+  },
+  {
+    "timestamp": "2026-04-16T07:36:10.451258+00:00",
+    "event": "TX_FAILED",
+    "payload": {
+      "tx_id": "SMOVE-RN-24223C",
+      "utt": null,
+      "rtt": "8341d1b274653ed29982ad6142f354ec",
+      "etk_s": "c2abee955ac334e13df09140da1d5825",
+      "etk_r": "67b54133831b7534f387eecb44cb3af8",
+      "timestamp": "2026-04-16T07:36:10Z",
+      "sender_account": "SMOVE-EUR-9648",
+      "receiver_account": "SMOVE-GBP-4205",
+      "amount": 800.0,
+      "gross_amount": 800.0,
+      "net_amount": 34.0,
+      "fees": 766.0,
+      "currency_from": "EUR",
+      "currency_to": "GBP",
+      "status": "FAILED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 680.16,
+            "fx_rate": 0.78,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 680.16,
+            "fx_rate": 0.78,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 680.16,
+            "fx_rate": 0.78,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 680.16,
+          "fx_rate": 0.78
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.02,
+        "spread_fee": 16.0,
+        "total_fee": 766.0,
+        "net_amount": 34.0,
+        "margin": 16.0
+      },
+      "reason": "FEE_EXCEEDS_TRANSFER_AMOUNT"
+    },
+    "hash": "7e6f7b24d03769ed0756ebf9f8e13b89d6e7409747126fe474277d20711f45ff",
+    "previous_hash": "5583b1607cb8b6a438319831f0b11c9f536bc4f002dc2ced9e231bb5568505e5"
+  },
+  {
+    "timestamp": "2026-04-16T07:36:10.497487+00:00",
+    "event": "TX_DISPATCHED",
+    "payload": {
+      "tx_id": "SMOVE-RN-24223C",
+      "utt": null,
+      "rtt": "8341d1b274653ed29982ad6142f354ec",
+      "etk_s": "c2abee955ac334e13df09140da1d5825",
+      "etk_r": "67b54133831b7534f387eecb44cb3af8",
+      "timestamp": "2026-04-16T07:36:10Z",
+      "sender_account": "SMOVE-EUR-9648",
+      "receiver_account": "SMOVE-GBP-4205",
+      "amount": 800.0,
+      "gross_amount": 800.0,
+      "net_amount": 34.0,
+      "fees": 766.0,
+      "currency_from": "EUR",
+      "currency_to": "GBP",
+      "status": "DISPATCHED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 680.16,
+            "fx_rate": 0.78,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 680.16,
+            "fx_rate": 0.78,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 680.16,
+            "fx_rate": 0.78,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 680.16,
+          "fx_rate": 0.78
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.02,
+        "spread_fee": 16.0,
+        "total_fee": 766.0,
+        "net_amount": 34.0,
+        "margin": 16.0
+      },
+      "reason": "FEE_EXCEEDS_TRANSFER_AMOUNT"
+    },
+    "hash": "97dd78118f54d78b17af345777b0568f017f58b90682153f9f3a2f9c802671e6",
+    "previous_hash": "7e6f7b24d03769ed0756ebf9f8e13b89d6e7409747126fe474277d20711f45ff"
+  },
+  {
+    "timestamp": "2026-04-16T07:37:25.998034+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "SMOVE-RN-F6E6FC",
+      "utt": null,
+      "rtt": null,
+      "etk_s": null,
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:37:25Z",
+      "sender_account": "SMOVE-GBP-5655",
+      "receiver_account": "SMOVE-GBP-6837",
+      "amount": 750.0,
+      "gross_amount": 750.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "GBP",
+      "currency_to": "GBP",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "1bd67bb3606d543f0b1f5568f5de86bfea4ff63c554eef68470f0762dc6457bb",
+    "previous_hash": "97dd78118f54d78b17af345777b0568f017f58b90682153f9f3a2f9c802671e6"
+  },
+  {
+    "timestamp": "2026-04-16T07:37:26.089651+00:00",
+    "event": "ETK_S_GENERATED",
+    "payload": {
+      "tx_id": "SMOVE-RN-F6E6FC",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "a2d1f8eb5627cc5388707c84a4bf4c17",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:37:25Z",
+      "sender_account": "SMOVE-GBP-5655",
+      "receiver_account": "SMOVE-GBP-6837",
+      "amount": 750.0,
+      "gross_amount": 750.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "GBP",
+      "currency_to": "GBP",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "76d0a5a47b3ff480d38ebf33adf8956fc4ddee21a04ea7ef7be42183b144d3d2",
+    "previous_hash": "1bd67bb3606d543f0b1f5568f5de86bfea4ff63c554eef68470f0762dc6457bb"
+  },
+  {
+    "timestamp": "2026-04-16T07:37:26.174437+00:00",
+    "event": "FUNDS_LOCKED",
+    "payload": {
+      "tx_id": "SMOVE-RN-F6E6FC",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "a2d1f8eb5627cc5388707c84a4bf4c17",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:37:25Z",
+      "sender_account": "SMOVE-GBP-5655",
+      "receiver_account": "SMOVE-GBP-6837",
+      "amount": 750.0,
+      "gross_amount": 750.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "GBP",
+      "currency_to": "GBP",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "7ed93e607c1e5043dd9a5793ab1bf6add2f37e0f724468222c84f19e5564d44e",
+    "previous_hash": "76d0a5a47b3ff480d38ebf33adf8956fc4ddee21a04ea7ef7be42183b144d3d2"
+  },
+  {
+    "timestamp": "2026-04-16T07:37:26.222573+00:00",
+    "event": "ETK_R_GENERATED",
+    "payload": {
+      "tx_id": "SMOVE-RN-F6E6FC",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "a2d1f8eb5627cc5388707c84a4bf4c17",
+      "etk_r": "39f6653581d2f869b4fd6366de47dc85",
+      "timestamp": "2026-04-16T07:37:25Z",
+      "sender_account": "SMOVE-GBP-5655",
+      "receiver_account": "SMOVE-GBP-6837",
+      "amount": 750.0,
+      "gross_amount": 750.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "GBP",
+      "currency_to": "GBP",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "10d06e5659357c0c0a632391ca2d7f57bd73403c708fda70db092f08df25ee81",
+    "previous_hash": "7ed93e607c1e5043dd9a5793ab1bf6add2f37e0f724468222c84f19e5564d44e"
+  },
+  {
+    "timestamp": "2026-04-16T07:37:26.391983+00:00",
+    "event": "RTT_VERIFIED",
+    "payload": {
+      "tx_id": "SMOVE-RN-F6E6FC",
+      "utt": null,
+      "rtt": "126179097ae01d2d6e81fd43f6c95c5d",
+      "etk_s": "a2d1f8eb5627cc5388707c84a4bf4c17",
+      "etk_r": "39f6653581d2f869b4fd6366de47dc85",
+      "timestamp": "2026-04-16T07:37:25Z",
+      "sender_account": "SMOVE-GBP-5655",
+      "receiver_account": "SMOVE-GBP-6837",
+      "amount": 750.0,
+      "gross_amount": 750.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "GBP",
+      "currency_to": "GBP",
+      "status": "HANDSHAKE_VERIFIED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "c193b53f998120a60e8362a0776b3da584102a805042b1cd2031e72c1da5b3f2",
+    "previous_hash": "10d06e5659357c0c0a632391ca2d7f57bd73403c708fda70db092f08df25ee81"
+  },
+  {
+    "timestamp": "2026-04-16T07:37:26.511445+00:00",
+    "event": "ROUTE_SELECTED",
+    "payload": {
+      "tx_id": "SMOVE-RN-F6E6FC",
+      "utt": null,
+      "rtt": "126179097ae01d2d6e81fd43f6c95c5d",
+      "etk_s": "a2d1f8eb5627cc5388707c84a4bf4c17",
+      "etk_r": "39f6653581d2f869b4fd6366de47dc85",
+      "timestamp": "2026-04-16T07:37:25Z",
+      "sender_account": "SMOVE-GBP-5655",
+      "receiver_account": "SMOVE-GBP-6837",
+      "amount": 750.0,
+      "gross_amount": 750.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "GBP",
+      "currency_to": "GBP",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 750.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 750.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 750.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 750.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "5ac86956d189e803c100e058a95b9fec9c8e416382ac6f345872f8c6d0fb2da4",
+    "previous_hash": "c193b53f998120a60e8362a0776b3da584102a805042b1cd2031e72c1da5b3f2"
+  },
+  {
+    "timestamp": "2026-04-16T07:37:26.592851+00:00",
+    "event": "PRICING_COMPUTED",
+    "payload": {
+      "tx_id": "SMOVE-RN-F6E6FC",
+      "utt": null,
+      "rtt": "126179097ae01d2d6e81fd43f6c95c5d",
+      "etk_s": "a2d1f8eb5627cc5388707c84a4bf4c17",
+      "etk_r": "39f6653581d2f869b4fd6366de47dc85",
+      "timestamp": "2026-04-16T07:37:25Z",
+      "sender_account": "SMOVE-GBP-5655",
+      "receiver_account": "SMOVE-GBP-6837",
+      "amount": 750.0,
+      "gross_amount": 750.0,
+      "net_amount": -15.0,
+      "fees": 765.0,
+      "currency_from": "GBP",
+      "currency_to": "GBP",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 750.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 750.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 750.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 750.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.02,
+        "spread_fee": 15.0,
+        "total_fee": 765.0,
+        "net_amount": -15.0,
+        "margin": 15.0
+      },
+      "reason": null
+    },
+    "hash": "0d1468fb5beef83ebcaa59df7abc936c59886e35d444f5f8e633c2679f1696ff",
+    "previous_hash": "5ac86956d189e803c100e058a95b9fec9c8e416382ac6f345872f8c6d0fb2da4"
+  },
+  {
+    "timestamp": "2026-04-16T07:37:26.649788+00:00",
+    "event": "TX_FAILED",
+    "payload": {
+      "tx_id": "SMOVE-RN-F6E6FC",
+      "utt": null,
+      "rtt": "126179097ae01d2d6e81fd43f6c95c5d",
+      "etk_s": "a2d1f8eb5627cc5388707c84a4bf4c17",
+      "etk_r": "39f6653581d2f869b4fd6366de47dc85",
+      "timestamp": "2026-04-16T07:37:25Z",
+      "sender_account": "SMOVE-GBP-5655",
+      "receiver_account": "SMOVE-GBP-6837",
+      "amount": 750.0,
+      "gross_amount": 750.0,
+      "net_amount": -15.0,
+      "fees": 765.0,
+      "currency_from": "GBP",
+      "currency_to": "GBP",
+      "status": "FAILED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 750.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 750.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 750.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 750.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.02,
+        "spread_fee": 15.0,
+        "total_fee": 765.0,
+        "net_amount": -15.0,
+        "margin": 15.0
+      },
+      "reason": "FEE_EXCEEDS_TRANSFER_AMOUNT"
+    },
+    "hash": "e66124ee97418de4382b0de3012ec4c1ca755d86ed83759cbe26b3353e535374",
+    "previous_hash": "0d1468fb5beef83ebcaa59df7abc936c59886e35d444f5f8e633c2679f1696ff"
+  },
+  {
+    "timestamp": "2026-04-16T07:37:26.703030+00:00",
+    "event": "TX_DISPATCHED",
+    "payload": {
+      "tx_id": "SMOVE-RN-F6E6FC",
+      "utt": null,
+      "rtt": "126179097ae01d2d6e81fd43f6c95c5d",
+      "etk_s": "a2d1f8eb5627cc5388707c84a4bf4c17",
+      "etk_r": "39f6653581d2f869b4fd6366de47dc85",
+      "timestamp": "2026-04-16T07:37:25Z",
+      "sender_account": "SMOVE-GBP-5655",
+      "receiver_account": "SMOVE-GBP-6837",
+      "amount": 750.0,
+      "gross_amount": 750.0,
+      "net_amount": -15.0,
+      "fees": 765.0,
+      "currency_from": "GBP",
+      "currency_to": "GBP",
+      "status": "DISPATCHED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 750.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 750.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 750.0,
+            "fx_rate": 1.0,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 750.0,
+          "fx_rate": 1.0
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.02,
+        "spread_fee": 15.0,
+        "total_fee": 765.0,
+        "net_amount": -15.0,
+        "margin": 15.0
+      },
+      "reason": "FEE_EXCEEDS_TRANSFER_AMOUNT"
+    },
+    "hash": "13a72703fed9fe50d062011a2784e1dc043d3459d73de15cb59926aefde7d4a9",
+    "previous_hash": "e66124ee97418de4382b0de3012ec4c1ca755d86ed83759cbe26b3353e535374"
+  },
+  {
+    "timestamp": "2026-04-16T07:49:53.887682+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "BANK_UG-RN-2C5D04",
+      "utt": null,
+      "rtt": null,
+      "etk_s": null,
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:49:53Z",
+      "sender_account": "BANK_UG-ACC-UG-4728",
+      "receiver_account": "PSP_MPESA_KE-WALLET-5570",
+      "amount": 450000.0,
+      "gross_amount": 450000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "UGX",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "3cb82954e039999aae2285dc03b06f99b33c59aa864d854fd716b58795ee0391",
+    "previous_hash": "13a72703fed9fe50d062011a2784e1dc043d3459d73de15cb59926aefde7d4a9"
+  },
+  {
+    "timestamp": "2026-04-16T07:49:53.945019+00:00",
+    "event": "ETK_S_GENERATED",
+    "payload": {
+      "tx_id": "BANK_UG-RN-2C5D04",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "f1f7cd31e52707459a0d48722bf2837e",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:49:53Z",
+      "sender_account": "BANK_UG-ACC-UG-4728",
+      "receiver_account": "PSP_MPESA_KE-WALLET-5570",
+      "amount": 450000.0,
+      "gross_amount": 450000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "UGX",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "98ed3670dc2bfd6187f2496b7cac580ef3793326661c6ba48cc338e01ac2375b",
+    "previous_hash": "3cb82954e039999aae2285dc03b06f99b33c59aa864d854fd716b58795ee0391"
+  },
+  {
+    "timestamp": "2026-04-16T07:49:54.010612+00:00",
+    "event": "FUNDS_LOCKED",
+    "payload": {
+      "tx_id": "BANK_UG-RN-2C5D04",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "f1f7cd31e52707459a0d48722bf2837e",
+      "etk_r": null,
+      "timestamp": "2026-04-16T07:49:53Z",
+      "sender_account": "BANK_UG-ACC-UG-4728",
+      "receiver_account": "PSP_MPESA_KE-WALLET-5570",
+      "amount": 450000.0,
+      "gross_amount": 450000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "UGX",
+      "currency_to": "KES",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "4842c184c7a04556bdd77bbdf4bc0eaceaebf58da76ac567034dac45c43d3bd6",
+    "previous_hash": "98ed3670dc2bfd6187f2496b7cac580ef3793326661c6ba48cc338e01ac2375b"
+  },
+  {
+    "timestamp": "2026-04-16T07:49:54.102086+00:00",
+    "event": "ETK_R_GENERATED",
+    "payload": {
+      "tx_id": "BANK_UG-RN-2C5D04",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "f1f7cd31e52707459a0d48722bf2837e",
+      "etk_r": "112ee9e371de2ae1d51b0a1b7ec247ff",
+      "timestamp": "2026-04-16T07:49:53Z",
+      "sender_account": "BANK_UG-ACC-UG-4728",
+      "receiver_account": "PSP_MPESA_KE-WALLET-5570",
+      "amount": 450000.0,
+      "gross_amount": 450000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "UGX",
+      "currency_to": "KES",
+      "status": "FUNDS_LOCKED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "da487d31aa13b3f2ee12593ba290484d09662dc85da6eccab36191bbd0fa44ac",
+    "previous_hash": "4842c184c7a04556bdd77bbdf4bc0eaceaebf58da76ac567034dac45c43d3bd6"
+  },
+  {
+    "timestamp": "2026-04-16T07:49:54.159944+00:00",
+    "event": "RTT_VERIFIED",
+    "payload": {
+      "tx_id": "BANK_UG-RN-2C5D04",
+      "utt": null,
+      "rtt": "cbe938dd7a2848e330affeaeecfdf7d0",
+      "etk_s": "f1f7cd31e52707459a0d48722bf2837e",
+      "etk_r": "112ee9e371de2ae1d51b0a1b7ec247ff",
+      "timestamp": "2026-04-16T07:49:53Z",
+      "sender_account": "BANK_UG-ACC-UG-4728",
+      "receiver_account": "PSP_MPESA_KE-WALLET-5570",
+      "amount": 450000.0,
+      "gross_amount": 450000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "UGX",
+      "currency_to": "KES",
+      "status": "HANDSHAKE_VERIFIED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "6629a4e00f40c77b9ea304ee459721e75077da074b00a7e5815a2e4f476e73b1",
+    "previous_hash": "da487d31aa13b3f2ee12593ba290484d09662dc85da6eccab36191bbd0fa44ac"
+  },
+  {
+    "timestamp": "2026-04-16T07:49:54.221328+00:00",
+    "event": "ROUTE_SELECTED",
+    "payload": {
+      "tx_id": "BANK_UG-RN-2C5D04",
+      "utt": null,
+      "rtt": "cbe938dd7a2848e330affeaeecfdf7d0",
+      "etk_s": "f1f7cd31e52707459a0d48722bf2837e",
+      "etk_r": "112ee9e371de2ae1d51b0a1b7ec247ff",
+      "timestamp": "2026-04-16T07:49:53Z",
+      "sender_account": "BANK_UG-ACC-UG-4728",
+      "receiver_account": "PSP_MPESA_KE-WALLET-5570",
+      "amount": 450000.0,
+      "gross_amount": 450000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "UGX",
+      "currency_to": "KES",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_UG",
+            "type": "BANK_UG",
+            "health": 0,
+            "converted_amount": 18701.3,
+            "fx_rate": 160,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 18701.3,
+            "fx_rate": 160,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 18701.3,
+            "fx_rate": 160,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 18701.3,
+          "fx_rate": 160
+        }
+      },
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "a00a195bec687ea4956ddc0504cfb63146c60b0f486f1b537983f3f1826a574d",
+    "previous_hash": "6629a4e00f40c77b9ea304ee459721e75077da074b00a7e5815a2e4f476e73b1"
+  },
+  {
+    "timestamp": "2026-04-16T07:49:54.270297+00:00",
+    "event": "PRICING_COMPUTED",
+    "payload": {
+      "tx_id": "BANK_UG-RN-2C5D04",
+      "utt": null,
+      "rtt": "cbe938dd7a2848e330affeaeecfdf7d0",
+      "etk_s": "f1f7cd31e52707459a0d48722bf2837e",
+      "etk_r": "112ee9e371de2ae1d51b0a1b7ec247ff",
+      "timestamp": "2026-04-16T07:49:53Z",
+      "sender_account": "BANK_UG-ACC-UG-4728",
+      "receiver_account": "PSP_MPESA_KE-WALLET-5570",
+      "amount": 450000.0,
+      "gross_amount": 450000.0,
+      "net_amount": 444300.0,
+      "fees": 5700.0,
+      "currency_from": "UGX",
+      "currency_to": "KES",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_UG",
+            "type": "BANK_UG",
+            "health": 0,
+            "converted_amount": 18701.3,
+            "fx_rate": 160,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 18701.3,
+            "fx_rate": 160,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 18701.3,
+            "fx_rate": 160,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 18701.3,
+          "fx_rate": 160
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.011,
+        "spread_fee": 4950.0,
+        "total_fee": 5700.0,
+        "net_amount": 444300.0,
+        "margin": 4950.0
+      },
+      "reason": null
+    },
+    "hash": "490eb3bd30a1bcfed8dd67db9c24992efa4448375017fe246e85a0c73f9335aa",
+    "previous_hash": "a00a195bec687ea4956ddc0504cfb63146c60b0f486f1b537983f3f1826a574d"
+  },
+  {
+    "timestamp": "2026-04-16T07:49:54.324453+00:00",
+    "event": "TX_DISPATCHED",
+    "payload": {
+      "tx_id": "BANK_UG-RN-2C5D04",
+      "utt": null,
+      "rtt": "cbe938dd7a2848e330affeaeecfdf7d0",
+      "etk_s": "f1f7cd31e52707459a0d48722bf2837e",
+      "etk_r": "112ee9e371de2ae1d51b0a1b7ec247ff",
+      "timestamp": "2026-04-16T07:49:53Z",
+      "sender_account": "BANK_UG-ACC-UG-4728",
+      "receiver_account": "PSP_MPESA_KE-WALLET-5570",
+      "amount": 450000.0,
+      "gross_amount": 450000.0,
+      "net_amount": 444300.0,
+      "fees": 5700.0,
+      "currency_from": "UGX",
+      "currency_to": "KES",
+      "status": "DISPATCHED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_UG",
+            "type": "BANK_UG",
+            "health": 0,
+            "converted_amount": 18701.3,
+            "fx_rate": 160,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 18701.3,
+            "fx_rate": 160,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 18701.3,
+            "fx_rate": 160,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 18701.3,
+          "fx_rate": 160
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.011,
+        "spread_fee": 4950.0,
+        "total_fee": 5700.0,
+        "net_amount": 444300.0,
+        "margin": 4950.0
+      },
+      "reason": null
+    },
+    "hash": "7d6112fc658337c12ab2e9b859d76a84bedd812da194a16787a5c76bab68c637",
+    "previous_hash": "490eb3bd30a1bcfed8dd67db9c24992efa4448375017fe246e85a0c73f9335aa"
+  },
+  {
+    "timestamp": "2026-04-16T07:49:54.393321+00:00",
+    "event": "TX_SETTLED",
+    "payload": {
+      "tx_id": "BANK_UG-RN-2C5D04",
+      "utt": "UTT-SMOVE-20260416T074954Z-836E2C79",
+      "rtt": "cbe938dd7a2848e330affeaeecfdf7d0",
+      "etk_s": "f1f7cd31e52707459a0d48722bf2837e",
+      "etk_r": "112ee9e371de2ae1d51b0a1b7ec247ff",
+      "timestamp": "2026-04-16T07:49:53Z",
+      "sender_account": "BANK_UG-ACC-UG-4728",
+      "receiver_account": "PSP_MPESA_KE-WALLET-5570",
+      "amount": 450000.0,
+      "gross_amount": 450000.0,
+      "net_amount": 444300.0,
+      "fees": 5700.0,
+      "currency_from": "UGX",
+      "currency_to": "KES",
+      "status": "SETTLED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_UG",
+            "type": "BANK_UG",
+            "health": 0,
+            "converted_amount": 18701.3,
+            "fx_rate": 160,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "PSP_KE",
+            "type": "PSP_KE",
+            "health": 0,
+            "converted_amount": 18701.3,
+            "fx_rate": 160,
+            "success_probability": 0.99
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "health": 0,
+            "converted_amount": 18701.3,
+            "fx_rate": 160,
+            "success_probability": 0.99
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "converted_amount": 18701.3,
+          "fx_rate": 160
+        }
+      },
+      "pricing": {
+        "route_fee": 750,
+        "spread": 0.011,
+        "spread_fee": 4950.0,
+        "total_fee": 5700.0,
+        "net_amount": 444300.0,
+        "margin": 4950.0
+      },
+      "reason": null
+    },
+    "hash": "b6604d27e4759ccd7c3be34729ec2ef260ae44242b505ffde1ba8201264cff25",
+    "previous_hash": "7d6112fc658337c12ab2e9b859d76a84bedd812da194a16787a5c76bab68c637"
+  },
+  {
+    "timestamp": "2026-04-19T16:20:48.753490+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-C7D2F1",
+      "amount": 65000.0,
+      "currency": "KES",
+      "sender_id": "BANK_KE-ACC-KE-4680",
+      "receiver_id": "PSP_MPESA_KE-WALLET-7171",
+      "state": "INIT",
+      "updated_at": "2026-04-19T16:20:48.726449+00:00",
+      "metadata": {}
+    },
+    "hash": "da666d6bea8a3ddff7ef691869a89cab6a63d8a1f20db59731b7a077ecf1227e",
+    "previous_hash": "b6604d27e4759ccd7c3be34729ec2ef260ae44242b505ffde1ba8201264cff25"
+  },
+  {
+    "timestamp": "2026-04-19T16:27:49.176792+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-85C1C2",
+      "amount": 100000.0,
+      "currency": "KES",
+      "sender_id": "BANK_KE-ACC-KE-7171",
+      "receiver_id": "PSP_AIRTEL_KE-WALLET-4579",
+      "state": "INIT",
+      "updated_at": "2026-04-19T16:27:49.150286+00:00",
+      "metadata": {}
+    },
+    "hash": "cd2fc643dbec92c292be45b95dad94b68746c4fdcb34b583f201aaeeffa7d38b",
+    "previous_hash": "da666d6bea8a3ddff7ef691869a89cab6a63d8a1f20db59731b7a077ecf1227e"
   }
 ]

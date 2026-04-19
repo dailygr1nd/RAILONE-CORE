@@ -34,7 +34,7 @@ VALID_TRANSITIONS = {
 
 @dataclass
 class TransactionContext:
-    utt: str
+    tx_id: str
     amount: float
     currency: str
     sender_id: str
@@ -54,7 +54,7 @@ class TransactionContext:
 
     def to_dict(self):
         return {
-            "utt": self.utt,
+            "tx_id": self.tx_id,
             "amount": self.amount,
             "currency": self.currency,
             "sender_id": self.sender_id,

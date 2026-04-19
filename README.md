@@ -206,8 +206,9 @@ Every RailOne transaction object contains:
 
 ### Required Fields:
 
-* UTT (global transaction ID)
+* UTT (global transaction ID)- proves RailOne processed, verified the tx and sent settlement instructions. 
 * RTT (handshake verification token)
+*TX_ID(Institutional specific ID tied to a transaction)
 * ETK-S (sender intent lock)
 * ETK-R (receiver confirmation lock)
 * timestamp (ISO 8601 format)
@@ -275,7 +276,7 @@ RailOne transaction security model is built on:
 
 ### 5. Institutional Awareness
 
-* UTT embeds institution-level routing metadata
+* TX_ID embeds institution-level routing metadata
 
 ---
 
@@ -292,3 +293,4 @@ Ledger Layer   → Immutable recording
 ```
 
 
+ETK-S and ETK-R together with RTT, are 128 bit keys. These keys are chained as ETK-R is a derivative of ETK-S. and RTT is a derivative of ETK-S, AND ETK-R. These keys are displayed as hashed strings in the system and can be decoded by the server on audit level interactions/invetsigations. That is done for security purposes both in transit and in storage in the logs.

@@ -1,8 +1,12 @@
 # Simulation.py
 
+from ledger.init_db import init_db
 from transaction_engine import initiate_transaction
 from user_accounts import generate_accounts
 from zk_sd import onboard_user
+
+from ledger.init_db import init_db
+init_db()
 
 
 # ---------------------------------
@@ -23,6 +27,19 @@ def flatten_accounts(accounts_dict):
 
     return flat
 
+from ledger.account_service import ensure_account_exists
+
+accounts = generate_accounts()
+
+# 🔥 ADD HERE
+for provider, provider_accounts in accounts.items():
+    for acc_id, details in provider_accounts.items():
+        ensure_account_exists(
+            account_id=acc_id,
+            provider=provider,
+            currency=details["currency"],
+            balance=details["available"]
+        )
 
 # ---------------------------------
 # ACCOUNT PICKER
@@ -171,7 +188,9 @@ Receiver: {receiver['nid']}
     print("\n=== FINAL RESULT ===")
     print(f"Success: {success}")
     print(f"Message: {status}")
-    print(f"UTT: {tx_id}")
+    print(f"UTT: {tx.get('utt')}")
+    print(f"RTT: {tx.get('rtt')}")
+    print(f"TX_ID: {tx.get('tx_id')}")
 
     print("\n🧾 Ledger + Audit logs updated automatically")
 
