@@ -1,10 +1,11 @@
 # zk_sd.py
+
 import hashlib
 import random
 from datetime import datetime, timezone
 
 from identity_db import lookup_identity
-from user_accounts import generate_accounts
+from ledger.account_service import ensure_account_exists
 
 USED_IDS = set()
 
@@ -31,9 +32,47 @@ def generate_railone_id(identity_token: str) -> str:
 
 
 # --------------------------
+# ACCOUNT CREATION ENGINE
+# --------------------------
+def create_user_accounts(nid, railone_id):
+    from ledger.account_service import ensure_account_exists
+
+    wallets = [
+        ("MPESA", "KES"),
+        ("BANK_KE", "KES"),
+        ("BANK_UG", "UGX"),
+        ("BANK_TZ", "TZS"),
+        ("SMOVE", "KES"),
+        ("SMOVE", "UGX"),
+        ("SMOVE", "TZS"),
+    ]
+
+    created_accounts = []
+
+    for provider, ccy in wallets:
+        account_id = f"{provider}-{railone_id}-{ccy}"
+
+        ensure_account_exists(
+            account_id=account_id,
+            provider=provider,
+            currency=ccy,
+            account_type="USER",
+            owner_id=railone_id,
+            balance=100000.0  # simulation seed
+        )
+
+        created_accounts.append({
+            "account_id": account_id,
+            "currency": ccy,
+            "provider": provider
+        })
+
+    return created_accounts
+
+
+# --------------------------
 # ONBOARD USER
 # --------------------------
-
 def onboard_user(name, nid, role="user"):
     print("📤 Verifying identity with national registry...")
 
@@ -66,7 +105,7 @@ def onboard_user(name, nid, role="user"):
         return None
 
     # --------------------------
-    # HASHED IDENTITY LAYER
+    # IDENTITY LAYER
     # --------------------------
     identity_token = hash_str(
         f"{nid}:{record['name']}:{record['country']}"
@@ -75,6 +114,8 @@ def onboard_user(name, nid, role="user"):
     zk_proof = hash_str(identity_token + ":ZK_ATTEST")
 
     railone_id = generate_railone_id(identity_token)
+
+    created_accounts = create_user_accounts(nid, railone_id)
 
     # --------------------------
     # KYC ATTESTATION
@@ -91,12 +132,9 @@ def onboard_user(name, nid, role="user"):
     attestation_signature = hash_str(str(attestation_payload))
 
     # --------------------------
-    # ACCOUNT GENERATION
+    # ACCOUNT CREATION (DB)
     # --------------------------
-    user_accounts = generate_accounts(
-        nid=nid,
-        country=record["country"]
-    )
+    created_accounts = create_user_accounts(nid, railone_id)
 
     USED_IDS.add(nid)
 
@@ -115,5 +153,5 @@ def onboard_user(name, nid, role="user"):
             **attestation_payload,
             "signature": attestation_signature
         },
-        "accounts": user_accounts
+        "accounts": created_accounts
     }

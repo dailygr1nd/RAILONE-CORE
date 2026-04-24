@@ -2,44 +2,51 @@
 
 from ledger.init_db import init_db
 from transaction_engine import initiate_transaction
-from user_accounts import generate_accounts
 from zk_sd import onboard_user
 
-from ledger.init_db import init_db
+from reconciliation_engine import run_full_reconciliation
+
+from ledger.db import SessionLocal
+from ledger.models import Account
+
+
+# ---------------------------------
+# INIT SYSTEM
+# ---------------------------------
 init_db()
 
+print("\n🔍 RUNNING FULL RECONCILIATION...")
+run_full_reconciliation()
+
 
 # ---------------------------------
-# ACCOUNT FLATTENER
+# FETCH USER ACCOUNTS (CLEAN)
 # ---------------------------------
-def flatten_accounts(accounts_dict):
-    flat = []
+def get_user_accounts(owner_id):
+    session = SessionLocal()
 
-    for provider, accounts in accounts_dict.items():
-        for account_id, details in accounts.items():
-            flat.append({
-                "provider": provider,
-                "account_id": account_id,
-                "currency": details["currency"],
-                "available": details["available"],
-                "reserved": details["reserved"]
+    try:
+        accounts = session.query(Account).filter_by(
+            owner_id=owner_id,
+            account_type="USER"
+        ).all()
+
+        result = []
+
+        for acc in accounts:
+            result.append({
+                "provider": acc.provider,
+                "account_id": acc.id,
+                "currency": acc.currency,
+                "available": round(acc.balance - acc.reserved, 2),
+                "reserved": round(acc.reserved, 2)
             })
 
-    return flat
+        return result
 
-from ledger.account_service import ensure_account_exists
+    finally:
+        session.close()
 
-accounts = generate_accounts()
-
-# 🔥 ADD HERE
-for provider, provider_accounts in accounts.items():
-    for acc_id, details in provider_accounts.items():
-        ensure_account_exists(
-            account_id=acc_id,
-            provider=provider,
-            currency=details["currency"],
-            balance=details["available"]
-        )
 
 # ---------------------------------
 # ACCOUNT PICKER
@@ -90,10 +97,10 @@ def safe_onboard(role):
 
 
 # ---------------------------------
-# MAIN
+# MAIN FLOW
 # ---------------------------------
 def main():
-    print("=== RAILONE PRODUCTION SIMULATOR ===")
+    print("\n=== RAILONE PRODUCTION SIMULATOR ===")
 
     # -----------------------------
     # SENDER
@@ -112,27 +119,31 @@ def main():
         receiver = safe_onboard("receiver")
 
     # -----------------------------
-    # AUTO ACCOUNT GENERATION
-    # NO COUNTRY INPUT NEEDED
+    # FETCH CLEAN USER ACCOUNTS
     # -----------------------------
-    sender_accounts = flatten_accounts(
-        generate_accounts(sender["nid"], "KE")
-    )
+    sender_accounts = get_user_accounts(sender["railone_id"])
+    receiver_accounts = get_user_accounts(receiver["railone_id"])
 
-    receiver_accounts = flatten_accounts(
-        generate_accounts(receiver["nid"], "KE")
-    )
+    if not sender_accounts or not receiver_accounts:
+        print("❌ No accounts found. Onboarding may have failed.")
+        return
 
     sender_acc = choose_account(sender_accounts, "SELECT DEBIT ACCOUNT")
     receiver_acc = choose_account(receiver_accounts, "SELECT CREDIT ACCOUNT")
 
-    amount = float(input("\nEnter transfer amount: "))
+    # -----------------------------
+    # INPUT AMOUNT
+    # -----------------------------
+    try:
+        amount = float(input("\nEnter transfer amount: "))
+    except ValueError:
+        print("❌ Invalid amount")
+        return
 
     print("\n=== EXECUTING TRANSACTION ===")
 
     # -----------------------------
-    # FIXED ENGINE CALL
-    # PASS CURRENCIES DIRECTLY
+    # EXECUTE TRANSACTION
     # -----------------------------
     tx = initiate_transaction(
         sender_account=sender_acc["account_id"],
@@ -145,55 +156,52 @@ def main():
     # -----------------------------
     # RESULT DISPLAY
     # -----------------------------
-    tx_id = tx.get("tx_id", "UNKNOWN")
-    status = tx.get("status", "UNKNOWN")
-    reason = tx.get("reason")
-
-    route_result = tx.get("route_result", {})
-    best_route = route_result.get("best_route", {})
-
-    success = status == "SETTLED"
-
     print("\n=== TRANSACTION RESULT ===")
-    print(f"Transaction ID: {tx_id}")
-    print(f"Status: {status}")
 
-    if reason:
-        print(f"Reason: {reason}")
+    print(f"Transaction ID: {tx.get('tx_id')}")
+    print(f"Status: {tx.get('status')}")
 
-    if best_route:
-        print(f"Best Route: {best_route.get('rail')}")
-        print(f"FX Rate: {best_route.get('fx_rate')}")
-        print(f"Converted Amount: {best_route.get('converted_amount')}")
+    if tx.get("reason"):
+        print(f"Reason: {tx.get('reason')}")
+
+    route = tx.get("route_result", {}).get("best_route", {})
+
+    if route:
+        print(f"Route: {route.get('rail')}")
+        print(f"FX Rate: {route.get('fx_rate')}")
+        print(f"Converted Amount: {route.get('converted_amount')}")
+
+    print(f"Fees: {tx.get('fees')}")
+    print(f"Net Amount: {tx.get('net_amount')}")
 
     # -----------------------------
     # SMS SIMULATION
     # -----------------------------
-    print("\n📩 === RAILONE SMS NOTIFICATIONS ===")
-
+    print("\n📩 === RAILONE SMS NOTIFICATION ===")
     print(f"""
 FROM: RailOne PAY
 ----------------------------------
-Transaction ID: {tx_id}
-Status: {status}
-Amount: {amount}
-Sender: {sender['nid']}
-Receiver: {receiver['nid']}
+TX: {tx.get('tx_id')}
+STATUS: {tx.get('status')}
+AMOUNT: {amount}
+SENDER: {sender['nid']}
+RECEIVER: {receiver['nid']}
 ----------------------------------
 """)
 
     # -----------------------------
-    # FINAL RESULT
+    # FINAL STATE
     # -----------------------------
     print("\n=== FINAL RESULT ===")
-    print(f"Success: {success}")
-    print(f"Message: {status}")
+    print(f"Success: {tx.get('status') == 'SETTLED'}")
     print(f"UTT: {tx.get('utt')}")
     print(f"RTT: {tx.get('rtt')}")
-    print(f"TX_ID: {tx.get('tx_id')}")
 
-    print("\n🧾 Ledger + Audit logs updated automatically")
+    print("\n🧾 Ledger updated (source of truth)")
 
 
+# ---------------------------------
+# ENTRY POINT
+# ---------------------------------
 if __name__ == "__main__":
     main()

@@ -4,7 +4,7 @@
 # brain returns no candidates. Also integrates routing_metrics recording
 # and telemetry drift so every attempt feeds the live health model.
 
-from railhealth import update_health
+
 from routing_brain import rank_candidate_rails
 from routing_metrics import record_route_result
 from telemetry import update_telemetry

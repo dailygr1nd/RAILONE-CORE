@@ -1,138 +1,91 @@
-# ==============================
-# transaction_engine.py
-# ==============================
-
 from datetime import datetime, UTC
 from uuid import uuid4
-import random
-
-from state_machine import TransactionContext, TransactionState
-
-from ledger.db import SessionLocal
-from ledger.models import Transaction as DBTransaction
-from ledger.ledger_service import apply_double_entry
 
 from corridor_pricing_engine import calculate_pricing
 from corridor_learning import learn_corridor
-from corridor_engine import build_corridor
-
-from user_accounts import (
-    lock_funds,
-    release_funds,
-    settle_locked_funds,
-    credit_account,
-)
-
 from audit import log_event
+from corridor_engine import build_corridor
 from token_factory import TokenFactory
 
+from ledger.db import SessionLocal
 
-# --------------------------------
-# UTIL
+from liquidity_engine import check_liquidity
+from fraud_engine import run_fraud_checks
+from rail_executor import execute_on_rail
+from ledger.ledger_service import log_transaction  # rename if needed
+
 # --------------------------------
 def generate_tx_id(sender_account: str) -> str:
-    institution_id = sender_account.split("-")[0]
-    suffix = uuid4().hex[:6].upper()
-    return f"{institution_id}-RN-{suffix}"
+    prefix = sender_account.split("-")[0]
+    return f"{prefix}-RN-{uuid4().hex[:6].upper()}"
 
 
 # --------------------------------
-# FAIL HANDLER
-# --------------------------------
-def handle_failure(tx_ctx, db_tx, session, reason, sender_account=None, amount=None):
-    if sender_account and amount:
-        release_funds(sender_account, amount)
-
-    tx_ctx.transition(TransactionState.FAILED)
-    db_tx.status = tx_ctx.state.value
-    db_tx.updated_at = datetime.now(UTC)
-
-    db_tx.metadata = str({**tx_ctx.metadata, "reason": reason})
-    session.commit()
-
-    log_event("TX_FAILED", {**tx_ctx.to_dict(), "reason": reason})
-
-    return tx_ctx.to_dict()
+def fail(tx, reason):
+    tx["status"] = "FAILED"
+    tx["reason"] = reason
+    log_event("TX_FAILED", tx)
+    return tx
 
 
-# --------------------------------
-# MAIN ENGINE
 # --------------------------------
 def initiate_transaction(
     sender_account,
     receiver_account,
     amount,
     sender_currency,
-    receiver_currency,
-    idempotency_key=None,
+    receiver_currency
 ):
-    session = SessionLocal()
+    tx = {
+        "tx_id": generate_tx_id(sender_account),
+        "timestamp": datetime.now(UTC).isoformat(),
+        "sender_account": sender_account,
+        "receiver_account": receiver_account,
+        "amount": amount,
+        "gross_amount": amount,
+        "net_amount": None,
+        "fees": 0,
+        "currency_from": sender_currency,
+        "currency_to": receiver_currency,
+        "status": "INITIATED",
+        "route_result": None,
+        "reason": None,
+    }
+
+    log_event("TX_INITIATED", tx)
 
     # --------------------------------
-    # IDEMPOTENCY
-    # --------------------------------
-    if idempotency_key:
-        existing = session.query(DBTransaction).filter_by(
-            idempotency_key=idempotency_key
-        ).first()
-
-        if existing:
-            return {"tx_id": existing.id, "status": existing.status}
-
-    tx_id = generate_tx_id(sender_account)
-
-    # --------------------------------
-    # CONTEXT
-    # --------------------------------
-    tx_ctx = TransactionContext(
-        tx_id=tx_id,
-        amount=amount,
-        currency=sender_currency,
-        sender_id=sender_account,
-        receiver_id=receiver_account,
-    )
-
-    # --------------------------------
-    # DB RECORD
-    # --------------------------------
-    db_tx = DBTransaction(
-        id=tx_id,
-        sender_id=sender_account,
-        receiver_id=receiver_account,
-        amount=amount,
-        currency=sender_currency,
-        status=tx_ctx.state.value,
-        idempotency_key=idempotency_key,
-    )
-    session.add(db_tx)
-    session.commit()
-
-    log_event("TX_INITIATED", tx_ctx.to_dict())
-
-    # --------------------------------
-    # SAME ACCOUNT BLOCK
+    # VALIDATION
     # --------------------------------
     if sender_account == receiver_account:
-        return handle_failure(tx_ctx, db_tx, session, "SAME_ACCOUNT")
+        return fail(tx, "SAME_ACCOUNT")
+
+    if amount <= 0:
+        return fail(tx, "INVALID_AMOUNT")
 
     # --------------------------------
-    # LOCK FUNDS
+    # FRAUD CHECK (MUST BE EARLY)
     # --------------------------------
-    if not lock_funds(sender_account, amount):
-        return handle_failure(tx_ctx, db_tx, session, "INSUFFICIENT_FUNDS")
+    ok, reason = run_fraud_checks(sender_account, amount)
 
-    tx_ctx.transition(TransactionState.SENDER_LOCKED)
-    db_tx.status = tx_ctx.state.value
-    session.commit()
+    if not ok:
+        return fail(tx, f"FRAUD_BLOCKED: {reason}")
+
+    # --------------------------------
+    # TOKENS
+    # --------------------------------
+    tx["etk_s"] = TokenFactory.generate_etk_s(sender_account, amount)
+    tx["etk_r"] = TokenFactory.generate_etk_r(tx["etk_s"], receiver_account)
+    tx["rtt"] = TokenFactory.generate_rtt(
+        tx["etk_s"], tx["etk_r"], tx["tx_id"]
+    )
+
+    log_event("TOKENS_GENERATED", tx)
 
     # --------------------------------
     # ROUTING
     # --------------------------------
-    tx_ctx.transition(TransactionState.ROUTING)
-    db_tx.status = tx_ctx.state.value
-    session.commit()
-
-    route_result = build_corridor(
+    route = build_corridor(
         sender_account,
         receiver_account,
         amount,
@@ -140,95 +93,93 @@ def initiate_transaction(
         receiver_currency
     )
 
-    best_route = route_result.get("best_route", {})
-    tx_ctx.metadata["route"] = best_route
+    tx["route_result"] = route
+    best = route.get("best_route", {})
 
-    # --------------------------------
-    # RECEIVER CONFIRMATION (SIMULATED)
-    # --------------------------------
-    tx_ctx.transition(TransactionState.RECEIVER_CONFIRMED)
-    db_tx.status = tx_ctx.state.value
-    session.commit()
+    tx["status"] = "ROUTE_SELECTED"
+    log_event("ROUTE_SELECTED", tx)
 
-    # --------------------------------
-    # HANDSHAKE (ETK + RTT)
-    # --------------------------------
-    etk_s = TokenFactory.generate_etk_s(sender_account, amount)
-    etk_r = TokenFactory.generate_etk_r(etk_s, receiver_account)
-    rtt = TokenFactory.generate_rtt(etk_s, etk_r, tx_context=tx_id)
 
-    tx_ctx.metadata.update({
-        "etk_s": etk_s,
-        "etk_r": etk_r,
-        "rtt": rtt
-    })
-
-    tx_ctx.transition(TransactionState.HANDSHAKE_VERIFIED)
-    db_tx.status = tx_ctx.state.value
-    session.commit()
+    # DEBUG / INTELLIGENCE LOG
+    log_event("ROUTE_DECISION", {
+    "tx_id": tx["tx_id"],
+    "candidates": route["candidates"],
+    "selected": best
+})
 
     # --------------------------------
     # PRICING
     # --------------------------------
     pricing = calculate_pricing(
-        amount=amount,
-        from_ccy=sender_currency,
-        to_ccy=receiver_currency,
-        route_type=best_route.get("type", "SMOVE")
+    amount=amount,
+    from_ccy=sender_currency,
+    to_ccy=receiver_currency,
+    route_type=best.get("type", "SMOVE"),
+    fx_rate=best.get("fx_rate", 1.0)  # 🔥 FIX
+)
+
+    tx["net_amount"] = pricing["net_amount"]
+    tx["fees"] = pricing["total_fee"]
+
+    log_event("PRICING_COMPUTED", tx)
+
+    if tx["net_amount"] <= 0:
+        return fail(tx, "INVALID_FEES")
+
+    # --------------------------------
+    # LIQUIDITY CHECK (CRITICAL)
+    # --------------------------------
+    ok, reason = check_liquidity(
+        route_type=best.get("rail", "SMOVE"),
+        currency=sender_currency,
+        amount=tx["net_amount"]
     )
 
-    tx_ctx.metadata["pricing"] = pricing
-
-    net_amount = pricing.get("net_amount", 0)
-
-    if net_amount <= 0:
-        return handle_failure(tx_ctx, db_tx, session, "INVALID_PRICING", sender_account, amount)
+    if not ok:
+        return fail(tx, f"LIQUIDITY_ERROR: {reason}")
 
     # --------------------------------
-    # EXECUTION
+    # DISPATCH
     # --------------------------------
-    tx_ctx.transition(TransactionState.PROCESSED)
-    db_tx.status = tx_ctx.state.value
-    session.commit()
-
-    success_probability = best_route.get("success_probability", 0.95)
-    rail_success = random.random() < success_probability
-
-    if not rail_success:
-        return handle_failure(tx_ctx, db_tx, session, "RAIL_FAILURE", sender_account, amount)
+    tx["status"] = "DISPATCHED"
+    log_event("TX_DISPATCHED", tx)
 
     # --------------------------------
-    # SETTLEMENT
-    # --------------------------------
-    settle_locked_funds(sender_account, amount)
+# EXECUTION (NON-CUSTODIAL)
+# --------------------------------
+    execution_result = execute_on_rail(best, tx)
 
-    if not credit_account(receiver_account, net_amount):
-        return handle_failure(tx_ctx, db_tx, session, "CREDIT_FAILED", sender_account, amount)
+    if not execution_result.get("success"):
+        return fail(tx, execution_result.get("reason"))
+
+    tx["execution"] = execution_result
 
     # --------------------------------
-    # LEDGER (SOURCE OF TRUTH)
+# LEDGER (SHADOW RECORD)
+# --------------------------------
+    log_transaction(tx)
+
+  
+
     # --------------------------------
-    apply_double_entry(
-        session,
-        tx_id,
-        sender_account,
-        receiver_account,
-        amount,
-        sender_currency
+    # FINALIZATION
+    # --------------------------------
+    tx["utt"] = TokenFactory.generate_utt(
+        best.get("rail", "R1CORE")
     )
 
-    tx_ctx.transition(TransactionState.SETTLED)
-    db_tx.status = tx_ctx.state.value
-    session.commit()
+    tx["status"] = "SETTLED"
+    log_event("TX_SETTLED", tx)
 
-    log_event("TX_SETTLED", tx_ctx.to_dict())
-
+    # --------------------------------
+    # LEARNING
+    # --------------------------------
     learn_corridor(
         from_ccy=sender_currency,
         to_ccy=receiver_currency,
-        route_type=best_route.get("type", "SMOVE"),
+        route_type=best.get("type", "SMOVE"),
         success=True,
-        latency_ms=random.randint(300, 1200)
+        latency_ms=500
     )
 
-    return tx_ctx.to_dict()
+    return tx

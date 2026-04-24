@@ -1,63 +1,52 @@
 # corridor_fx_model.py
 
-SUPPORTED_CURRENCIES = [
-    "TZS", "KES", "UGX",
-    "USD", "GBP", "EUR",
-    "ZAR", "NGN", "EGP"
-]
-
-# --------------------------
-# FX MATRIX (USD ANCHOR MODEL)
-# --------------------------
 FX_RATES = {
-    ("USD", "KES"): 160,
-    ("USD", "TZS"): 2600,
-    ("USD", "UGX"): 3850,
-    ("USD", "ZAR"): 18.5,
-    ("USD", "NGN"): 1500,
-    ("USD", "EGP"): 50,
-    ("USD", "EUR"): 0.92,
-    ("USD", "GBP"): 0.78,
+    # Format: "FROM->TO": rate (FROM per 1 TO)
 
-    # reverse
-    ("KES", "USD"): 1/160,
-    ("TZS", "USD"): 1/2600,
-    ("UGX", "USD"): 1/3850,
-    ("ZAR", "USD"): 1/18.5,
-    ("NGN", "USD"): 1/1500,
-    ("EGP", "USD"): 1/50,
-    ("EUR", "USD"): 1.09,
-    ("GBP", "USD"): 1.28,
+    "UGX->KES": 160,
+    "KES->UGX": 1 / 160,
+
+    "TZS->KES": 18,
+    "KES->TZS": 1 / 18,
+
+    "TZS->UGX": 60,
+    "UGX->TZS": 1 / 60,
+
+    "USD->KES": 130,
+    "KES->USD": 1 / 130,
+
+    "USD->UGX": 3800,
+    "UGX->USD": 1 / 3800,
+
+    "USD->TZS": 2500,
+    "TZS->USD": 1 / 2500,
 }
 
-def validate_corridor(from_ccy, to_ccy):
-    return from_ccy in SUPPORTED_CURRENCIES and to_ccy in SUPPORTED_CURRENCIES
+
+def get_fx_rate(from_ccy, to_ccy):
+    key = f"{from_ccy}->{to_ccy}"
+
+    if key in FX_RATES:
+        return FX_RATES[key]
+
+    # fallback (avoid crash, but visible)
+    return 1
 
 
 def quote_conversion(amount, from_ccy, to_ccy):
+    """
+    Deterministic FX conversion
 
-    if from_ccy == to_ccy:
-        return {
-            "converted_amount": amount,
-            "fx_rate": 1.0
-        }
+    RULE:
+    fx_rate = source per 1 target
+    converted_amount = amount / fx_rate
+    """
 
-    rate = FX_RATES.get((from_ccy, to_ccy))
+    fx_rate = get_fx_rate(from_ccy, to_ccy)
 
-    # fallback via USD bridge
-    if not rate:
-        if (from_ccy, "USD") not in FX_RATES or ("USD", to_ccy) not in FX_RATES:
-            raise Exception(f"Unsupported FX corridor: {from_ccy} -> {to_ccy}")
-
-        usd_amount = amount * FX_RATES[(from_ccy, "USD")]
-        rate = FX_RATES[("USD", to_ccy)]
-
-        return {
-            "converted_amount": round(usd_amount * rate, 2),
-            "fx_rate": rate
-        }
+    converted_amount = round(amount / fx_rate, 2)
 
     return {
-        "converted_amount": round(amount * rate, 2),
-        "fx_rate": rate
+        "fx_rate": fx_rate,
+        "converted_amount": converted_amount
     }

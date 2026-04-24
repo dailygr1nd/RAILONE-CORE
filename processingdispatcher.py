@@ -1,21 +1,36 @@
 # processingdispatcher.py
 
-import bank_UG              # 👈 your original file
-import bank_a
-import bank_b
-import psp
+from smove_wallet import process_transfer as smove_transfer
+from bank_ke import process_transfer as bank_ke_transfer
+from bank_tz import process_transfer as bank_tz_transfer
+from bank_ug import process_transfer as bank_ug_transfer
+from psp_ke import process_transfer as psp_ke_transfer
+from psp_tz import process_transfer as psp_tz_transfer
+from psp_ug import process_transfer as psp_ug_transfer
 
 
-def process_route(route, amount):
+DISPATCH_MAP = {
+    "SMOVE": smove_transfer,
+    "BANK_KE": bank_ke_transfer,
+    "BANK_TZ": bank_tz_transfer,
+    "BANK_UG": bank_ug_transfer,
+    "PSP_KE": psp_ke_transfer,
+    "PSP_TZ": psp_tz_transfer,
+    "PSP_UG": psp_ug_transfer,
+}
 
-    if route["type"] == "BANK_FAIL":
-        return bank_UG.process(amount)   # 👈 use your original logic
 
-    elif route["type"] == "BANK_A":
-        return bank_a.process(amount)
+def dispatch(route, **kwargs):
+    """
+    Generic dispatcher used by routing / failover layer.
+    """
 
-    elif route["type"] == "BANK_B":
-        return bank_b.process(amount)
+    handler = DISPATCH_MAP.get(route["type"])
 
-    elif route["type"] == "PSP":
-        return psp.process(amount)
+    if not handler:
+        return {
+            "success": False,
+            "reason": f"NO_HANDLER_FOR_{route['type']}"
+        }
+
+    return handler(**kwargs)

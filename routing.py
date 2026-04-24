@@ -1,16 +1,8 @@
 # routing.py
 
 from routing_brain import compute_rail_health
-
-RAILS = [
-    "BANK_KE",
-    "BANK_TZ",
-    "BANK_UG",
-    "PSP_KE",
-    "PSP_TZ",
-    "PSP_UG",
-    "SMOVE"
-]
+from routescoring import score_route
+from liquidity_engine import check_liquidity
 
 
 def classify_rail(account_id):
@@ -36,22 +28,52 @@ def classify_rail(account_id):
     return "UNKNOWN"
 
 
-def get_best_rail(candidate_rails, cross_border=False):
-    """
-    Returns best rail based on intelligence scoring.
-    """
-
+# --------------------------------
+# 🔥 SMART ROUTING
+# --------------------------------
+def get_best_rail(candidate_rails, amount, currency, cross_border=False):
     best = None
     best_score = -999
 
     for rail in candidate_rails:
-        score = compute_rail_health(rail)
 
+        # --------------------------------
+        # LIQUIDITY CHECK (HARD FILTER)
+        # --------------------------------
+        has_liquidity, _ = check_liquidity(
+            route_type=rail,
+            currency=currency,
+            amount=amount
+        )
+
+        if not has_liquidity:
+            continue  # 🚫 cannot use this rail
+
+        # --------------------------------
+        # HEALTH SCORE
+        # --------------------------------
+        health_score = compute_rail_health(rail)
+
+        # --------------------------------
+        # FINAL SCORING
+        # --------------------------------
+        route_obj = {"type": rail}
+
+        final_score = score_route(
+            route=route_obj,
+            amount=amount,
+            available_balance=1_000_000  # liquidity already checked
+        )
+
+        # cross-border bias
         if cross_border and rail == "SMOVE":
-            score += 2
+            final_score += 2
 
-        if score > best_score:
-            best_score = score
+        # combine intelligence + scoring
+        total_score = health_score + final_score
+
+        if total_score > best_score:
+            best_score = total_score
             best = rail
 
-    return best
+    return best or "SMOVE"  # fallback

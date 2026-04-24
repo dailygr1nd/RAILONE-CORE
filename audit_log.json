@@ -15787,5 +15787,273 @@
     },
     "hash": "cd2fc643dbec92c292be45b95dad94b68746c4fdcb34b583f201aaeeffa7d38b",
     "previous_hash": "da666d6bea8a3ddff7ef691869a89cab6a63d8a1f20db59731b7a077ecf1227e"
+  },
+  {
+    "timestamp": "2026-04-23T11:11:33.393522+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-56E545",
+      "utt": null,
+      "rtt": null,
+      "etk_s": null,
+      "etk_r": null,
+      "timestamp": "2026-04-23T11:11:33Z",
+      "sender_account": "BANK_KE-cbe740e7f444b3a0-KES",
+      "receiver_account": "MPESA-cbe740e7f444b3a0-KES",
+      "amount": 1200.0,
+      "gross_amount": 1200.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "3e07c1922bb0e2433a244ce5f6c062052212c1c28360ba51ed4e13ab6ee35423",
+    "previous_hash": "cd2fc643dbec92c292be45b95dad94b68746c4fdcb34b583f201aaeeffa7d38b"
+  },
+  {
+    "timestamp": "2026-04-23T11:11:33.449848+00:00",
+    "event": "ETK_S_GENERATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-56E545",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "378eae92e743f860866a1fd6841fb9eb",
+      "etk_r": null,
+      "timestamp": "2026-04-23T11:11:33Z",
+      "sender_account": "BANK_KE-cbe740e7f444b3a0-KES",
+      "receiver_account": "MPESA-cbe740e7f444b3a0-KES",
+      "amount": 1200.0,
+      "gross_amount": 1200.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "2543231d1d49fdec16ccc9d450651bab4ac519f8b851c4579285c191cef1acc2",
+    "previous_hash": "3e07c1922bb0e2433a244ce5f6c062052212c1c28360ba51ed4e13ab6ee35423"
+  },
+  {
+    "timestamp": "2026-04-23T11:17:35.112585+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "BANK_TZ-RN-ED6B8C",
+      "utt": null,
+      "rtt": null,
+      "etk_s": null,
+      "etk_r": null,
+      "timestamp": "2026-04-23T11:17:35Z",
+      "sender_account": "BANK_TZ-cbe740e7f444b3a0-TZS",
+      "receiver_account": "BANK_KE-ec1b5215c149505e-KES",
+      "amount": 12000.0,
+      "gross_amount": 12000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "TZS",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "633f21d935d88830fbf59a7637af87873b8442d8246fbbf24e805a458e4b3e46",
+    "previous_hash": "2543231d1d49fdec16ccc9d450651bab4ac519f8b851c4579285c191cef1acc2"
+  },
+  {
+    "timestamp": "2026-04-23T11:17:35.185195+00:00",
+    "event": "ETK_S_GENERATED",
+    "payload": {
+      "tx_id": "BANK_TZ-RN-ED6B8C",
+      "utt": null,
+      "rtt": null,
+      "etk_s": "902fc5cc500d5609747c100f8c0861f3",
+      "etk_r": null,
+      "timestamp": "2026-04-23T11:17:35Z",
+      "sender_account": "BANK_TZ-cbe740e7f444b3a0-TZS",
+      "receiver_account": "BANK_KE-ec1b5215c149505e-KES",
+      "amount": 12000.0,
+      "gross_amount": 12000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "TZS",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "pricing": null,
+      "reason": null
+    },
+    "hash": "99019209671cd1dbcce546ab1724ace230bf65d3f70922ab371323545e99202a",
+    "previous_hash": "633f21d935d88830fbf59a7637af87873b8442d8246fbbf24e805a458e4b3e46"
+  },
+  {
+    "timestamp": "2026-04-24T10:41:36.050817+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "SETTLEMENT-RN-155CE1",
+      "timestamp": "2026-04-24T10:41:36.021666+00:00",
+      "sender_account": "SETTLEMENT-BANK_KE-KES",
+      "receiver_account": "SETTLEMENT-BANK_KE-TZS",
+      "amount": 8000.0,
+      "gross_amount": 8000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "TZS",
+      "status": "INITIATED",
+      "route_result": null,
+      "reason": null
+    },
+    "hash": "f67190cc5540801bb40455349ec502649bb235741b57e763f24f01f3358de549",
+    "previous_hash": "99019209671cd1dbcce546ab1724ace230bf65d3f70922ab371323545e99202a"
+  },
+  {
+    "timestamp": "2026-04-24T10:41:36.103150+00:00",
+    "event": "TOKENS_GENERATED",
+    "payload": {
+      "tx_id": "SETTLEMENT-RN-155CE1",
+      "timestamp": "2026-04-24T10:41:36.021666+00:00",
+      "sender_account": "SETTLEMENT-BANK_KE-KES",
+      "receiver_account": "SETTLEMENT-BANK_KE-TZS",
+      "amount": 8000.0,
+      "gross_amount": 8000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "TZS",
+      "status": "INITIATED",
+      "route_result": null,
+      "reason": null,
+      "etk_s": "4bbbba966e52c31b07b51ab79e578167",
+      "etk_r": "cff72baca7046ba70900c750cf034cc1",
+      "rtt": "e53b02d3ad22e2f7af846f1c0e51f14e"
+    },
+    "hash": "6ab5ba6425b16cbe8f6fe75baa309bec503da79b4e62565bc1545c69bb03329b",
+    "previous_hash": "f67190cc5540801bb40455349ec502649bb235741b57e763f24f01f3358de549"
+  },
+  {
+    "timestamp": "2026-04-24T10:57:46.514831+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-626574",
+      "timestamp": "2026-04-24T10:57:46.452348+00:00",
+      "sender_account": "BANK_KE-cbe740e7f444b3a0-KES",
+      "receiver_account": "MPESA-cbe740e7f444b3a0-KES",
+      "amount": 8000.0,
+      "gross_amount": 8000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "reason": null
+    },
+    "hash": "a3b691c9a58c40276d8c839292a203fbbd3e113bf4764bd615e5d6abf7503e7c",
+    "previous_hash": "6ab5ba6425b16cbe8f6fe75baa309bec503da79b4e62565bc1545c69bb03329b"
+  },
+  {
+    "timestamp": "2026-04-24T10:57:46.609220+00:00",
+    "event": "TOKENS_GENERATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-626574",
+      "timestamp": "2026-04-24T10:57:46.452348+00:00",
+      "sender_account": "BANK_KE-cbe740e7f444b3a0-KES",
+      "receiver_account": "MPESA-cbe740e7f444b3a0-KES",
+      "amount": 8000.0,
+      "gross_amount": 8000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "reason": null,
+      "etk_s": "24fe9abfc6c04eddb15a014b07e78249",
+      "etk_r": "4d660f6708071764a076cce6c9b78f27",
+      "rtt": "f403465795e135dcdfe375cd7524118c"
+    },
+    "hash": "df13d8c2cc69aea7bed10219bc2f1cecccb096e098e063bec25f1c7daeec38f9",
+    "previous_hash": "a3b691c9a58c40276d8c839292a203fbbd3e113bf4764bd615e5d6abf7503e7c"
+  },
+  {
+    "timestamp": "2026-04-24T10:57:46.657826+00:00",
+    "event": "ROUTE_SELECTED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-626574",
+      "timestamp": "2026-04-24T10:57:46.452348+00:00",
+      "sender_account": "BANK_KE-cbe740e7f444b3a0-KES",
+      "receiver_account": "MPESA-cbe740e7f444b3a0-KES",
+      "amount": 8000.0,
+      "gross_amount": 8000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "ROUTE_SELECTED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "score": 0,
+            "margin": 0,
+            "cost": 0,
+            "converted_amount": 8000.0,
+            "fx_rate": 1
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "score": 0,
+          "margin": 0,
+          "cost": 0,
+          "converted_amount": 8000.0,
+          "fx_rate": 1
+        }
+      },
+      "reason": null,
+      "etk_s": "24fe9abfc6c04eddb15a014b07e78249",
+      "etk_r": "4d660f6708071764a076cce6c9b78f27",
+      "rtt": "f403465795e135dcdfe375cd7524118c"
+    },
+    "hash": "0aa3bd972081975e734f05ec2b2836a8afbdb8809e639f573e5d8a3fc1344b51",
+    "previous_hash": "df13d8c2cc69aea7bed10219bc2f1cecccb096e098e063bec25f1c7daeec38f9"
+  },
+  {
+    "timestamp": "2026-04-24T10:57:46.708979+00:00",
+    "event": "ROUTE_DECISION",
+    "payload": {
+      "tx_id": "BANK_KE-RN-626574",
+      "candidates": [
+        {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "score": 0,
+          "margin": 0,
+          "cost": 0,
+          "converted_amount": 8000.0,
+          "fx_rate": 1
+        }
+      ],
+      "selected": {
+        "rail": "SMOVE",
+        "type": "SMOVE",
+        "score": 0,
+        "margin": 0,
+        "cost": 0,
+        "converted_amount": 8000.0,
+        "fx_rate": 1
+      }
+    },
+    "hash": "0e2446d3b41db968d1883a8619655489ca3fe4e4fb2b3f163f235ad0a51741aa",
+    "previous_hash": "0aa3bd972081975e734f05ec2b2836a8afbdb8809e639f573e5d8a3fc1344b51"
   }
 ]

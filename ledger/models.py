@@ -4,6 +4,7 @@ import uuid
 
 from .db import Base
 
+
 def generate_id():
     return str(uuid.uuid4())
 
@@ -12,36 +13,43 @@ class Account(Base):
     __tablename__ = "accounts"
 
     id = Column(String, primary_key=True, default=generate_id)
+    owner_id = Column(String)
     provider = Column(String)
     currency = Column(String)
-    balance = Column(Float, default=0.0)
+
+    # ⚠️ NOT SOURCE OF TRUTH ANYMORE
+    balance = Column(Float, default=0.0)   # cached / derived
+    reserved = Column(Float, default=0.0)
+
+    account_type = Column(String, default="USER")  # USER / SETTLEMENT / SYSTEM
 
 
 class Transaction(Base):
     __tablename__ = "transactions"
 
-    id = Column(String, primary_key=True, default=generate_id)
+    id = Column(String, primary_key=True)
     sender_id = Column(String)
     receiver_id = Column(String)
+
     amount = Column(Float)
     currency = Column(String)
 
-    status = Column(String, default="INITIATED")
-    idempotency_key = Column(String, unique=True)
+    status = Column(String)
+    route = Column(String)
+    rail_reference = Column(String)
 
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
 
 
-class LedgerEntry(Base):
-    __tablename__ = "ledger_entries"
+class JournalEntry(Base):
+    __tablename__ = "journal_entries"
 
     id = Column(String, primary_key=True, default=generate_id)
     tx_id = Column(String)
 
     account_id = Column(String)
-    debit = Column(Float, default=0.0)
-    credit = Column(Float, default=0.0)
-
+    entry_type = Column(String)  # DEBIT / CREDIT
+    amount = Column(Float)
     currency = Column(String)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
