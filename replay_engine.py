@@ -16,6 +16,7 @@ def replay_failed(limit=10):
     print("🔁 Replaying failed transactions...")
 
     for _ in range(limit):
+
         tx = r.rpop(DEAD_LETTER)
 
         if not tx:
@@ -23,6 +24,9 @@ def replay_failed(limit=10):
 
         tx = json.loads(tx)
 
-        print(f"Replaying TX: {tx.get('tx_id')}")
+        if not tx.get("tx_id"):
+            continue
+
+        print(f"Replaying TX: {tx['tx_id']}")
 
         r.lpush(QUEUE_NAME, json.dumps(tx))

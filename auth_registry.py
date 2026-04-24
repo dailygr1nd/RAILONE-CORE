@@ -1,13 +1,6 @@
 # ==============================
-# auth_registry.py
+# auth_registry.py (PROD READY BASE)
 # ==============================
-
-"""
-In production:
-- move to DB
-- rotate keys
-- add permissions/scopes
-"""
 
 INSTITUTIONS = {
     "bank_ke": {
@@ -28,8 +21,27 @@ INSTITUTIONS = {
 }
 
 
+# --------------------------------
+# LOOKUP BY API KEY
+# --------------------------------
 def get_institution_by_key(api_key: str):
     for inst, data in INSTITUTIONS.items():
         if data["api_key"] == api_key:
             return inst, data
     return None, None
+
+
+# --------------------------------
+# GET SECRET
+# --------------------------------
+def get_secret(api_key: str):
+    _, data = get_institution_by_key(api_key)
+    return data["api_secret"] if data else None
+
+
+# --------------------------------
+# GET RATE LIMIT
+# --------------------------------
+def get_rate_limit(api_key: str):
+    _, data = get_institution_by_key(api_key)
+    return data["rate_limit_per_min"] if data else 0

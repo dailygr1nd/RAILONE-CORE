@@ -1,41 +1,43 @@
 # ==============================
-# transaction_engine.py
+# transaction_engine.py (FINAL CLEAN)
 # ==============================
 
 from datetime import datetime, UTC
 from uuid import uuid4
-import base64
 
-from corridor_pricing_engine import calculate_pricing
-from corridor_engine import build_corridor
 from audit import log_event
-
-from token_factory import TokenFactory
 from execution_queue import enqueue_tx, store_tx
 
-from fraud_engine import run_fraud_checks
-from liquidity_engine import check_liquidity
+from balance_engine import reserve_funds, release_funds
+from smart_router import choose_best_route
+
+from fx_engine import convert
+from corridor_fx_model import get_market_rate
+from profit_engine import calculate_profit
+
+from revenue_db import record_revenue
+
+from ledger.db import SessionLocal
 
 
 # --------------------------------
 # HELPERS
 # --------------------------------
-def extract_institution(account_id: str) -> str:
-    return account_id.split("-")[0]
-
-
-def generate_tx_id(sender_account: str) -> str:
-    prefix = sender_account.split("-")[0]
+def generate_tx_id(account):
+    prefix = account.split("-")[0]
     return f"{prefix}-RN-{uuid4().hex[:6].upper()}"
 
 
-def encode_bytes(b: bytes) -> str:
-    return base64.b64encode(b).decode("utf-8")
-
-
-def fail(tx: dict, reason: str):
+def fail(tx, reason):
     tx["status"] = "FAILED"
     tx["reason"] = reason
+
+    session = SessionLocal()
+    try:
+        release_funds(session, tx["sender_account"], tx["gross_amount"])
+        session.commit()
+    finally:
+        session.close()
 
     store_tx(tx)
     log_event("TX_FAILED", tx)
@@ -44,7 +46,7 @@ def fail(tx: dict, reason: str):
 
 
 # --------------------------------
-# MAIN ENTRY
+# MAIN
 # --------------------------------
 def initiate_transaction(
     sender_account,
@@ -52,8 +54,11 @@ def initiate_transaction(
     amount,
     sender_currency,
     receiver_currency,
-    webhook_url=None
+    quote=None,
+    webhook_url=None,
+    idempotency_key=None
 ):
+
     tx = {
         "tx_id": generate_tx_id(sender_account),
         "timestamp": datetime.now(UTC).isoformat(),
@@ -61,122 +66,96 @@ def initiate_transaction(
         "receiver_account": receiver_account,
         "amount": amount,
         "gross_amount": amount,
-        "net_amount": None,
-        "fees": 0,
         "currency_from": sender_currency,
         "currency_to": receiver_currency,
         "status": "INITIATED",
-        "route_result": None,
-        "reason": None,
-        "webhook_url": webhook_url,
-        "attempts": 0,
-        "max_attempts": 3
+        "webhook_url": webhook_url
     }
 
     log_event("TX_INITIATED", tx)
 
-    # --------------------------------
-    # VALIDATION
-    # --------------------------------
     if sender_account == receiver_account:
         return fail(tx, "SAME_ACCOUNT")
 
     if amount <= 0:
         return fail(tx, "INVALID_AMOUNT")
 
-    # --------------------------------
-    # INSTITUTION CONTEXT
-    # --------------------------------
-    sender_inst = extract_institution(sender_account)
-    receiver_inst = extract_institution(receiver_account)
+    session = SessionLocal()
 
-    # --------------------------------
-    # TOKENS (JSON SAFE)
-    # --------------------------------
-    etk_s, sig_s, payload_s = TokenFactory.generate_etk_s(
-        sender_account, amount, sender_inst
-    )
+    try:
+        # -----------------------------
+        # RESERVE FUNDS
+        # -----------------------------
+        ok, reason = reserve_funds(session, sender_account, amount)
 
-    etk_r, sig_r, payload_r = TokenFactory.generate_etk_r(
-        etk_s, receiver_account, receiver_inst
-    )
+        if not ok:
+            return fail(tx, reason)
 
-    rtt, sig_rtt, payload_rtt = TokenFactory.generate_rtt(
-        etk_s, etk_r, tx["tx_id"], sender_inst
-    )
+        session.commit()
 
-    tx.update({
-        "etk_s": etk_s,
-        "etk_r": etk_r,
-        "rtt": rtt,
-        "payload_s": payload_s,
-        "payload_r": payload_r,
-        "payload_rtt": payload_rtt,
-        "signatures": {
-            "etk_s": encode_bytes(sig_s),
-            "etk_r": encode_bytes(sig_r),
-            "rtt": encode_bytes(sig_rtt)
-        }
-    })
+        # -----------------------------
+        # ROUTE
+        # -----------------------------
+        route = choose_best_route(tx, session)
 
-    log_event("TOKENS_GENERATED", tx)
+        if not route:
+            return fail(tx, "NO_ROUTE_AVAILABLE")
 
-    # --------------------------------
-    # ROUTING
-    # --------------------------------
-    route = build_corridor(
-        sender_account,
-        receiver_account,
-        amount,
-        sender_currency,
-        receiver_currency
-    )
+        tx["route_result"] = route
 
-    tx["route_result"] = route
-    best = route.get("best_route", {})
+        # -----------------------------
+        # LOCAL vs FX
+        # -----------------------------
+        if route["type"] == "LOCAL":
 
-    log_event("ROUTE_SELECTED", tx)
+            net_amount = amount
+            fx_rate = 1.0
+            market_rate = 1.0
+            profit = 0
 
-    # --------------------------------
-    # PRICING
-    # --------------------------------
-    pricing = calculate_pricing(
-        amount=amount,
-        from_ccy=sender_currency,
-        to_ccy=receiver_currency,
-        route_type=best.get("type", "SMOVE"),
-        fx_rate=best.get("fx_rate", 1.0)
-    )
+        else:
+            converted, fx_rate = convert(
+                amount,
+                sender_currency,
+                receiver_currency,
+                session
+            )
 
-    tx["net_amount"] = pricing["net_amount"]
-    tx["fees"] = pricing["total_fee"]
+            market_rate = get_market_rate(sender_currency, receiver_currency)
 
-    if tx["net_amount"] <= 0:
-        return fail(tx, "INVALID_FEES")
+            net_amount = converted
 
-    log_event("PRICING_COMPUTED", tx)
+            profit = calculate_profit({
+                "gross_amount": amount,
+                "net_amount": net_amount,
+                "fx_rate": fx_rate,
+                "market_rate": market_rate
+            })["total_profit"]
 
-    # --------------------------------
-    # FRAUD
-    # --------------------------------
-    ok, reason = run_fraud_checks(sender_account, amount)
-    if not ok:
-        return fail(tx, f"FRAUD_BLOCKED: {reason}")
+        # -----------------------------
+        # APPLY QUOTE (FINAL TRUTH)
+        # -----------------------------
+        if quote:
+            net_amount = quote["receive_amount"]
+            fee = quote["fee"]
+            profit = quote["profit"]
+        else:
+            fee = 0
 
-    # --------------------------------
-    # LIQUIDITY
-    # --------------------------------
-    ok, reason = ok, reason = check_liquidity(
-    route=route,
-    amount=tx["net_amount"]
-)
+        tx["net_amount"] = net_amount
+        tx["fx_rate"] = fx_rate
+        tx["market_rate"] = market_rate
+        tx["fee"] = fee
+        tx["profit"] = profit
 
-    if not ok:
-        return fail(tx, f"LIQUIDITY_ERROR: {reason}")
+        log_event("PRICING_COMPUTED", tx)
 
-    # --------------------------------
-    # ASYNC EXECUTION
-    # --------------------------------
+    finally:
+        session.close()
+
+    # -----------------------------
+    # ENQUEUE
+    # -----------------------------
     tx["status"] = "PENDING"
 
     store_tx(tx)
@@ -184,12 +163,17 @@ def initiate_transaction(
 
     log_event("TX_ENQUEUED", tx)
 
+    # -----------------------------
+    # RECORD REVENUE
+    # -----------------------------
+    record_revenue(
+        tx_id=tx["tx_id"],
+        amount=profit,
+        currency=sender_currency,
+        route=tx["route_result"]["type"]
+    )
+
     return {
         "tx_id": tx["tx_id"],
-        "status": "PENDING",
-        "estimated_settlement": {
-            "type": "RANGE",
-            "min_minutes": 2,
-            "max_minutes": 180
-        }
+        "status": "PENDING"
     }

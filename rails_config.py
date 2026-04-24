@@ -1,24 +1,26 @@
 # ==============================
-# rails_config.py
+# rail_config.py
 # ==============================
 
-RAIL_CAPABILITIES = {
-    "MPESA": ["KES", "TZS"],
-    "AIRTEL": ["KES", "UGX", "TZS"],
-    "BANK_KE": ["KES"],
-    "BANK_UG": ["UGX"],
-    "BANK_TZ": ["TZS"],
-    "SMOVE": ["KES", "UGX", "TZS", "USD", "GBP", "NGN", "ZAR", "EGP"]
+RAILS = {
+    "BANK_KE": {
+        "currency": "KES",
+        "settlement_account": "SETTLEMENT_BANK_KE_KES"
+    },
+    "BANK_TZ": {
+        "currency": "TZS",
+        "settlement_account": "SETTLEMENT_BANK_TZ_TZS"
+    },
+    "BANK_UG": {
+        "currency": "UGX",
+        "settlement_account": "SETTLEMENT_BANK_UG_UGX"
+    },
+    "MPESA": {
+        "currency": "KES",
+        "settlement_account": "SETTLEMENT_MPESA_KES"
+    },
+    "SMOVE": {
+        "currency": "MULTI",
+        "settlement_account": "SETTLEMENT_SMOVE"
+    }
 }
-
-
-def supports_currency(rail: str, currency: str) -> bool:
-    return currency in RAIL_CAPABILITIES.get(rail, [])
-
-
-def get_rail(account_id: str) -> str:
-    return account_id.split("-")[0]
-
-
-def get_currency(account_id: str) -> str:
-    return account_id.split("-")[-1]

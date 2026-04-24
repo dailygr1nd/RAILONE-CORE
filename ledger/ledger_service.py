@@ -1,18 +1,24 @@
 # ==============================
-# ledger_service.py (FINAL CLEAN)
+# ledger/ledger_service.py (PRO)
 # ==============================
 
 from datetime import datetime
-from decimal import Decimal
+from uuid import uuid4
 
-from ledger.models import JournalEntry, Account
+from ledger.models import JournalEntry
+from balance_engine import finalize_debit, credit_funds
+
+from rails_config import RAILS
+from liquidity_pools import POOLS
 
 
 # --------------------------------
-# CORE POSTING FUNCTION
+# INTERNAL POST
 # --------------------------------
 def _post(session, tx_id, account_id, amount, entry_type, currency):
+
     entry = JournalEntry(
+        id=str(uuid4()),
         tx_id=tx_id,
         account_id=account_id,
         amount=float(amount),
@@ -20,116 +26,100 @@ def _post(session, tx_id, account_id, amount, entry_type, currency):
         currency=currency,
         created_at=datetime.utcnow()
     )
+
     session.add(entry)
 
 
 # --------------------------------
-# BALANCE UPDATE (CACHE ONLY)
+# APPLY TRANSACTION (MULTI-LEG)
 # --------------------------------
-def _apply_balance_delta(session, account_id, delta):
-    acc = session.query(Account).filter_by(id=account_id).first()
-
-    if not acc:
-        acc = Account(id=account_id, balance=0.0)
-        session.add(acc)
-
-    acc.balance += float(delta)
-
-
-# --------------------------------
-# APPLY TRANSACTION (DOUBLE ENTRY)
-# --------------------------------
-def apply_transaction(session, tx: dict):
+def apply_transaction(session, tx):
 
     tx_id = tx["tx_id"]
-    route = tx["route_result"]
 
-    if not route or not route.get("steps"):
-        raise ValueError("INVALID_ROUTE")
+    sender = tx["sender_account"]
+    receiver = tx["receiver_account"]
 
-    fx_rate = route.get("fx_rate", 1.0)
+    sender_inst = sender.split("-")[0]
+    receiver_inst = receiver.split("-")[0]
 
-    amount = float(tx["gross_amount"])
+    sender_ccy = tx["currency_from"]
+    receiver_ccy = tx["currency_to"]
 
-    for step in route["steps"]:
-
-        from_acc = step["from"]
-        to_acc = step["to"]
-        action = step["action"]
-
-        from_ccy = from_acc.split("-")[-1]
-        to_ccy = to_acc.split("-")[-1]
-
-        # --------------------------------
-        # TRANSFER LEG
-        # --------------------------------
-        if action == "TRANSFER":
-
-            _post(session, tx_id, from_acc, amount, "DEBIT", from_ccy)
-            _post(session, tx_id, to_acc, amount, "CREDIT", to_ccy)
-
-            _apply_balance_delta(session, from_acc, -amount)
-            _apply_balance_delta(session, to_acc, amount)
-
-        # --------------------------------
-        # FX LEG
-        # --------------------------------
-        elif action == "FX":
-
-            converted = round(amount * fx_rate, 2)
-
-            fx_pool_from = f"FX_POOL-{from_ccy}"
-            fx_pool_to = f"FX_POOL-{to_ccy}"
-
-            # debit source pool
-            _post(session, tx_id, fx_pool_from, amount, "DEBIT", from_ccy)
-
-            # credit destination pool
-            _post(session, tx_id, fx_pool_to, converted, "CREDIT", to_ccy)
-
-            _apply_balance_delta(session, fx_pool_from, -amount)
-            _apply_balance_delta(session, fx_pool_to, converted)
-
-            # update working amount for next leg
-            amount = converted
-
-
-            revenue_account = "RAILONE_REVENUE"
-
-    # --------------------------------
-    # OPTIONAL: PLATFORM FEE
-    # --------------------------------
-    # --------------------------------
-# PLATFORM FEE
-# --------------------------------
+    gross = float(tx["gross_amount"])
+    net = float(tx["net_amount"])
     fee = float(tx.get("fees", 0))
 
-    if fee > 0:
-     sender = tx["sender_account"]
     revenue_account = "RAILONE_REVENUE"
 
-    currency = sender.split("-")[-1]
+    sender_settlement = RAILS[sender_inst]["settlement_account"]
+    receiver_settlement = RAILS[receiver_inst]["settlement_account"]
 
-    _post(session, tx_id, sender, fee, "DEBIT", currency)
-    _post(session, tx_id, revenue_account, fee, "CREDIT", currency)
+    pool_from = POOLS[sender_ccy]
+    pool_to = POOLS[receiver_ccy]
 
-    _apply_balance_delta(session, sender, -fee)
-    _apply_balance_delta(session, revenue_account, fee)
+    # =====================================
+    # LEG 1: USER → SENDER SETTLEMENT
+    # =====================================
+    _post(session, tx_id, sender, gross, "DEBIT", sender_ccy)
+    _post(session, tx_id, sender_settlement, gross, "CREDIT", sender_ccy)
+
+    # =====================================
+    # LEG 2: SETTLEMENT → SOURCE POOL
+    # =====================================
+    _post(session, tx_id, sender_settlement, gross, "DEBIT", sender_ccy)
+    _post(session, tx_id, pool_from, gross, "CREDIT", sender_ccy)
+
+    # =====================================
+    # LEG 3: FX SWAP (POOL → POOL)
+    # =====================================
+    _post(session, tx_id, pool_from, gross, "DEBIT", sender_ccy)
+    _post(session, tx_id, pool_to, net, "CREDIT", receiver_ccy)
+
+    # =====================================
+    # LEG 4: DESTINATION SETTLEMENT
+    # =====================================
+    _post(session, tx_id, pool_to, net, "DEBIT", receiver_ccy)
+    _post(session, tx_id, receiver_settlement, net, "CREDIT", receiver_ccy)
+
+    # =====================================
+    # LEG 5: RECEIVER CREDIT
+    # =====================================
+    _post(session, tx_id, receiver_settlement, net, "DEBIT", receiver_ccy)
+    _post(session, tx_id, receiver, net, "CREDIT", receiver_ccy)
+
+    # =====================================
+    # FEES (SOURCE SIDE)
+    # =====================================
+    if fee > 0:
+        _post(session, tx_id, sender, fee, "DEBIT", sender_ccy)
+        _post(session, tx_id, revenue_account, fee, "CREDIT", sender_ccy)
+
+    # =====================================
+    # BALANCE FINALIZATION
+    # =====================================
+    finalize_debit(session, sender, gross + fee)
+    credit_funds(session, receiver, net)
+
+    if fee > 0:
+        credit_funds(session, revenue_account, fee)
 
 
 # --------------------------------
-# GENESIS (ONLY FUNDING ENTRY)
+# GENESIS FUNDING
 # --------------------------------
-def apply_genesis(session, account_id: str, amount: float):
+def apply_genesis(session, account_id, amount):
 
     currency = account_id.split("-")[-1]
 
+    exists = session.query(JournalEntry).filter_by(
+        tx_id="GENESIS",
+        account_id=account_id
+    ).first()
+
+    if exists:
+        return
+
     _post(session, "GENESIS", account_id, amount, "CREDIT", currency)
 
-    acc = session.query(Account).filter_by(id=account_id).first()
-
-    if not acc:
-        acc = Account(id=account_id, balance=0.0)
-        session.add(acc)
-
-    acc.balance += float(amount)
+    credit_funds(session, account_id, float(amount))

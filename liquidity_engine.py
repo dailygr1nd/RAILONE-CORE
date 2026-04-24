@@ -1,46 +1,34 @@
 # ==============================
-# liquidity_engine.py (ROUTE-AWARE)
+# liquidity_engine.py (UPGRADED)
 # ==============================
 
-from rails_config import get_rail
+from ledger.models import Account
+from liquidity_pools import POOLS
 
 
-def check_liquidity(route, amount):
+LOW_THRESHOLD = 0.2   # 20%
+CRITICAL_THRESHOLD = 0.1  # 10%
 
-    if not route or route.get("type") == "FAILED":
-        return False, "NO_ROUTE"
 
-    steps = route.get("steps", [])
+def get_pool_balance(session, currency):
+    pool = POOLS[currency]
+    acc = session.query(Account).filter_by(id=pool).first()
+    return acc.balance if acc else 0
 
-    # --------------------------------
-    # BASIC RULES
-    # --------------------------------
-    for step in steps:
 
-        action = step.get("action")
-        from_acc = step.get("from")
-        to_acc = step.get("to")
+def get_liquidity_pressure(session, currency):
 
-        from_rail = get_rail(from_acc)
-        to_rail = get_rail(to_acc)
+    balance = get_pool_balance(session, currency)
 
-        # --------------------------------
-        # TRANSFER CHECK
-        # --------------------------------
-        if action == "TRANSFER":
+    # Assume bootstrap = 5M (you can store this later)
+    capacity = 5_000_000
 
-            # For now, assume all rails are liquid
-            continue
+    ratio = balance / capacity
 
-        # --------------------------------
-        # FX CHECK (SMOVE must handle it)
-        # --------------------------------
-        elif action == "FX":
+    if ratio < CRITICAL_THRESHOLD:
+        return "CRITICAL"
 
-            if from_rail != "SMOVE":
-                return False, "INVALID_FX_ROUTE"
+    elif ratio < LOW_THRESHOLD:
+        return "LOW"
 
-            # FX pools will handle liquidity (we already funded them)
-            continue
-
-    return True, None
+    return "NORMAL"

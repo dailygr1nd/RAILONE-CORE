@@ -1,40 +1,32 @@
 # ==============================
-# mainswitch.py (MULTI-TENANT)
+# mainswitch.py (CLEAN + SAFE)
 # ==============================
 
 from fastapi import FastAPI, Request, HTTPException
-import hashlib
-import hmac
 import json
 
 from transaction_engine import initiate_transaction
 from execution_queue import get_tx
-from idempotency_store import get_response, store_response
 
-from auth_registry import get_institution_by_key
+from idempotency_store import check_idempotency, store_idempotency
+
+from auth_registry import get_institution_by_key, get_rate_limit
+from auth_engine import verify_request
 from rate_limiter import check_rate_limit
+
+from request_logger import log_request
+from iso_adapter import build_pacs008
 
 app = FastAPI()
 
 
 # --------------------------------
-# SIGNATURE VERIFY (PER-INSTITUTION)
+# UTIL
 # --------------------------------
-def verify_signature(payload: dict, signature: str, secret: str):
-
-    if not signature:
-        raise HTTPException(status_code=401, detail="MISSING_SIGNATURE")
-
-    payload_str = json.dumps(payload, sort_keys=True)
-
-    computed = hmac.new(
-        secret.encode(),
-        payload_str.encode(),
-        hashlib.sha256
-    ).hexdigest()
-
-    if not hmac.compare_digest(computed, signature):
-        raise HTTPException(status_code=401, detail="INVALID_SIGNATURE")
+def extract_api_key(header: str):
+    if not header:
+        return None
+    return header.replace("Bearer ", "").strip()
 
 
 # --------------------------------
@@ -46,49 +38,65 @@ async def create_transfer(request: Request):
     body = await request.json()
     headers = request.headers
 
-    api_key = headers.get("Authorization")
+    api_key = extract_api_key(headers.get("Authorization"))
     signature = headers.get("X-RailOne-Signature")
+    timestamp = headers.get("X-RailOne-Timestamp")
     idem_key = headers.get("Idempotency-Key")
 
+    # --------------------------------
+    # VALIDATION
+    # --------------------------------
     if not api_key:
-        raise HTTPException(status_code=401, detail="MISSING_API_KEY")
+        raise HTTPException(401, "MISSING_API_KEY")
+
+    if not signature or not timestamp:
+        raise HTTPException(401, "MISSING_SIGNATURE_OR_TIMESTAMP")
 
     if not idem_key:
-        raise HTTPException(status_code=400, detail="MISSING_IDEMPOTENCY_KEY")
-
-    # --------------------------------
-    # AUTHENTICATION
-    # --------------------------------
-    inst, data = get_institution_by_key(api_key.replace("Bearer ", ""))
-
-    if not inst:
-        raise HTTPException(status_code=401, detail="INVALID_API_KEY")
-
-    # --------------------------------
-    # RATE LIMIT
-    # --------------------------------
-    allowed = check_rate_limit(
-        api_key=inst,
-        limit=data["rate_limit_per_min"]
-    )
-
-    if not allowed:
-        raise HTTPException(status_code=429, detail="RATE_LIMIT_EXCEEDED")
+        raise HTTPException(400, "MISSING_IDEMPOTENCY_KEY")
 
     # --------------------------------
     # IDEMPOTENCY
     # --------------------------------
-    cached = get_response(idem_key)
+    cached = check_idempotency(idem_key)
     if cached:
         return cached
 
     # --------------------------------
-    # SIGNATURE VERIFY
+    # AUTH
     # --------------------------------
-    verify_signature(body, signature, data["api_secret"])
+    inst, data = get_institution_by_key(api_key)
+
+    if not inst:
+        raise HTTPException(401, "INVALID_API_KEY")
+
+    payload_str = json.dumps(body, sort_keys=True)
+
+    ok, reason = verify_request(
+        api_key=api_key,
+        signature=signature,
+        payload=payload_str,
+        timestamp=timestamp
+    )
+
+    if not ok:
+        raise HTTPException(401, reason)
 
     # --------------------------------
-    # VALIDATION
+    # RATE LIMIT
+    # --------------------------------
+    limit = get_rate_limit(api_key)
+
+    if not check_rate_limit(api_key, limit):
+        raise HTTPException(429, "RATE_LIMIT_EXCEEDED")
+
+    # --------------------------------
+    # LOG REQUEST
+    # --------------------------------
+    log_request(api_key, "/v1/transfers", body)
+
+    # --------------------------------
+    # REQUIRED FIELDS
     # --------------------------------
     required = [
         "sender_account",
@@ -100,10 +108,7 @@ async def create_transfer(request: Request):
 
     for field in required:
         if field not in body:
-            raise HTTPException(
-                status_code=400,
-                detail=f"MISSING_{field}"
-            )
+            raise HTTPException(400, f"MISSING_{field}")
 
     # --------------------------------
     # EXECUTE
@@ -114,10 +119,14 @@ async def create_transfer(request: Request):
         amount=body["amount"],
         sender_currency=body["currency_from"],
         receiver_currency=body["currency_to"],
-        webhook_url=body.get("webhook_url")
+        webhook_url=body.get("webhook_url"),
+        idempotency_key=idem_key
     )
 
-    store_response(idem_key, result)
+    # --------------------------------
+    # STORE IDEMPOTENCY
+    # --------------------------------
+    store_idempotency(idem_key, result)
 
     return result
 
@@ -131,16 +140,20 @@ def get_transaction(tx_id: str):
     tx = get_tx(tx_id)
 
     if not tx:
-        raise HTTPException(status_code=404, detail="TX_NOT_FOUND")
+        raise HTTPException(404, "TX_NOT_FOUND")
 
     return tx
 
-from iso_adapter import build_pacs008
 
+# --------------------------------
+# ISO EXPORT
+# --------------------------------
 @app.get("/v1/iso/pacs008/{tx_id}")
 def get_iso(tx_id: str):
+
     tx = get_tx(tx_id)
+
     if not tx:
-        raise HTTPException(status_code=404, detail="TX_NOT_FOUND")
+        raise HTTPException(404, "TX_NOT_FOUND")
 
     return {"pacs008": build_pacs008(tx)}

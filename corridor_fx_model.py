@@ -1,52 +1,45 @@
-# corridor_fx_model.py
+# ==============================
+# corridor_fx_model.py (MARKET DATA)
+# ==============================
 
-FX_RATES = {
-    # Format: "FROM->TO": rate (FROM per 1 TO)
+"""
+This file provides RAW market FX rates.
 
-    "UGX->KES": 160,
-    "KES->UGX": 1 / 160,
+IMPORTANT:
+- No spreads here
+- No business logic
+- No fallbacks that hide errors
+"""
 
-    "TZS->KES": 18,
-    "KES->TZS": 1 / 18,
+FX_MARKET = {
+    ("UGX", "KES"): 1 / 160,
+    ("KES", "UGX"): 160,
 
-    "TZS->UGX": 60,
-    "UGX->TZS": 1 / 60,
+    ("TZS", "KES"): 1 / 18,
+    ("KES", "TZS"): 18,
 
-    "USD->KES": 130,
-    "KES->USD": 1 / 130,
+    ("TZS", "UGX"): 1 / 60,
+    ("UGX", "TZS"): 60,
 
-    "USD->UGX": 3800,
-    "UGX->USD": 1 / 3800,
+    ("USD", "KES"): 130,
+    ("KES", "USD"): 1 / 130,
 
-    "USD->TZS": 2500,
-    "TZS->USD": 1 / 2500,
+    ("USD", "UGX"): 3800,
+    ("UGX", "USD"): 1 / 3800,
+
+    ("USD", "TZS"): 2500,
+    ("TZS", "USD"): 1 / 2500,
 }
 
 
-def get_fx_rate(from_ccy, to_ccy):
-    key = f"{from_ccy}->{to_ccy}"
+def get_market_rate(from_ccy: str, to_ccy: str):
 
-    if key in FX_RATES:
-        return FX_RATES[key]
+    if from_ccy == to_ccy:
+        return 1.0
 
-    # fallback (avoid crash, but visible)
-    return 1
+    rate = FX_MARKET.get((from_ccy, to_ccy))
 
+    if rate is None:
+        raise Exception(f"FX_RATE_NOT_FOUND: {from_ccy}->{to_ccy}")
 
-def quote_conversion(amount, from_ccy, to_ccy):
-    """
-    Deterministic FX conversion
-
-    RULE:
-    fx_rate = source per 1 target
-    converted_amount = amount / fx_rate
-    """
-
-    fx_rate = get_fx_rate(from_ccy, to_ccy)
-
-    converted_amount = round(amount / fx_rate, 2)
-
-    return {
-        "fx_rate": fx_rate,
-        "converted_amount": converted_amount
-    }
+    return rate
