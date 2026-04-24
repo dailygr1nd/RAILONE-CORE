@@ -50,6 +50,6 @@ class JournalEntry(Base):
     account_id = Column(String)
     entry_type = Column(String)  # DEBIT / CREDIT
     amount = Column(Float)
-    currency = Column(String)
+    currency = Column(String, nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)

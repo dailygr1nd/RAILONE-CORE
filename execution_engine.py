@@ -1,94 +1,34 @@
 # ==============================
-# execution_engine.py
+# execution_engine.py (FIXED)
 # ==============================
 
 from ledger.db import SessionLocal
-from ledger.ledger_service import apply_multi_leg_entry
-
-from execution_queue import store_tx
-from retry_engine import (
-    get_retry_candidates,
-    schedule_retry
-)
-
-from webhook_dispatcher import dispatch_event
+from ledger.ledger_service import apply_transaction
 
 
-def process_execution(tx: dict):
+def process_execution(tx):
 
     session = SessionLocal()
 
-    failed_rails = []
-    attempt = tx.get("attempts", 0)
-
-    route = tx.get("route_result", {})
-
     try:
-        while attempt < tx.get("max_attempts", 3):
+        print(f"⚙️ Executing TX {tx['tx_id']}")
 
-            if attempt == 0:
-                current = route.get("best_route", {})
-            else:
-                options = get_retry_candidates(route, failed_rails)
-                if not options:
-                    break
-                current = options[0]
+        apply_transaction(session, tx)
 
-            rail = current.get("rail", "SMOVE")
+        tx["status"] = "SETTLED"
 
-            print(f"⚙️ Attempt {attempt+1} via {rail}")
+        session.commit()
 
-            try:
-                # --------------------------------
-                # LEDGER EXECUTION
-                # --------------------------------
-                apply_multi_leg_entry(
-                    session=session,
-                    tx=tx,
-                    route_type=rail
-                )
+        print(f"✅ TX {tx['tx_id']} SETTLED")
 
-                session.commit()
+        return True
 
-                # --------------------------------
-                # DEBIT EVENT
-                # --------------------------------
-                dispatch_event(tx, "TX_DEBITED")
+    except Exception as e:
+        session.rollback()
 
-                # --------------------------------
-                # FINALIZE
-                # --------------------------------
-                tx["status"] = "SETTLED"
-                tx["settled_via"] = rail
-
-                store_tx(tx)
-
-                dispatch_event(tx, "TX_CREDITED")
-
-                print(f"✅ TX {tx['tx_id']} SETTLED")
-
-                return True
-
-            except Exception as e:
-                session.rollback()
-
-                print(f"❌ Attempt failed: {str(e)}")
-
-                failed_rails.append(rail)
-                attempt += 1
-                tx["attempts"] = attempt
-
-        # --------------------------------
-        # FAILURE
-        # --------------------------------
         tx["status"] = "FAILED"
-        tx["reason"] = "ALL_ROUTES_FAILED"
 
-        store_tx(tx)
-
-        dispatch_event(tx, "TX_FAILED")
-
-        schedule_retry(tx)
+        print(f"❌ TX FAILED: {str(e)}")
 
         return False
 

@@ -1,86 +1,97 @@
+# ==============================
+# audit.py (FILE-BASED + HASH CHAIN)
+# ==============================
+
 import json
 import hashlib
-from pathlib import Path
-from datetime import datetime, UTC
-from threading import Lock
-from typing import Dict, List
+import os
+from datetime import datetime
 
-AUDIT_PATH = Path("audit_log.json")
-AUDIT_LOCK = Lock()
+LOG_FILE = "railone_audit.log"
 
 
-def _load_audit() -> List[Dict]:
-    if not AUDIT_PATH.exists():
-        return []
+# --------------------------------
+# LOAD LAST HASH
+# --------------------------------
+def _get_last_hash():
+    if not os.path.exists(LOG_FILE):
+        return "GENESIS"
 
     try:
-        with AUDIT_PATH.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except json.JSONDecodeError:
-        return []
+        with open(LOG_FILE, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            if f.tell() == 0:
+                return "GENESIS"
+
+            # read last line
+            f.seek(-2, os.SEEK_END)
+            while f.read(1) != b"\n":
+                f.seek(-2, os.SEEK_CUR)
+
+            last_line = f.readline().decode()
+            last_entry = json.loads(last_line)
+
+            return last_entry.get("hash", "GENESIS")
+
+    except Exception:
+        return "GENESIS"
 
 
-def _save_audit(entries: List[Dict]):
-    with AUDIT_PATH.open("w", encoding="utf-8") as f:
-        json.dump(entries, f, indent=2)
+# --------------------------------
+# SANITIZE PAYLOAD
+# --------------------------------
+def _sanitize(payload: dict):
+    clean = {}
+
+    for k, v in payload.items():
+
+        # remove heavy internal fields
+        if k in ["payload_s", "payload_r", "payload_rtt"]:
+            continue
+
+        # signatures → mask
+        if k == "signatures":
+            clean[k] = {kk: "SIGNED" for kk in v}
+            continue
+
+        # bytes → convert to string
+        if isinstance(v, (bytes, bytearray)):
+            clean[k] = v.hex()
+            continue
+
+        clean[k] = v
+
+    return clean
 
 
-def _generate_hash(payload: Dict, previous_hash: str = "") -> str:
-    raw = json.dumps(payload, sort_keys=True) + previous_hash
+# --------------------------------
+# HASH GENERATION
+# --------------------------------
+def _generate_hash(entry, previous_hash):
+    raw = json.dumps(entry, sort_keys=True) + previous_hash
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def log_event(event_type: str, payload: Dict):
-    """
-    Immutable audit log entry with hash chaining.
-    Suitable for regulator replay and forensic tracing.
-    """
-    with AUDIT_LOCK:
-        logs = _load_audit()
+# --------------------------------
+# MAIN LOGGER
+# --------------------------------
+def log_event(event_type: str, payload: dict):
 
-        previous_hash = logs[-1]["hash"] if logs else ""
+    prev_hash = _get_last_hash()
 
-        entry = {
-            "timestamp": datetime.now(UTC).isoformat(),
-            "event": event_type,
-            "payload": payload,
-        }
+    entry = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "event": event_type,
+        "tx_id": payload.get("tx_id"),
+        "data": _sanitize(payload),
+        "previous_hash": prev_hash
+    }
 
-        entry["hash"] = _generate_hash(entry, previous_hash)
-        entry["previous_hash"] = previous_hash
+    entry["hash"] = _generate_hash(entry, prev_hash)
 
-        logs.append(entry)
-        _save_audit(logs)
+    # append to file
+    with open(LOG_FILE, "a") as f:
+        f.write(json.dumps(entry) + "\n")
 
-
-def get_audit_trail(tx_id: str):
-    logs = _load_audit()
-
-    return [
-        log for log in logs
-        if log.get("payload", {}).get("tx_id") == tx_id
-    ]
-
-
-def verify_chain() -> bool:
-    logs = _load_audit()
-
-    previous_hash = ""
-
-    for entry in logs:
-        stored_hash = entry.get("hash")
-
-        payload_copy = {
-            "timestamp": entry["timestamp"],
-            "event": entry["event"],
-            "payload": entry["payload"],
-        }
-
-        expected_hash = _generate_hash(payload_copy, previous_hash)
-
-        if stored_hash != expected_hash:
-            return False
-
-        previous_hash = stored_hash
-
-    return True
+    # console output (clean)
+    print(f"📊 [{event_type}] tx={entry['tx_id']}")

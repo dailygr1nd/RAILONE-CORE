@@ -134,3 +134,13 @@ def get_transaction(tx_id: str):
         raise HTTPException(status_code=404, detail="TX_NOT_FOUND")
 
     return tx
+
+from iso_adapter import build_pacs008
+
+@app.get("/v1/iso/pacs008/{tx_id}")
+def get_iso(tx_id: str):
+    tx = get_tx(tx_id)
+    if not tx:
+        raise HTTPException(status_code=404, detail="TX_NOT_FOUND")
+
+    return {"pacs008": build_pacs008(tx)}

@@ -166,11 +166,10 @@ def initiate_transaction(
     # --------------------------------
     # LIQUIDITY
     # --------------------------------
-    ok, reason = check_liquidity(
-        route_type=best.get("rail", "SMOVE"),
-        currency=sender_currency,
-        amount=tx["net_amount"]
-    )
+    ok, reason = ok, reason = check_liquidity(
+    route=route,
+    amount=tx["net_amount"]
+)
 
     if not ok:
         return fail(tx, f"LIQUIDITY_ERROR: {reason}")

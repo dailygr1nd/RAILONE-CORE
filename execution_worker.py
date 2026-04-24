@@ -1,62 +1,32 @@
 # ==============================
-# execution_worker.py
+# execution_worker.py (FIXED)
 # ==============================
-
-import time
 
 from execution_queue import dequeue_tx, send_to_dead_letter
 from execution_engine import process_execution
-from retry_engine import process_retries
 
 
 def start_worker():
     print("🚀 Execution Worker Started")
 
-    idle_sleep = 1  # prevents CPU overuse
-
     while True:
-        tx = None  # ensure defined for exception handling
+        tx = dequeue_tx()
+
+        if not tx:
+            continue
+
+        print(f"\n📥 Picked TX {tx['tx_id']}")
 
         try:
-            # --------------------------------
-            # PROCESS RETRIES FIRST
-            # --------------------------------
-            process_retries()
+            success = process_execution(tx)
 
-            # --------------------------------
-            # FETCH NEW TX
-            # --------------------------------
-            tx = dequeue_tx()
-
-            if not tx:
-                time.sleep(idle_sleep)
-                continue
-
-            tx_id = tx.get("tx_id", "UNKNOWN")
-            print(f"\n📥 Picked TX {tx_id}")
-
-            # --------------------------------
-            # EXECUTE
-            # --------------------------------
-            process_execution(tx)
+            if not success:
+                send_to_dead_letter(tx, "EXECUTION_FAILED")
 
         except Exception as e:
-            print("❌ Worker-level failure:", str(e))
-
-            # --------------------------------
-            # SAFE DEAD LETTER
-            # --------------------------------
-            if tx:
-                try:
-                    send_to_dead_letter(tx, str(e))
-                except Exception as dlq_error:
-                    print("☠️ Dead-letter failure:", str(dlq_error))
-
-            time.sleep(2)  # prevent crash loop
+            print(f"❌ Worker-level failure: {str(e)}")
+            send_to_dead_letter(tx, str(e))
 
 
-# --------------------------------
-# ENTRY POINT
-# --------------------------------
 if __name__ == "__main__":
     start_worker()

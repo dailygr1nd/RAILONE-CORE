@@ -1,62 +1,53 @@
 # ==============================
-# retry_engine.py
+# retry_engine.py (FIXED)
 # ==============================
 
 import time
 import random
 
 
-# --------------------------------
-# RETRY POLICY
-# --------------------------------
 MAX_RETRIES = 3
-BASE_DELAY = 1  # seconds
 
 
+# --------------------------------
+# BACKOFF + JITTER
+# --------------------------------
+def sleep_with_backoff(attempt: int):
+    base = 2 ** attempt
+    jitter = random.uniform(0, 1)
+    time.sleep(base + jitter)
+
+
+# --------------------------------
+# SHOULD RETRY
+# --------------------------------
 def should_retry(attempt: int) -> bool:
     return attempt < MAX_RETRIES
 
 
 # --------------------------------
-# EXPONENTIAL BACKOFF + JITTER
+# GET RETRY ROUTES
 # --------------------------------
-def sleep_with_backoff(attempt: int):
-    delay = BASE_DELAY * (2 ** attempt)
+def get_retry_candidates(route_result, failed_rails):
 
-    # add jitter
-    jitter = random.uniform(0, 0.5)
-    delay += jitter
+    alternatives = route_result.get("alternatives", [])
 
-    print(f"⏳ Retry in {round(delay,2)}s...")
-    time.sleep(delay)
-
-
-# --------------------------------
-# ROUTE FALLBACK LOGIC
-# --------------------------------
-def get_retry_candidates(route, failed_rails):
-    """
-    Returns alternative rails excluding failed ones
-    """
-
-    candidates = route.get("candidates", [])
-
-    alternatives = [
-        r for r in candidates
-        if r["rail"] not in failed_rails
+    return [
+        r for r in alternatives
+        if r.get("rail") not in failed_rails
     ]
 
-    # sort by score descending
-    alternatives.sort(key=lambda x: x["score"], reverse=True)
-
-    return alternatives
-
 
 # --------------------------------
-# OPTIONAL: RETRY QUEUE (future)
+# NEW: SCHEDULE RETRY (ASYNC)
 # --------------------------------
-def process_retries():
+def schedule_retry(tx: dict):
     """
-    Placeholder for delayed retry queue (Redis later)
+    For now: simple log + delay placeholder
+    Later: push back into Redis queue with delay
     """
-    pass
+
+    print(f"🔁 Scheduling retry for {tx['tx_id']}")
+
+    # simulate delay (you will replace with delayed queue later)
+    sleep_with_backoff(tx.get("attempts", 1))

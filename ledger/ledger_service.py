@@ -1,192 +1,135 @@
-from .db import SessionLocal
-from .models import JournalEntry, Transaction
+# ==============================
+# ledger_service.py (FINAL CLEAN)
+# ==============================
+
+from datetime import datetime
+from decimal import Decimal
+
+from ledger.models import JournalEntry, Account
 
 
 # --------------------------------
-# SHADOW LEDGER WRITE
+# CORE POSTING FUNCTION
 # --------------------------------
-def log_transaction(tx: dict):
-    session = SessionLocal()
+def _post(session, tx_id, account_id, amount, entry_type, currency):
+    entry = JournalEntry(
+        tx_id=tx_id,
+        account_id=account_id,
+        amount=float(amount),
+        entry_type=entry_type,
+        currency=currency,
+        created_at=datetime.utcnow()
+    )
+    session.add(entry)
 
-    try:
-        # idempotency
-        existing = session.query(Transaction).filter_by(id=tx["tx_id"]).first()
-        if existing:
-            return True
 
-        sender_id = tx["sender_account"]
-        receiver_id = tx["receiver_account"]
-
-        amount = tx["amount"]
-        net_amount = tx["net_amount"]
-
-        from_ccy = tx["currency_from"]
-        to_ccy = tx["currency_to"]
-
-        # --------------------------------
-        # JOURNAL ENTRIES (REFERENCE ONLY)
-        # --------------------------------
-        entries = [
-            # sender debit
-            JournalEntry(
-                tx_id=tx["tx_id"],
-                account_id=sender_id,
-                entry_type="DEBIT",
-                amount=amount,
-                currency=from_ccy
-            ),
-
-            # receiver credit
-            JournalEntry(
-                tx_id=tx["tx_id"],
-                account_id=receiver_id,
-                entry_type="CREDIT",
-                amount=net_amount,
-                currency=to_ccy
-            )
-        ]
-
-        for e in entries:
-            session.add(e)
-
-        # --------------------------------
-        # TRANSACTION RECORD
-        # --------------------------------
-        db_tx = Transaction(
-            id=tx["tx_id"],
-            sender_id=sender_id,
-            receiver_id=receiver_id,
-            amount=amount,
-            currency=from_ccy,
-            status=tx.get("status"),
-            route=tx.get("route_result", {}).get("best_route", {}).get("rail"),
-            rail_reference=tx.get("execution", {}).get("reference")
-        )
-
-        session.add(db_tx)
-
-        session.commit()
-        return True
-
-    except Exception as e:
-        session.rollback()
-        print("LEDGER ERROR:", e)
-        return False
-
-    finally:
-        session.close()
-
-        # --------------------------------
-# MULTI-LEG SETTLEMENT ENGINE
 # --------------------------------
-from .models import JournalEntry, Account
+# BALANCE UPDATE (CACHE ONLY)
+# --------------------------------
+def _apply_balance_delta(session, account_id, delta):
+    acc = session.query(Account).filter_by(id=account_id).first()
+
+    if not acc:
+        acc = Account(id=account_id, balance=0.0)
+        session.add(acc)
+
+    acc.balance += float(delta)
 
 
-def apply_multi_leg_entry(session, tx: dict, route_type: str):
-    """
-    Handles:
-    - Direct transfers (same rail)
-    - Cross-rail settlement via settlement accounts
-    """
+# --------------------------------
+# APPLY TRANSACTION (DOUBLE ENTRY)
+# --------------------------------
+def apply_transaction(session, tx: dict):
 
-    sender_id = tx["sender_account"]
-    receiver_id = tx["receiver_account"]
-    amount = tx["net_amount"]
-    currency = tx["currency_from"]
+    tx_id = tx["tx_id"]
+    route = tx["route_result"]
 
-    # --------------------------------
-    # LOAD ACCOUNTS
-    # --------------------------------
-    sender = session.query(Account).filter_by(id=sender_id).first()
-    receiver = session.query(Account).filter_by(id=receiver_id).first()
+    if not route or not route.get("steps"):
+        raise ValueError("INVALID_ROUTE")
 
-    if not sender or not receiver:
-        raise Exception("ACCOUNT_NOT_FOUND")
+    fx_rate = route.get("fx_rate", 1.0)
 
-    # --------------------------------
-    # DETERMINE RAILS
-    # --------------------------------
-    sender_rail = sender.provider
-    receiver_rail = receiver.provider
+    amount = float(tx["gross_amount"])
 
-    # --------------------------------
-    # SAME-RAIL (simple transfer)
-    # --------------------------------
-    if sender_rail == receiver_rail:
+    for step in route["steps"]:
 
-        session.add(JournalEntry(
-            tx_id=tx["tx_id"],
-            account_id=sender_id,
-            entry_type="DEBIT",
-            amount=amount,
-            currency=currency
-        ))
+        from_acc = step["from"]
+        to_acc = step["to"]
+        action = step["action"]
 
-        session.add(JournalEntry(
-            tx_id=tx["tx_id"],
-            account_id=receiver_id,
-            entry_type="CREDIT",
-            amount=amount,
-            currency=currency
-        ))
+        from_ccy = from_acc.split("-")[-1]
+        to_ccy = to_acc.split("-")[-1]
 
-        sender.balance -= amount
-        receiver.balance += amount
+        # --------------------------------
+        # TRANSFER LEG
+        # --------------------------------
+        if action == "TRANSFER":
 
-        return
+            _post(session, tx_id, from_acc, amount, "DEBIT", from_ccy)
+            _post(session, tx_id, to_acc, amount, "CREDIT", to_ccy)
 
-    # --------------------------------
-    # CROSS-RAIL (via settlement accounts)
-    # --------------------------------
-    sender_settlement = f"SETTLEMENT-{sender_rail}-{currency}"
-    receiver_settlement = f"SETTLEMENT-{receiver_rail}-{currency}"
+            _apply_balance_delta(session, from_acc, -amount)
+            _apply_balance_delta(session, to_acc, amount)
 
-    sender_settle_acc = session.query(Account).filter_by(id=sender_settlement).first()
-    receiver_settle_acc = session.query(Account).filter_by(id=receiver_settlement).first()
+        # --------------------------------
+        # FX LEG
+        # --------------------------------
+        elif action == "FX":
 
-    if not sender_settle_acc or not receiver_settle_acc:
-        raise Exception("SETTLEMENT_ACCOUNT_MISSING")
+            converted = round(amount * fx_rate, 2)
 
-    # --------------------------------
-    # LEG 1: USER → SENDER SETTLEMENT
-    # --------------------------------
-    session.add(JournalEntry(
-        tx_id=tx["tx_id"],
-        account_id=sender_id,
-        entry_type="DEBIT",
-        amount=amount,
-        currency=currency
-    ))
+            fx_pool_from = f"FX_POOL-{from_ccy}"
+            fx_pool_to = f"FX_POOL-{to_ccy}"
 
-    session.add(JournalEntry(
-        tx_id=tx["tx_id"],
-        account_id=sender_settlement,
-        entry_type="CREDIT",
-        amount=amount,
-        currency=currency
-    ))
+            # debit source pool
+            _post(session, tx_id, fx_pool_from, amount, "DEBIT", from_ccy)
 
-    sender.balance -= amount
-    sender_settle_acc.balance += amount
+            # credit destination pool
+            _post(session, tx_id, fx_pool_to, converted, "CREDIT", to_ccy)
+
+            _apply_balance_delta(session, fx_pool_from, -amount)
+            _apply_balance_delta(session, fx_pool_to, converted)
+
+            # update working amount for next leg
+            amount = converted
+
+
+            revenue_account = "RAILONE_REVENUE"
 
     # --------------------------------
-    # LEG 2: RECEIVER SETTLEMENT → USER
+    # OPTIONAL: PLATFORM FEE
     # --------------------------------
-    session.add(JournalEntry(
-        tx_id=tx["tx_id"],
-        account_id=receiver_settlement,
-        entry_type="DEBIT",
-        amount=amount,
-        currency=currency
-    ))
+    # --------------------------------
+# PLATFORM FEE
+# --------------------------------
+    fee = float(tx.get("fees", 0))
 
-    session.add(JournalEntry(
-        tx_id=tx["tx_id"],
-        account_id=receiver_id,
-        entry_type="CREDIT",
-        amount=amount,
-        currency=currency
-    ))
+    if fee > 0:
+     sender = tx["sender_account"]
+    revenue_account = "RAILONE_REVENUE"
 
-    receiver_settle_acc.balance -= amount
-    receiver.balance += amount
+    currency = sender.split("-")[-1]
+
+    _post(session, tx_id, sender, fee, "DEBIT", currency)
+    _post(session, tx_id, revenue_account, fee, "CREDIT", currency)
+
+    _apply_balance_delta(session, sender, -fee)
+    _apply_balance_delta(session, revenue_account, fee)
+
+
+# --------------------------------
+# GENESIS (ONLY FUNDING ENTRY)
+# --------------------------------
+def apply_genesis(session, account_id: str, amount: float):
+
+    currency = account_id.split("-")[-1]
+
+    _post(session, "GENESIS", account_id, amount, "CREDIT", currency)
+
+    acc = session.query(Account).filter_by(id=account_id).first()
+
+    if not acc:
+        acc = Account(id=account_id, balance=0.0)
+        session.add(acc)
+
+    acc.balance += float(amount)
