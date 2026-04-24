@@ -1,36 +1,35 @@
-# mainswitch.py  —  RailOne Sandbox API
-# Endpoints:
-#   GET  /ping                   health check
-#   POST /onboard                onboard a user, get RailOneID + accounts
-#   POST /quote                  get FX quote + fee estimate for a corridor
-#   POST /transact               full ETK handshake + settlement dispatch
-#   GET  /status/{utt}           lookup transaction state from audit log
-#   GET  /rails                  live rail health scores
-#   GET  /compliance/alerts      flush pending compliance alerts
+# mainswitch.py
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional
 
 from zk_sd import onboard_user, USED_IDS
 from corridor_fx_model import validate_corridor, quote_conversion
-from transaction_engine import TransactionEngine
-from routing_brain import compute_rail_health
-from compliance import get_compliance_alerts
+from transaction_engine import initiate_transaction
 from audit import load_logs
-from telemetry import ROUTE_TELEMETRY
 
-app = FastAPI(
-    title="RailOne Prototype API",
-    description="Non-custodial transaction verification & routing — East Africa sandbox",
-    version="0.4.0",
-)
 
-_engine = TransactionEngine()
 
-# ──────────────────────────────────────────
-# REQUEST / RESPONSE MODELS
-# ──────────────────────────────────────────
+app = FastAPI(title="RailOne API", version="1.0.0")
+
+
+# ---------------------------
+# MODELS
+# ---------------------------
+
+class TransferRequest(BaseModel):
+    sender_account: str
+    receiver_account: str
+    amount: float = Field(..., gt=0)
+    sender_currency: str
+    receiver_currency: str
+
+
+class QuoteRequest(BaseModel):
+    amount: float
+    sender_currency: str
+    receiver_currency: str
+
 
 class OnboardRequest(BaseModel):
     name: str
@@ -38,186 +37,116 @@ class OnboardRequest(BaseModel):
     role: str = "user"
 
 
-class QuoteRequest(BaseModel):
-    amount: float = Field(..., gt=0)
-    sender_currency: str
-    receiver_currency: str
-
-
-class TransactRequest(BaseModel):
-    sender_id: str
-    receiver_id: str
-    amount: float = Field(..., gt=0)
-    debit_account_id: str
-    credit_account_id: str
-    sender_currency: str
-    receiver_currency: str
-
-
-# ──────────────────────────────────────────
-# ENDPOINTS
-# ──────────────────────────────────────────
+# ---------------------------
+# HEALTH
+# ---------------------------
 
 @app.get("/ping")
 def ping():
-    """Health check — confirms API is alive."""
-    return {"status": "alive", "protocol": "RailOne v0.4.0"}
+    return {"status": "alive", "protocol": "RailOne"}
 
 
-@app.post("/onboard")
-def onboard_user_api(req: OnboardRequest):
-    """
-    Onboard a new user. Verifies identity against registry,
-    generates RailOneID, ZK proof, KYC attestation, and accounts.
-    """
+# ---------------------------
+# ONBOARD
+# ---------------------------
+
+@app.post("/v1/onboard")
+def onboard(req: OnboardRequest):
+
     if req.nid in USED_IDS:
-        raise HTTPException(status_code=400, detail="ID already onboarded this session")
+        raise HTTPException(400, "Already onboarded")
 
-    user_data = onboard_user(name=req.name, nid=req.nid, role=req.role)
+    user = onboard_user(req.name, req.nid, req.role)
 
-    if not user_data:
-        raise HTTPException(status_code=422, detail="Identity verification failed")
+    if not user:
+        raise HTTPException(422, "Verification failed")
 
-    return {
-        "username": user_data["username"],
-        "railone_id": user_data["railone_id"],
-        "kyc_level": user_data["attestation"]["kyc_level"],
-        "zk_proof": user_data["zk_proof"],
-        "accounts": user_data["accounts"],
-        "attestation": {
-            "issuer": user_data["attestation"]["issuer"],
-            "verified": user_data["attestation"]["verified"],
-            "timestamp": user_data["attestation"]["timestamp"],
-        },
-    }
+    return user
 
 
-@app.post("/quote")
-def get_quote(req: QuoteRequest):
-    """
-    Returns FX rate, converted amount, and fee estimate for a corridor.
-    No funds move. Safe to call repeatedly before /transact.
-    """
+# ---------------------------
+# QUOTE
+# ---------------------------
+
+@app.post("/v1/quote")
+def quote(req: QuoteRequest):
+
     if not validate_corridor(req.sender_currency, req.receiver_currency):
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unsupported corridor: {req.sender_currency} → {req.receiver_currency}",
-        )
+        raise HTTPException(422, "Unsupported corridor")
 
-    quote = quote_conversion(req.amount, req.sender_currency, req.receiver_currency)
-
-    # Simple fee model: 0.5% capped at 2000 KES-equivalent
-    fee_pct = 0.005
-    fee = round(req.amount * fee_pct, 2)
-    net_receiver = round(quote["converted_amount"] - (fee * quote["fx_rate"]), 2)
+    q = quote_conversion(req.amount, req.sender_currency, req.receiver_currency)
 
     return {
-        "sender_sends": req.amount,
-        "sender_currency": req.sender_currency,
-        "fx_rate": quote["fx_rate"],
-        "receiver_gets": net_receiver,
-        "receiver_currency": req.receiver_currency,
-        "fee_sender_currency": fee,
-        "corridor": f"{req.sender_currency}→{req.receiver_currency}",
+        "amount": req.amount,
+        "fx_rate": q["fx_rate"],
+        "converted": q["converted_amount"]
     }
 
 
-@app.post("/transact")
-def create_transaction(req: TransactRequest):
-    """
-    Full RailOne transaction flow:
-    ETK-S generation → compliance → corridor validation →
-    FX quote → debit lock → routing brain + failover → credit → audit.
-    Returns UTT for tracking.
-    """
-    success, message, utt = _engine.create_transaction(
-        sender_id=req.sender_id,
-        receiver_id=req.receiver_id,
+# ---------------------------
+# TRANSFER
+# ---------------------------
+
+@app.post("/v1/transfers")
+def transfer(req: TransferRequest):
+
+    tx = initiate_transaction(
+        sender_account=req.sender_account,
+        receiver_account=req.receiver_account,
         amount=req.amount,
-        debit_account_id=req.debit_account_id,
-        credit_account_id=req.credit_account_id,
         sender_currency=req.sender_currency,
-        receiver_currency=req.receiver_currency,
+        receiver_currency=req.receiver_currency
     )
 
-    if not success:
-        raise HTTPException(
-            status_code=422,
-            detail={"message": message, "utt": utt},
-        )
+    if tx["status"] != "SETTLED":
+        raise HTTPException(422, tx.get("reason"))
 
     return {
-        "success": True,
-        "utt": utt,
-        "message": message,
-        "sender_currency": req.sender_currency,
-        "receiver_currency": req.receiver_currency,
-        "amount": req.amount,
+        "utt": tx["utt"],
+        "status": tx["status"],
+        "route": tx.get("route_result", {}).get("best_route", {})
     }
 
 
-@app.get("/status/{utt}")
-def get_transaction_status(utt: str):
-    """
-    Looks up all audit log entries for a given UTT.
-    Returns the full state trail — useful for sandbox debugging.
-    """
+# ---------------------------
+# STATUS
+# ---------------------------
+
+@app.get("/v1/transfers/{utt}")
+def status(utt: str):
+
     logs = load_logs()
+
     entries = [
-        entry for entry in logs
-        if entry.get("payload", {}).get("utt") == utt
+        e for e in logs
+        if e.get("payload", {}).get("utt") == utt
     ]
 
     if not entries:
-        raise HTTPException(status_code=404, detail=f"No records found for UTT: {utt}")
-
-    # The last FINAL_STATE entry is ground truth
-    final = next(
-        (e for e in reversed(entries) if e["event"] == "FINAL_STATE"),
-        None,
-    )
+        raise HTTPException(404, "Not found")
 
     return {
         "utt": utt,
-        "current_status": final["payload"]["status"] if final else "IN_PROGRESS",
-        "trail": [
-            {"event": e["event"], "timestamp": e["timestamp"], "payload": e["payload"]}
-            for e in entries
-        ],
+        "events": entries
     }
+# mainswitch.py
+
+from ledger.db import SessionLocal
+from ledger.models import Transaction
 
 
-@app.get("/rails")
-def get_rail_health():
-    """
-    Returns live brain-computed health scores for all active rails.
-    Combines static telemetry baseline with live routing_metrics drift.
-    """
-    rails = list(ROUTE_TELEMETRY.keys())
-    health = {}
+@app.get("/v1/transactions/{tx_id}")
+def get_tx_status(tx_id: str):
+    session = SessionLocal()
 
-    for rail in rails:
-        score = compute_rail_health(rail)
-        t = ROUTE_TELEMETRY[rail]
-        health[rail] = {
-            "health_score": score,
-            "success_rate": t["success_rate"],
-            "avg_latency_ms": t["avg_latency_ms"],
-            "uptime": t["uptime"],
-            "reversal_rate": t["reversal_rate"],
-        }
+    tx = session.query(Transaction).filter_by(id=tx_id).first()
+
+    if not tx:
+        return {"error": "NOT_FOUND"}
 
     return {
-        "rails": health,
-        "ranked": sorted(health.keys(), key=lambda r: health[r]["health_score"], reverse=True),
+        "tx_id": tx.id,
+        "status": tx.status,
+        "amount": tx.amount,
+        "currency": tx.currency
     }
-
-
-@app.get("/compliance/alerts")
-def get_alerts():
-    """
-    Flushes and returns any pending compliance alerts
-    (high-risk corridors, EDD triggers, PEP flags).
-    """
-    alerts = get_compliance_alerts()
-    return {"count": len(alerts), "alerts": alerts}
