@@ -1,224 +1,177 @@
 # ==============================
 # transaction_engine.py
-# ASYNC + IDEMPOTENCY + AUTH + RATE LIMIT
 # ==============================
 
 from datetime import datetime, UTC
 from uuid import uuid4
 
 from corridor_pricing_engine import calculate_pricing
-from corridor_engine import build_corridor
 from corridor_learning import learn_corridor
-
+from corridor_engine import build_corridor
 from audit import log_event
+
 from token_factory import TokenFactory
+from execution_queue import enqueue_tx
 
-from ledger.db import SessionLocal
-from ledger.models import Transaction
-
-from liquidity_engine import check_liquidity
 from fraud_engine import run_fraud_checks
-
-from state_machine import TransactionContext, TransactionState
-
-from execution_queue import enqueue_transaction
-from auth_engine import authenticate_client
-from rate_limiter import check_rate_limit
+from liquidity_engine import check_liquidity
 
 
 # --------------------------------
-# TX ID
+# HELPERS
 # --------------------------------
+def extract_institution(account_id: str) -> str:
+    return account_id.split("-")[0]
+
+
 def generate_tx_id(sender_account: str) -> str:
     prefix = sender_account.split("-")[0]
     return f"{prefix}-RN-{uuid4().hex[:6].upper()}"
 
 
-# --------------------------------
-# FAILURE
-# --------------------------------
-def fail(ctx, reason):
-    ctx.state = TransactionState.FAILED
-    ctx.metadata["reason"] = reason
-    log_event("TX_FAILED", ctx.to_dict())
-    return ctx.to_dict()
+def fail(tx: dict, reason: str):
+    tx["status"] = "FAILED"
+    tx["reason"] = reason
+    log_event("TX_FAILED", tx)
+    return tx
 
 
 # --------------------------------
 # MAIN ENTRY
 # --------------------------------
-def initiate_transaction(payload: dict):
+def initiate_transaction(
+    sender_account,
+    receiver_account,
+    amount,
+    sender_currency,
+    receiver_currency
+):
+    tx = {
+        "tx_id": generate_tx_id(sender_account),
+        "timestamp": datetime.now(UTC).isoformat(),
+        "sender_account": sender_account,
+        "receiver_account": receiver_account,
+        "amount": amount,
+        "gross_amount": amount,
+        "net_amount": None,
+        "fees": 0,
+        "currency_from": sender_currency,
+        "currency_to": receiver_currency,
+        "status": "INITIATED",
+        "route_result": None,
+        "reason": None,
+    }
+
+    log_event("TX_INITIATED", tx)
 
     # --------------------------------
-    # CLIENT AUTH
+    # VALIDATION
     # --------------------------------
-    client_id = payload.get("client_id")
-    api_key = payload.get("api_key")
+    if sender_account == receiver_account:
+        return fail(tx, "SAME_ACCOUNT")
 
-    if not authenticate_client(client_id, api_key):
-        return {"error": "UNAUTHORIZED"}
-
-    # --------------------------------
-    # RATE LIMIT
-    # --------------------------------
-    if not check_rate_limit(client_id):
-        return {"error": "RATE_LIMIT_EXCEEDED"}
-
-    sender_account = payload["sender_account"]
-    receiver_account = payload["receiver_account"]
-    amount = payload["amount"]
-    sender_currency = payload["sender_currency"]
-    receiver_currency = payload["receiver_currency"]
-    idempotency_key = payload.get("idempotency_key")
+    if amount <= 0:
+        return fail(tx, "INVALID_AMOUNT")
 
     # --------------------------------
-    # DB SESSION
+    # INSTITUTION CONTEXT
     # --------------------------------
-    session = SessionLocal()
+    sender_institution = extract_institution(sender_account)
+    receiver_institution = extract_institution(receiver_account)
 
-    try:
-        # --------------------------------
-        # IDEMPOTENCY CHECK
-        # --------------------------------
-        if idempotency_key:
-            existing = session.query(Transaction).filter_by(
-                idempotency_key=idempotency_key
-            ).first()
+    # --------------------------------
+    # TOKENS
+    # --------------------------------
+    tx["etk_s"], _ = TokenFactory.generate_etk_s(
+        sender_account,
+        amount,
+        sender_institution
+    )
 
-            if existing:
-                return {
-                    "tx_id": existing.id,
-                    "status": existing.status
-                }
+    tx["etk_r"], _ = TokenFactory.generate_etk_r(
+        tx["etk_s"],
+        receiver_account,
+        receiver_institution
+    )
 
-        # --------------------------------
-        # CONTEXT
-        # --------------------------------
-        ctx = TransactionContext(
-            tx_id=generate_tx_id(sender_account),
-            amount=amount,
-            currency=sender_currency,
-            sender_id=sender_account,
-            receiver_id=receiver_account
-        )
+    tx["rtt"], _ = TokenFactory.generate_rtt(
+        tx["etk_s"],
+        tx["etk_r"],
+        tx["tx_id"],
+        sender_institution
+    )
 
-        ctx.metadata["client_id"] = client_id
+    log_event("TOKENS_GENERATED", tx)
 
-        log_event("TX_INITIATED", ctx.to_dict())
+    # --------------------------------
+    # ROUTING
+    # --------------------------------
+    route = build_corridor(
+        sender_account,
+        receiver_account,
+        amount,
+        sender_currency,
+        receiver_currency
+    )
 
-        # --------------------------------
-        # VALIDATION
-        # --------------------------------
-        if sender_account == receiver_account:
-            return fail(ctx, "SAME_ACCOUNT")
+    tx["route_result"] = route
+    best = route.get("best_route", {})
 
-        if amount <= 0:
-            return fail(ctx, "INVALID_AMOUNT")
+    log_event("ROUTE_SELECTED", tx)
 
-        # --------------------------------
-        # TOKENS
-        # --------------------------------
-        etk_s = TokenFactory.generate_etk_s(sender_account, amount)
-        etk_r = TokenFactory.generate_etk_r(etk_s, receiver_account)
-        rtt = TokenFactory.generate_rtt(etk_s, etk_r, ctx.tx_id)
+    # --------------------------------
+    # PRICING
+    # --------------------------------
+    pricing = calculate_pricing(
+        amount=amount,
+        from_ccy=sender_currency,
+        to_ccy=receiver_currency,
+        route_type=best.get("type", "SMOVE"),
+        fx_rate=best.get("fx_rate", 1.0)
+    )
 
-        ctx.metadata.update({
-            "etk_s": etk_s,
-            "etk_r": etk_r,
-            "rtt": rtt
-        })
+    tx["net_amount"] = pricing["net_amount"]
+    tx["fees"] = pricing["total_fee"]
 
-        # --------------------------------
-        # ROUTING
-        # --------------------------------
-        route = build_corridor(
-            sender_account,
-            receiver_account,
-            amount,
-            sender_currency,
-            receiver_currency
-        )
+    if tx["net_amount"] <= 0:
+        return fail(tx, "INVALID_FEES")
 
-        best = route["best_route"]
+    log_event("PRICING_COMPUTED", tx)
 
-        ctx.metadata["route"] = route
+    # --------------------------------
+    # FRAUD CHECK
+    # --------------------------------
+    ok, reason = run_fraud_checks(sender_account, amount)
 
-        # --------------------------------
-        # PRICING
-        # --------------------------------
-        pricing = calculate_pricing(
-            amount=amount,
-            from_ccy=sender_currency,
-            to_ccy=receiver_currency,
-            route_type=best.get("type", "SMOVE"),
-            fx_rate=best.get("fx_rate", 1.0)
-        )
+    if not ok:
+        return fail(tx, f"FRAUD_BLOCKED: {reason}")
 
-        net_amount = pricing["net_amount"]
+    # --------------------------------
+    # LIQUIDITY CHECK
+    # --------------------------------
+    ok, reason = check_liquidity(
+        route_type=best.get("rail", "SMOVE"),
+        currency=sender_currency,
+        amount=tx["net_amount"]
+    )
 
-        ctx.metadata["pricing"] = pricing
-        ctx.metadata["net_amount"] = net_amount
+    if not ok:
+        return fail(tx, f"LIQUIDITY_ERROR: {reason}")
 
-        if net_amount <= 0:
-            return fail(ctx, "INVALID_FEES")
+    # --------------------------------
+    # ASYNC EXECUTION
+    # --------------------------------
+    tx["status"] = "PENDING"
+    enqueue_tx(tx)
 
-        # --------------------------------
-        # VALIDATION (LIQUIDITY + FRAUD)
-        # --------------------------------
-        ok, reason = check_liquidity(
-            best.get("rail", "SMOVE"),
-            sender_currency,
-            net_amount
-        )
+    log_event("TX_ENQUEUED", tx)
 
-        if not ok:
-            return fail(ctx, f"LIQUIDITY_ERROR: {reason}")
-
-        ok, reason = run_fraud_checks(sender_account, amount)
-
-        if not ok:
-            return fail(ctx, f"FRAUD_BLOCKED: {reason}")
-
-        # --------------------------------
-        # SAVE TRANSACTION (PENDING)
-        # --------------------------------
-        db_tx = Transaction(
-            id=ctx.tx_id,
-            sender_id=sender_account,
-            receiver_id=receiver_account,
-            amount=amount,
-            currency=sender_currency,
-            status="PENDING",
-            idempotency_key=idempotency_key
-        )
-
-        session.add(db_tx)
-        session.commit()
-
-        # --------------------------------
-        # ENQUEUE FOR ASYNC EXECUTION
-        # --------------------------------
-        enqueue_transaction({
-            "tx": ctx.to_dict(),
-            "route": route
-        })
-
-        # --------------------------------
-        # RETURN IMMEDIATELY
-        # --------------------------------
-        return {
-            "tx_id": ctx.tx_id,
-            "status": "PENDING",
-            "estimated_settlement": {
-                "type": "RANGE",
-                "min_minutes": 2,
-                "max_minutes": 180
-            }
+    return {
+        "tx_id": tx["tx_id"],
+        "status": "PENDING",
+        "estimated_settlement": {
+            "type": "RANGE",
+            "min_minutes": 2,
+            "max_minutes": 180
         }
-
-    except Exception as e:
-        session.rollback()
-        return {"error": str(e)}
-
-    finally:
-        session.close()
+    }

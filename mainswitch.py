@@ -7,7 +7,7 @@ from zk_sd import onboard_user, USED_IDS
 from corridor_fx_model import validate_corridor, quote_conversion
 from transaction_engine import initiate_transaction
 from audit import load_logs
-
+from key_manager import KeyManager
 
 
 app = FastAPI(title="RailOne API", version="1.0.0")
@@ -149,4 +149,19 @@ def get_tx_status(tx_id: str):
         "status": tx.status,
         "amount": tx.amount,
         "currency": tx.currency
+    }
+
+@app.post("/v1/institutions/onboard")
+def onboard_institution(payload: dict):
+
+    institution_id = payload.get("institution_id")
+
+    if not institution_id:
+        return {"error": "missing institution_id"}
+
+    public_key = KeyManager.onboard_institution(institution_id)
+
+    return {
+        "status": "ONBOARDED",
+        "institution_id": institution_id
     }

@@ -1,9 +1,10 @@
-# Simulation.py
+# ==============================
+# Simulation.py (UPDATED)
+# ==============================
 
 from ledger.init_db import init_db
 from transaction_engine import initiate_transaction
 from zk_sd import onboard_user
-
 from reconciliation_engine import run_full_reconciliation
 
 from ledger.db import SessionLocal
@@ -11,7 +12,7 @@ from ledger.models import Account
 
 
 # ---------------------------------
-# INIT SYSTEM
+# INIT
 # ---------------------------------
 init_db()
 
@@ -20,7 +21,17 @@ run_full_reconciliation()
 
 
 # ---------------------------------
-# FETCH USER ACCOUNTS (CLEAN)
+# OBSERVABILITY
+# ---------------------------------
+def log_observation(event, data=None):
+    print(f"\n📊 [{event}]")
+    if data:
+        for k, v in data.items():
+            print(f"{k}: {v}")
+
+
+# ---------------------------------
+# GET USER ACCOUNTS
 # ---------------------------------
 def get_user_accounts(owner_id):
     session = SessionLocal()
@@ -49,7 +60,7 @@ def get_user_accounts(owner_id):
 
 
 # ---------------------------------
-# ACCOUNT PICKER
+# PICKER
 # ---------------------------------
 def choose_account(accounts, title):
     print(f"\n=== {title} ===")
@@ -70,11 +81,11 @@ def choose_account(accounts, title):
                 return accounts[choice - 1]
             print("❌ Invalid selection")
         except ValueError:
-            print("❌ Please enter a valid number")
+            print("❌ Enter a valid number")
 
 
 # ---------------------------------
-# SAFE ONBOARDING
+# ONBOARD
 # ---------------------------------
 def safe_onboard(role):
     while True:
@@ -85,66 +96,45 @@ def safe_onboard(role):
 
         user = onboard_user(name, nid, role=role)
 
-        if user is not None:
+        if user:
+            log_observation("USER_ONBOARDED", {
+                "railone_id": user["railone_id"],
+                "kyc": user["attestation"]["kyc_level"]
+            })
             return user
 
-        print("\n❌ ONBOARDING FAILED")
-        retry = input("Retry onboarding? (y/n): ").strip().lower()
-
-        if retry != "y":
-            print("🚫 Transaction aborted.")
-            exit()
+        print("❌ Onboarding failed")
 
 
 # ---------------------------------
-# MAIN FLOW
+# MAIN
 # ---------------------------------
 def main():
     print("\n=== RAILONE PRODUCTION SIMULATOR ===")
 
-    # -----------------------------
-    # SENDER
-    # -----------------------------
     sender = safe_onboard("sender")
 
-    self_transfer = input("\nSelf transfer? (y/n): ").strip().lower()
+    self_transfer = input("\nSelf transfer? (y/n): ").lower()
 
-    # -----------------------------
-    # RECEIVER
-    # -----------------------------
     if self_transfer == "y":
         receiver = sender
-        print("\n✅ Self-transfer mode enabled")
     else:
         receiver = safe_onboard("receiver")
 
-    # -----------------------------
-    # FETCH CLEAN USER ACCOUNTS
-    # -----------------------------
     sender_accounts = get_user_accounts(sender["railone_id"])
     receiver_accounts = get_user_accounts(receiver["railone_id"])
-
-    if not sender_accounts or not receiver_accounts:
-        print("❌ No accounts found. Onboarding may have failed.")
-        return
 
     sender_acc = choose_account(sender_accounts, "SELECT DEBIT ACCOUNT")
     receiver_acc = choose_account(receiver_accounts, "SELECT CREDIT ACCOUNT")
 
-    # -----------------------------
-    # INPUT AMOUNT
-    # -----------------------------
     try:
         amount = float(input("\nEnter transfer amount: "))
-    except ValueError:
+    except:
         print("❌ Invalid amount")
         return
 
     print("\n=== EXECUTING TRANSACTION ===")
 
-    # -----------------------------
-    # EXECUTE TRANSACTION
-    # -----------------------------
     tx = initiate_transaction(
         sender_account=sender_acc["account_id"],
         receiver_account=receiver_acc["account_id"],
@@ -153,55 +143,40 @@ def main():
         receiver_currency=receiver_acc["currency"]
     )
 
-    # -----------------------------
-    # RESULT DISPLAY
-    # -----------------------------
+    # ---------------------------------
+    # RESULT
+    # ---------------------------------
     print("\n=== TRANSACTION RESULT ===")
 
-    print(f"Transaction ID: {tx.get('tx_id')}")
-    print(f"Status: {tx.get('status')}")
+    print(f"TX ID: {tx.get('tx_id')}")
+    print(f"STATUS: {tx.get('status')}")
+
+    if tx.get("status") == "PENDING":
+        eta = tx.get("estimated_settlement", {})
+        print(f"ETA: {eta.get('min_minutes')}–{eta.get('max_minutes')} minutes")
 
     if tx.get("reason"):
         print(f"Reason: {tx.get('reason')}")
 
-    route = tx.get("route_result", {}).get("best_route", {})
+    # ---------------------------------
+    # OBSERVABILITY
+    # ---------------------------------
+    log_observation("TX_SUBMITTED", tx)
 
-    if route:
-        print(f"Route: {route.get('rail')}")
-        print(f"FX Rate: {route.get('fx_rate')}")
-        print(f"Converted Amount: {route.get('converted_amount')}")
-
-    print(f"Fees: {tx.get('fees')}")
-    print(f"Net Amount: {tx.get('net_amount')}")
-
-    # -----------------------------
-    # SMS SIMULATION
-    # -----------------------------
-    print("\n📩 === RAILONE SMS NOTIFICATION ===")
+    # ---------------------------------
+    # SMS
+    # ---------------------------------
+    print("\n📩 === RAILONE SMS ===")
     print(f"""
-FROM: RailOne PAY
-----------------------------------
 TX: {tx.get('tx_id')}
 STATUS: {tx.get('status')}
 AMOUNT: {amount}
-SENDER: {sender['nid']}
-RECEIVER: {receiver['nid']}
-----------------------------------
+ETA: 2–180 minutes
 """)
 
-    # -----------------------------
-    # FINAL STATE
-    # -----------------------------
-    print("\n=== FINAL RESULT ===")
-    print(f"Success: {tx.get('status') == 'SETTLED'}")
-    print(f"UTT: {tx.get('utt')}")
-    print(f"RTT: {tx.get('rtt')}")
-
-    print("\n🧾 Ledger updated (source of truth)")
+    print("\n🧾 Ledger updates will occur asynchronously")
 
 
-# ---------------------------------
-# ENTRY POINT
 # ---------------------------------
 if __name__ == "__main__":
     main()

@@ -1,0 +1,65 @@
+[
+  {
+    "timestamp": "2026-04-24T13:44:36.516099+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "MPESA-RN-C70B2A",
+      "timestamp": "2026-04-24T13:44:36.515888+00:00",
+      "sender_account": "MPESA-cbe740e7f444b3a0-KES",
+      "receiver_account": "BANK_KE-fd7e861cb7ccb8cc-KES",
+      "amount": 10000.0,
+      "gross_amount": 10000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "reason": null
+    },
+    "hash": "72e5c48f660f7cf56d7b2f7306699006890e9955d9f9da37a762692572589b0d",
+    "previous_hash": ""
+  },
+  {
+    "timestamp": "2026-04-24T13:54:05.427615+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-7D714C",
+      "timestamp": "2026-04-24T13:54:05.427061+00:00",
+      "sender_account": "BANK_KE-cbe740e7f444b3a0-KES",
+      "receiver_account": "MPESA-cbe740e7f444b3a0-KES",
+      "amount": 12000.0,
+      "gross_amount": 12000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "reason": null
+    },
+    "hash": "bad8839edbe3819535638dfca3a049e839489448fc3f8e729a9451db159e7791",
+    "previous_hash": "72e5c48f660f7cf56d7b2f7306699006890e9955d9f9da37a762692572589b0d"
+  },
+  {
+    "timestamp": "2026-04-24T14:43:10.334005+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-FA37B6",
+      "timestamp": "2026-04-24T14:43:10.320661+00:00",
+      "sender_account": "BANK_KE-cbe740e7f444b3a0-KES",
+      "receiver_account": "MPESA-cbe740e7f444b3a0-KES",
+      "amount": 10000.0,
+      "gross_amount": 10000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "reason": null
+    },
+    "hash": "c1a2ea2641f5321a4c3d04eb4f63a3dbed0d791827b1a0123c0d3555708c0b4c",
+    "previous_hash": "bad8839edbe3819535638dfca3a049e839489448fc3f8e729a9451db159e7791"
+  }
+]
