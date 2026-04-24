@@ -1,22 +1,30 @@
+# ==============================
+# rate_limiter.py
+# ==============================
+
+import redis
 import time
 
-REQUEST_LOG = {}
-
-LIMIT = 10  # per minute
+r = redis.Redis(host="localhost", port=6379, decode_responses=True)
 
 
-def check_rate_limit(client_id):
-    now = time.time()
+def _key(api_key: str):
+    current_minute = int(time.time() // 60)
+    return f"rate:{api_key}:{current_minute}"
 
-    if client_id not in REQUEST_LOG:
-        REQUEST_LOG[client_id] = []
 
-    REQUEST_LOG[client_id] = [
-        t for t in REQUEST_LOG[client_id] if now - t < 60
-    ]
+def check_rate_limit(api_key: str, limit: int):
 
-    if len(REQUEST_LOG[client_id]) >= LIMIT:
+    key = _key(api_key)
+
+    current = r.get(key)
+
+    if current is None:
+        r.setex(key, 60, 1)
+        return True
+
+    if int(current) >= limit:
         return False
 
-    REQUEST_LOG[client_id].append(now)
+    r.incr(key)
     return True
