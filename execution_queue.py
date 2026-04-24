@@ -79,3 +79,15 @@ def get_queue_length():
 
 def get_dead_letter_count():
     return redis_client.llen(DEAD_LETTER_QUEUE)
+
+# --------------------------------
+# TX STATE STORAGE
+# --------------------------------
+TX_STORE = "railone:tx_store"
+
+def store_tx(tx: dict):
+    redis_client.hset(TX_STORE, tx["tx_id"], json.dumps(tx))
+
+def get_tx(tx_id: str):
+    data = redis_client.hget(TX_STORE, tx_id)
+    return json.loads(data) if data else None

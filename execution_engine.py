@@ -5,63 +5,43 @@
 from ledger.db import SessionLocal
 from ledger.ledger_service import apply_multi_leg_entry
 
-from retry_engine import should_retry, sleep_with_backoff, get_retry_candidates
+from execution_queue import store_tx
+from retry_engine import (
+    get_retry_candidates,
+    schedule_retry
+)
+
+from webhook_dispatcher import dispatch_event
 
 
-# --------------------------------
-# CORE EXECUTION (ENTRY POINT)
-# --------------------------------
 def process_execution(tx: dict):
-    """
-    Entry point called by worker.
-    Handles routing + retry logic.
-    """
-
-    route = tx.get("route_result")
-
-    if not route:
-        raise Exception("NO_ROUTE_FOUND")
-
-    success = process_pending_tx(tx, route)
-
-    if not success:
-        raise Exception("ALL_ROUTES_FAILED")
-
-    print(f"✅ TX {tx['tx_id']} SETTLED")
-
-
-# --------------------------------
-# CORE RETRY + SETTLEMENT ENGINE
-# --------------------------------
-def process_pending_tx(tx, route):
 
     session = SessionLocal()
 
     failed_rails = []
-    attempt = 0
+    attempt = tx.get("attempts", 0)
+
+    route = tx.get("route_result", {})
 
     try:
-        while should_retry(attempt):
+        while attempt < tx.get("max_attempts", 3):
 
-            # -----------------------------
-            # SELECT ROUTE
-            # -----------------------------
             if attempt == 0:
-                current_route = route.get("best_route", {})
+                current = route.get("best_route", {})
             else:
                 options = get_retry_candidates(route, failed_rails)
                 if not options:
                     break
-                current_route = options[0]
+                current = options[0]
 
-            rail = current_route.get("rail", "SMOVE")
+            rail = current.get("rail", "SMOVE")
 
             print(f"⚙️ Attempt {attempt+1} via {rail}")
 
-            # -----------------------------
-            # EXECUTE SETTLEMENT
-            # -----------------------------
             try:
+                # --------------------------------
+                # LEDGER EXECUTION
+                # --------------------------------
                 apply_multi_leg_entry(
                     session=session,
                     tx=tx,
@@ -69,17 +49,46 @@ def process_pending_tx(tx, route):
                 )
 
                 session.commit()
+
+                # --------------------------------
+                # DEBIT EVENT
+                # --------------------------------
+                dispatch_event(tx, "TX_DEBITED")
+
+                # --------------------------------
+                # FINALIZE
+                # --------------------------------
+                tx["status"] = "SETTLED"
+                tx["settled_via"] = rail
+
+                store_tx(tx)
+
+                dispatch_event(tx, "TX_CREDITED")
+
+                print(f"✅ TX {tx['tx_id']} SETTLED")
+
                 return True
 
             except Exception as e:
                 session.rollback()
 
-                print(f"❌ Failed on {rail}: {str(e)}")
+                print(f"❌ Attempt failed: {str(e)}")
 
                 failed_rails.append(rail)
                 attempt += 1
+                tx["attempts"] = attempt
 
-                sleep_with_backoff(attempt)
+        # --------------------------------
+        # FAILURE
+        # --------------------------------
+        tx["status"] = "FAILED"
+        tx["reason"] = "ALL_ROUTES_FAILED"
+
+        store_tx(tx)
+
+        dispatch_event(tx, "TX_FAILED")
+
+        schedule_retry(tx)
 
         return False
 

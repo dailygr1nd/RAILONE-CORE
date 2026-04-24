@@ -1,5 +1,5 @@
 # ==============================
-# token_factory.py (FINAL v2)
+# token_factory.py (PRODUCTION READY)
 # ==============================
 
 import hashlib
@@ -16,10 +16,10 @@ from trust_registry import TrustRegistry
 class TokenFactory:
 
     # --------------------------------
-    # HASH
+    # HASH (128-bit display)
     # --------------------------------
     @staticmethod
-    def _hash_128(payload: str) -> str:
+    def _hash(payload: str) -> str:
         return hashlib.sha256(payload.encode()).hexdigest()[:32]
 
     # --------------------------------
@@ -43,12 +43,9 @@ class TokenFactory:
     # --------------------------------
     @staticmethod
     def verify(payload: str, signature: bytes, institution_id: str) -> bool:
+        keys = TrustRegistry.get_valid_public_keys(institution_id)
 
-        keys = TrustRegistry.get_all_keys(institution_id)
-
-        for key_entry in keys:
-            public_key = key_entry["public_key"]
-
+        for public_key in keys:
             try:
                 public_key.verify(
                     signature,
@@ -70,7 +67,8 @@ class TokenFactory:
     # --------------------------------
     @staticmethod
     def generate_tx_id(institution_id: str) -> str:
-        return f"{institution_id}-RN-{secrets.token_hex(3).upper()}"
+        suffix = secrets.token_hex(3).upper()
+        return f"{institution_id}-RN-{suffix}"
 
     # --------------------------------
     # ETK-S
@@ -81,12 +79,10 @@ class TokenFactory:
         nonce = secrets.token_hex(8)
 
         payload = f"ETK-S|{sender_id}|{amount}|{ts}|{nonce}"
+        token = TokenFactory._hash(payload)
+        signature = TokenFactory.sign(payload, institution_id)
 
-        return (
-            TokenFactory._hash_128(payload),
-            TokenFactory.sign(payload, institution_id),
-            payload
-        )
+        return token, signature, payload
 
     # --------------------------------
     # ETK-R
@@ -94,12 +90,10 @@ class TokenFactory:
     @staticmethod
     def generate_etk_r(etk_s, receiver_id, institution_id):
         payload = f"ETK-R|{etk_s}|{receiver_id}"
+        token = TokenFactory._hash(payload)
+        signature = TokenFactory.sign(payload, institution_id)
 
-        return (
-            TokenFactory._hash_128(payload),
-            TokenFactory.sign(payload, institution_id),
-            payload
-        )
+        return token, signature, payload
 
     # --------------------------------
     # RTT
@@ -107,12 +101,10 @@ class TokenFactory:
     @staticmethod
     def generate_rtt(etk_s, etk_r, tx_id, institution_id):
         payload = f"RTT|{etk_s}|{etk_r}|{tx_id}"
+        token = TokenFactory._hash(payload)
+        signature = TokenFactory.sign(payload, institution_id)
 
-        return (
-            TokenFactory._hash_128(payload),
-            TokenFactory.sign(payload, institution_id),
-            payload
-        )
+        return token, signature, payload
 
     # --------------------------------
     # UTT
@@ -121,5 +113,4 @@ class TokenFactory:
     def generate_utt(institution_id):
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         suffix = secrets.token_hex(4).upper()
-
         return f"UTT-{institution_id}-{ts}-{suffix}"

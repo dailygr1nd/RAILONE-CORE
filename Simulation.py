@@ -10,6 +10,10 @@ from reconciliation_engine import run_full_reconciliation
 from ledger.db import SessionLocal
 from ledger.models import Account
 
+from bootstrap import bootstrap_settlement_accounts
+
+bootstrap_settlement_accounts()
+
 
 # ---------------------------------
 # INIT

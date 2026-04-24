@@ -61,5 +61,519 @@
     },
     "hash": "c1a2ea2641f5321a4c3d04eb4f63a3dbed0d791827b1a0123c0d3555708c0b4c",
     "previous_hash": "bad8839edbe3819535638dfca3a049e839489448fc3f8e729a9451db159e7791"
+  },
+  {
+    "timestamp": "2026-04-24T15:43:08.257022+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "MPESA-RN-910930",
+      "timestamp": "2026-04-24T15:43:08.245221+00:00",
+      "sender_account": "MPESA-cbe740e7f444b3a0-KES",
+      "receiver_account": "BANK_KE-cbe740e7f444b3a0-KES",
+      "amount": 10000.0,
+      "gross_amount": 10000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "reason": null
+    },
+    "hash": "06af50550a36272e7942cb54d7c84b0cca915321823e849739eeed5ec4cbdbdd",
+    "previous_hash": "c1a2ea2641f5321a4c3d04eb4f63a3dbed0d791827b1a0123c0d3555708c0b4c"
+  },
+  {
+    "timestamp": "2026-04-24T15:53:27.112231+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-086326",
+      "timestamp": "2026-04-24T15:53:27.092535+00:00",
+      "sender_account": "BANK_KE-ec1b5215c149505e-KES",
+      "receiver_account": "MPESA-ec1b5215c149505e-KES",
+      "amount": 10000.0,
+      "gross_amount": 10000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "reason": null
+    },
+    "hash": "8f487e5e7475a078688be25cc50ba5724e895495fa60907667172e6a173bdc69",
+    "previous_hash": "06af50550a36272e7942cb54d7c84b0cca915321823e849739eeed5ec4cbdbdd"
+  },
+  {
+    "timestamp": "2026-04-24T16:08:14.207274+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-DBB8B7",
+      "timestamp": "2026-04-24T16:08:14.195838+00:00",
+      "sender_account": "BANK_KE-cbe740e7f444b3a0-KES",
+      "receiver_account": "MPESA-cbe740e7f444b3a0-KES",
+      "amount": 10000.0,
+      "gross_amount": 10000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "reason": null
+    },
+    "hash": "d9c6625b324ca63f3cf44f66d79e43a8a86cb441859cb778757e39ab61072541",
+    "previous_hash": "8f487e5e7475a078688be25cc50ba5724e895495fa60907667172e6a173bdc69"
+  },
+  {
+    "timestamp": "2026-04-24T16:13:20.691832+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-32E138",
+      "timestamp": "2026-04-24T16:13:20.691339+00:00",
+      "sender_account": "BANK_KE-fd7e861cb7ccb8cc-KES",
+      "receiver_account": "MPESA-fd7e861cb7ccb8cc-KES",
+      "amount": 10000.0,
+      "gross_amount": 10000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "reason": null
+    },
+    "hash": "3f609a28746380f02b39aca8c394cb048bc9d0f21c034dfc6de00d9e6b5f7af5",
+    "previous_hash": "d9c6625b324ca63f3cf44f66d79e43a8a86cb441859cb778757e39ab61072541"
+  },
+  {
+    "timestamp": "2026-04-24T16:13:20.712195+00:00",
+    "event": "TOKENS_GENERATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-32E138",
+      "timestamp": "2026-04-24T16:13:20.691339+00:00",
+      "sender_account": "BANK_KE-fd7e861cb7ccb8cc-KES",
+      "receiver_account": "MPESA-fd7e861cb7ccb8cc-KES",
+      "amount": 10000.0,
+      "gross_amount": 10000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "reason": null,
+      "etk_s": "e241f7876483e527e6833cd300f840c8",
+      "etk_r": "a5bf026af205a7277aad3f1861745773",
+      "rtt": "f55f14a6ce2a4f06c26ded77ed075b91",
+      "payload_s": "ETK-S|BANK_KE-fd7e861cb7ccb8cc-KES|10000.0|2026-04-24T16:13:20.692893+00:00|3681c9019bc2f0eb",
+      "payload_r": "ETK-R|e241f7876483e527e6833cd300f840c8|MPESA-fd7e861cb7ccb8cc-KES",
+      "payload_rtt": "RTT|e241f7876483e527e6833cd300f840c8|a5bf026af205a7277aad3f1861745773|BANK_KE-RN-32E138",
+      "signatures": {
+        "etk_s": "PIupXp3YLq+E1nTX1AUJrV62eyALR+nNEWbvEHdPNSZdwzd4geSIcNd/gFeW4NNlEjdHZQigSNZKDzAAcUz+WuD5xwPIj0eE689ZLH+qpq88cxIfBBcenA1dpVq9DuGzz0Kiw+i2qjAsjnWnUhIiTFtvl5UDAQIRE7E4vEfqsVXarVEkGd37Tm1BIyKWQXB2NToVcWKeXx30d/khxfCtNEfPsR9qMcrArvZDe5LD+mAub91jGUhKZYBvqSKraWXKKD6JdJe/i6asEvhE/PVRoM/N7BbFXWajTA9SuI8kX+qNHQTYrtzXsskTkpt7DDNv0Fn0fo2Sh2Fr0Ue1PFGDMQ==",
+        "etk_r": "l5T4E8M7qyg/JTpZ5uFus9bnPHJ4plIC66IV2C4MTssXToQ+kty/P0u80J2cn6AVJ0wLgHp/uD7BERUM/wBEWmyl/e92pggZCRnro9xxOrrrvy/ZM51pLd0/lExEroX2ncITbGNWFX1dkFGUz/beg/McAjf0u0vewZ195TFdMrhES17TN5Uzyl2n0fnevAzkByBHql4bUyp69Bo10dYK4wwpU3ivFQodExa1KPfc0NW4L+xunVuL3iEDWV9MXHXMEKlFssMg8Y/R7IXJcxzGhKasbfAScSI0PBi/4d2kfEAWAcm2Or1/A1LBqnyglCX404Td9MIVTz2uXbocn2Vbnw==",
+        "rtt": "WnP1WRH8Ymz+0WxV/z2YR8tQQj2V5NbS7CTCxqlKkTSmD3VcYtOG2n8kUdi8VUz3OgeSfkyN9tDm4XKUfR9lr9bBJR0t/8EZkgB7lDB/F0TKLOMC5Cr3uHSzKwZp6jn9jPT2oX6Id8p04q6sNgQ++Ck1i9kkrv+UxU1MdjV4kunYTyieaggxw6OJC3O4WvaWHCx38wVGu5oDZHssNaEexpmuKPO+P4Sb2xzaYjUorfqGDaeZtddfiA6Mqf0pmWpCofEnJfy4Un5lRdUnAkyWCJmRTsoAJKYlEGx9NXm5PvLgfSzcKsNtwjupGUtNgqAG5rHkAiriZPBYK2TFoC9zbA=="
+      }
+    },
+    "hash": "2b26e968cd9d21ab2ca7e4a67eeb86921ed44e6fe5a8553dc607aa5af580c5c3",
+    "previous_hash": "3f609a28746380f02b39aca8c394cb048bc9d0f21c034dfc6de00d9e6b5f7af5"
+  },
+  {
+    "timestamp": "2026-04-24T16:13:20.737277+00:00",
+    "event": "ROUTE_SELECTED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-32E138",
+      "timestamp": "2026-04-24T16:13:20.691339+00:00",
+      "sender_account": "BANK_KE-fd7e861cb7ccb8cc-KES",
+      "receiver_account": "MPESA-fd7e861cb7ccb8cc-KES",
+      "amount": 10000.0,
+      "gross_amount": 10000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "score": 0,
+            "margin": 0,
+            "cost": 0,
+            "converted_amount": 10000.0,
+            "fx_rate": 1
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "score": 0,
+          "margin": 0,
+          "cost": 0,
+          "converted_amount": 10000.0,
+          "fx_rate": 1
+        }
+      },
+      "reason": null,
+      "etk_s": "e241f7876483e527e6833cd300f840c8",
+      "etk_r": "a5bf026af205a7277aad3f1861745773",
+      "rtt": "f55f14a6ce2a4f06c26ded77ed075b91",
+      "payload_s": "ETK-S|BANK_KE-fd7e861cb7ccb8cc-KES|10000.0|2026-04-24T16:13:20.692893+00:00|3681c9019bc2f0eb",
+      "payload_r": "ETK-R|e241f7876483e527e6833cd300f840c8|MPESA-fd7e861cb7ccb8cc-KES",
+      "payload_rtt": "RTT|e241f7876483e527e6833cd300f840c8|a5bf026af205a7277aad3f1861745773|BANK_KE-RN-32E138",
+      "signatures": {
+        "etk_s": "PIupXp3YLq+E1nTX1AUJrV62eyALR+nNEWbvEHdPNSZdwzd4geSIcNd/gFeW4NNlEjdHZQigSNZKDzAAcUz+WuD5xwPIj0eE689ZLH+qpq88cxIfBBcenA1dpVq9DuGzz0Kiw+i2qjAsjnWnUhIiTFtvl5UDAQIRE7E4vEfqsVXarVEkGd37Tm1BIyKWQXB2NToVcWKeXx30d/khxfCtNEfPsR9qMcrArvZDe5LD+mAub91jGUhKZYBvqSKraWXKKD6JdJe/i6asEvhE/PVRoM/N7BbFXWajTA9SuI8kX+qNHQTYrtzXsskTkpt7DDNv0Fn0fo2Sh2Fr0Ue1PFGDMQ==",
+        "etk_r": "l5T4E8M7qyg/JTpZ5uFus9bnPHJ4plIC66IV2C4MTssXToQ+kty/P0u80J2cn6AVJ0wLgHp/uD7BERUM/wBEWmyl/e92pggZCRnro9xxOrrrvy/ZM51pLd0/lExEroX2ncITbGNWFX1dkFGUz/beg/McAjf0u0vewZ195TFdMrhES17TN5Uzyl2n0fnevAzkByBHql4bUyp69Bo10dYK4wwpU3ivFQodExa1KPfc0NW4L+xunVuL3iEDWV9MXHXMEKlFssMg8Y/R7IXJcxzGhKasbfAScSI0PBi/4d2kfEAWAcm2Or1/A1LBqnyglCX404Td9MIVTz2uXbocn2Vbnw==",
+        "rtt": "WnP1WRH8Ymz+0WxV/z2YR8tQQj2V5NbS7CTCxqlKkTSmD3VcYtOG2n8kUdi8VUz3OgeSfkyN9tDm4XKUfR9lr9bBJR0t/8EZkgB7lDB/F0TKLOMC5Cr3uHSzKwZp6jn9jPT2oX6Id8p04q6sNgQ++Ck1i9kkrv+UxU1MdjV4kunYTyieaggxw6OJC3O4WvaWHCx38wVGu5oDZHssNaEexpmuKPO+P4Sb2xzaYjUorfqGDaeZtddfiA6Mqf0pmWpCofEnJfy4Un5lRdUnAkyWCJmRTsoAJKYlEGx9NXm5PvLgfSzcKsNtwjupGUtNgqAG5rHkAiriZPBYK2TFoC9zbA=="
+      }
+    },
+    "hash": "e547e4290d8262d06a212d2c921d2af8cd38e2373f2cc01e048d0acb4843d16f",
+    "previous_hash": "2b26e968cd9d21ab2ca7e4a67eeb86921ed44e6fe5a8553dc607aa5af580c5c3"
+  },
+  {
+    "timestamp": "2026-04-24T16:13:20.748856+00:00",
+    "event": "PRICING_COMPUTED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-32E138",
+      "timestamp": "2026-04-24T16:13:20.691339+00:00",
+      "sender_account": "BANK_KE-fd7e861cb7ccb8cc-KES",
+      "receiver_account": "MPESA-fd7e861cb7ccb8cc-KES",
+      "amount": 10000.0,
+      "gross_amount": 10000.0,
+      "net_amount": 9050.0,
+      "fees": 950.0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "score": 0,
+            "margin": 0,
+            "cost": 0,
+            "converted_amount": 10000.0,
+            "fx_rate": 1
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "score": 0,
+          "margin": 0,
+          "cost": 0,
+          "converted_amount": 10000.0,
+          "fx_rate": 1
+        }
+      },
+      "reason": null,
+      "etk_s": "e241f7876483e527e6833cd300f840c8",
+      "etk_r": "a5bf026af205a7277aad3f1861745773",
+      "rtt": "f55f14a6ce2a4f06c26ded77ed075b91",
+      "payload_s": "ETK-S|BANK_KE-fd7e861cb7ccb8cc-KES|10000.0|2026-04-24T16:13:20.692893+00:00|3681c9019bc2f0eb",
+      "payload_r": "ETK-R|e241f7876483e527e6833cd300f840c8|MPESA-fd7e861cb7ccb8cc-KES",
+      "payload_rtt": "RTT|e241f7876483e527e6833cd300f840c8|a5bf026af205a7277aad3f1861745773|BANK_KE-RN-32E138",
+      "signatures": {
+        "etk_s": "PIupXp3YLq+E1nTX1AUJrV62eyALR+nNEWbvEHdPNSZdwzd4geSIcNd/gFeW4NNlEjdHZQigSNZKDzAAcUz+WuD5xwPIj0eE689ZLH+qpq88cxIfBBcenA1dpVq9DuGzz0Kiw+i2qjAsjnWnUhIiTFtvl5UDAQIRE7E4vEfqsVXarVEkGd37Tm1BIyKWQXB2NToVcWKeXx30d/khxfCtNEfPsR9qMcrArvZDe5LD+mAub91jGUhKZYBvqSKraWXKKD6JdJe/i6asEvhE/PVRoM/N7BbFXWajTA9SuI8kX+qNHQTYrtzXsskTkpt7DDNv0Fn0fo2Sh2Fr0Ue1PFGDMQ==",
+        "etk_r": "l5T4E8M7qyg/JTpZ5uFus9bnPHJ4plIC66IV2C4MTssXToQ+kty/P0u80J2cn6AVJ0wLgHp/uD7BERUM/wBEWmyl/e92pggZCRnro9xxOrrrvy/ZM51pLd0/lExEroX2ncITbGNWFX1dkFGUz/beg/McAjf0u0vewZ195TFdMrhES17TN5Uzyl2n0fnevAzkByBHql4bUyp69Bo10dYK4wwpU3ivFQodExa1KPfc0NW4L+xunVuL3iEDWV9MXHXMEKlFssMg8Y/R7IXJcxzGhKasbfAScSI0PBi/4d2kfEAWAcm2Or1/A1LBqnyglCX404Td9MIVTz2uXbocn2Vbnw==",
+        "rtt": "WnP1WRH8Ymz+0WxV/z2YR8tQQj2V5NbS7CTCxqlKkTSmD3VcYtOG2n8kUdi8VUz3OgeSfkyN9tDm4XKUfR9lr9bBJR0t/8EZkgB7lDB/F0TKLOMC5Cr3uHSzKwZp6jn9jPT2oX6Id8p04q6sNgQ++Ck1i9kkrv+UxU1MdjV4kunYTyieaggxw6OJC3O4WvaWHCx38wVGu5oDZHssNaEexpmuKPO+P4Sb2xzaYjUorfqGDaeZtddfiA6Mqf0pmWpCofEnJfy4Un5lRdUnAkyWCJmRTsoAJKYlEGx9NXm5PvLgfSzcKsNtwjupGUtNgqAG5rHkAiriZPBYK2TFoC9zbA=="
+      }
+    },
+    "hash": "f982d2455ad8b62cdb5f69a489f463617a95c81254000fd8362fe3607591bffb",
+    "previous_hash": "e547e4290d8262d06a212d2c921d2af8cd38e2373f2cc01e048d0acb4843d16f"
+  },
+  {
+    "timestamp": "2026-04-24T16:13:22.826715+00:00",
+    "event": "TX_FAILED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-32E138",
+      "timestamp": "2026-04-24T16:13:20.691339+00:00",
+      "sender_account": "BANK_KE-fd7e861cb7ccb8cc-KES",
+      "receiver_account": "MPESA-fd7e861cb7ccb8cc-KES",
+      "amount": 10000.0,
+      "gross_amount": 10000.0,
+      "net_amount": 9050.0,
+      "fees": 950.0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "FAILED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "score": 0,
+            "margin": 0,
+            "cost": 0,
+            "converted_amount": 10000.0,
+            "fx_rate": 1
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "score": 0,
+          "margin": 0,
+          "cost": 0,
+          "converted_amount": 10000.0,
+          "fx_rate": 1
+        }
+      },
+      "reason": "LIQUIDITY_ERROR: NO_SETTLEMENT_ACCOUNT",
+      "etk_s": "e241f7876483e527e6833cd300f840c8",
+      "etk_r": "a5bf026af205a7277aad3f1861745773",
+      "rtt": "f55f14a6ce2a4f06c26ded77ed075b91",
+      "payload_s": "ETK-S|BANK_KE-fd7e861cb7ccb8cc-KES|10000.0|2026-04-24T16:13:20.692893+00:00|3681c9019bc2f0eb",
+      "payload_r": "ETK-R|e241f7876483e527e6833cd300f840c8|MPESA-fd7e861cb7ccb8cc-KES",
+      "payload_rtt": "RTT|e241f7876483e527e6833cd300f840c8|a5bf026af205a7277aad3f1861745773|BANK_KE-RN-32E138",
+      "signatures": {
+        "etk_s": "PIupXp3YLq+E1nTX1AUJrV62eyALR+nNEWbvEHdPNSZdwzd4geSIcNd/gFeW4NNlEjdHZQigSNZKDzAAcUz+WuD5xwPIj0eE689ZLH+qpq88cxIfBBcenA1dpVq9DuGzz0Kiw+i2qjAsjnWnUhIiTFtvl5UDAQIRE7E4vEfqsVXarVEkGd37Tm1BIyKWQXB2NToVcWKeXx30d/khxfCtNEfPsR9qMcrArvZDe5LD+mAub91jGUhKZYBvqSKraWXKKD6JdJe/i6asEvhE/PVRoM/N7BbFXWajTA9SuI8kX+qNHQTYrtzXsskTkpt7DDNv0Fn0fo2Sh2Fr0Ue1PFGDMQ==",
+        "etk_r": "l5T4E8M7qyg/JTpZ5uFus9bnPHJ4plIC66IV2C4MTssXToQ+kty/P0u80J2cn6AVJ0wLgHp/uD7BERUM/wBEWmyl/e92pggZCRnro9xxOrrrvy/ZM51pLd0/lExEroX2ncITbGNWFX1dkFGUz/beg/McAjf0u0vewZ195TFdMrhES17TN5Uzyl2n0fnevAzkByBHql4bUyp69Bo10dYK4wwpU3ivFQodExa1KPfc0NW4L+xunVuL3iEDWV9MXHXMEKlFssMg8Y/R7IXJcxzGhKasbfAScSI0PBi/4d2kfEAWAcm2Or1/A1LBqnyglCX404Td9MIVTz2uXbocn2Vbnw==",
+        "rtt": "WnP1WRH8Ymz+0WxV/z2YR8tQQj2V5NbS7CTCxqlKkTSmD3VcYtOG2n8kUdi8VUz3OgeSfkyN9tDm4XKUfR9lr9bBJR0t/8EZkgB7lDB/F0TKLOMC5Cr3uHSzKwZp6jn9jPT2oX6Id8p04q6sNgQ++Ck1i9kkrv+UxU1MdjV4kunYTyieaggxw6OJC3O4WvaWHCx38wVGu5oDZHssNaEexpmuKPO+P4Sb2xzaYjUorfqGDaeZtddfiA6Mqf0pmWpCofEnJfy4Un5lRdUnAkyWCJmRTsoAJKYlEGx9NXm5PvLgfSzcKsNtwjupGUtNgqAG5rHkAiriZPBYK2TFoC9zbA=="
+      }
+    },
+    "hash": "629a060a6fbf83b17b17954fa748f13b554d872b6d86cbcb1c3694468f61a64b",
+    "previous_hash": "f982d2455ad8b62cdb5f69a489f463617a95c81254000fd8362fe3607591bffb"
+  },
+  {
+    "timestamp": "2026-04-24T16:21:36.211309+00:00",
+    "event": "TX_INITIATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-62E576",
+      "timestamp": "2026-04-24T16:21:36.210735+00:00",
+      "sender_account": "BANK_KE-fd7e861cb7ccb8cc-KES",
+      "receiver_account": "MPESA-fd7e861cb7ccb8cc-KES",
+      "amount": 10000.0,
+      "gross_amount": 10000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "reason": null
+    },
+    "hash": "78b5941346384955f85731c56f04a3afce5f8e037a58dc73d56e3803780f698c",
+    "previous_hash": "629a060a6fbf83b17b17954fa748f13b554d872b6d86cbcb1c3694468f61a64b"
+  },
+  {
+    "timestamp": "2026-04-24T16:21:36.229487+00:00",
+    "event": "TOKENS_GENERATED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-62E576",
+      "timestamp": "2026-04-24T16:21:36.210735+00:00",
+      "sender_account": "BANK_KE-fd7e861cb7ccb8cc-KES",
+      "receiver_account": "MPESA-fd7e861cb7ccb8cc-KES",
+      "amount": 10000.0,
+      "gross_amount": 10000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": null,
+      "reason": null,
+      "etk_s": "5741f3f3e55e9522708f7045c7ac0445",
+      "etk_r": "89bee0396d51b20a79faeff03a063b3c",
+      "rtt": "14f86397ea3af06d4f474d20124cf659",
+      "payload_s": "ETK-S|BANK_KE-fd7e861cb7ccb8cc-KES|10000.0|2026-04-24T16:21:36.212846+00:00|210920a94176ffcd",
+      "payload_r": "ETK-R|5741f3f3e55e9522708f7045c7ac0445|MPESA-fd7e861cb7ccb8cc-KES",
+      "payload_rtt": "RTT|5741f3f3e55e9522708f7045c7ac0445|89bee0396d51b20a79faeff03a063b3c|BANK_KE-RN-62E576",
+      "signatures": {
+        "etk_s": "UkTRu9JTd3D6ADJGoaO85pDQhIGb4rEL0Bkc3jmq0KS8zQe5SzXVmNJWPvF1uqXoLtYfpoMyMuj+MIfbDPRHWmrVp5+7zAXrAWhm111VNvGiDQBTMQKkJlGhJKAY9AeMIv38TIgE8UYjttTEybKJY14VZ07Xctbn5XUlf6o0ajnQ4yCEAZE4WAD+URtfVtiZPtYb9RbCodBq7lBnERugYgP4f6pSjPP9NyKAaN3iiL7CQmFbKG1s1sUcK1VlKsdA3a8f/gjMcRp18bkQvqkRYpDPEqbjis8gKCUyj6iYd5C4iuRypjgsI1wLttBvIGzpDNNWAfkIADuIMdx9CoYJRw==",
+        "etk_r": "zaw2KrQgnGmh7T0EKxkNMGqlL2mZco2wfG5/7PUTdxVSeCTdbW3E/AQ1XrKo4DtRf6mVIg5Sm4lgzY7EX/cpSqxRlZ8IsDdoA0oj6nMhkvqCojEdDx8Ai93BIZtRZvt7biUcd0D+ByQkDSa+8crJ39uspvn1Ugw4ezjmwLezfI3oIn8YuS97dP9GytaLi/fqtcfKBzlVyi++kI86Pv9pkKY0Y3Ocmjkh88WAHnp1Wb5U2Zggkyud/w1+g7RjF/NFiPx3Zzw50T6VzdFEYIfU2MZIqmlCMeQMXL58xKTj9yVsV97CUxGq389HZC5bMtKEUCtMV1G7zpmOsi0alILKvw==",
+        "rtt": "jqb58irx7Gdb9keRT72SqFKrVHtGwoDimDAS0CJv6ApXazqrvlzKFwuYrZ1PZvIHk6YoS4XvCbmdOECU62kD3S8Ms/t5t68O0KbKYOybN9V1+WXDUQJMQ52PNUdBFj48Tghj1Nq1opgV2zcBd/+JCLiCkB/hrGQ7jwLyFfHIxlN5l3OlzvGJOoJAKXMzI/UhjOD8qO2Ym7F0epEPO9SQ7G31arD899/Sb7/S8MQJ/5oAQG8DTipWKZ4J2AMc0OAvR3kTBLrXKmXgezytaZ5u5wD+Dvp1YzoB0U/aT+CaPG6LpHCrjs6K5geUzi2Fa0opH3z20Vr80uW3yD6tRFxcQA=="
+      }
+    },
+    "hash": "afbb867428d0e3708aa7172dfcf2e17516f5a077435242158a53b0f9c3ff43d4",
+    "previous_hash": "78b5941346384955f85731c56f04a3afce5f8e037a58dc73d56e3803780f698c"
+  },
+  {
+    "timestamp": "2026-04-24T16:21:36.252782+00:00",
+    "event": "ROUTE_SELECTED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-62E576",
+      "timestamp": "2026-04-24T16:21:36.210735+00:00",
+      "sender_account": "BANK_KE-fd7e861cb7ccb8cc-KES",
+      "receiver_account": "MPESA-fd7e861cb7ccb8cc-KES",
+      "amount": 10000.0,
+      "gross_amount": 10000.0,
+      "net_amount": null,
+      "fees": 0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_KE",
+            "type": "BANK_KE",
+            "score": 5.3788,
+            "margin": 200.0,
+            "cost": 1500,
+            "converted_amount": 10000.0,
+            "fx_rate": 1
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "score": 7.4345,
+            "margin": 200.0,
+            "cost": 750,
+            "converted_amount": 10000.0,
+            "fx_rate": 1
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "score": 7.4345,
+          "margin": 200.0,
+          "cost": 750,
+          "converted_amount": 10000.0,
+          "fx_rate": 1
+        }
+      },
+      "reason": null,
+      "etk_s": "5741f3f3e55e9522708f7045c7ac0445",
+      "etk_r": "89bee0396d51b20a79faeff03a063b3c",
+      "rtt": "14f86397ea3af06d4f474d20124cf659",
+      "payload_s": "ETK-S|BANK_KE-fd7e861cb7ccb8cc-KES|10000.0|2026-04-24T16:21:36.212846+00:00|210920a94176ffcd",
+      "payload_r": "ETK-R|5741f3f3e55e9522708f7045c7ac0445|MPESA-fd7e861cb7ccb8cc-KES",
+      "payload_rtt": "RTT|5741f3f3e55e9522708f7045c7ac0445|89bee0396d51b20a79faeff03a063b3c|BANK_KE-RN-62E576",
+      "signatures": {
+        "etk_s": "UkTRu9JTd3D6ADJGoaO85pDQhIGb4rEL0Bkc3jmq0KS8zQe5SzXVmNJWPvF1uqXoLtYfpoMyMuj+MIfbDPRHWmrVp5+7zAXrAWhm111VNvGiDQBTMQKkJlGhJKAY9AeMIv38TIgE8UYjttTEybKJY14VZ07Xctbn5XUlf6o0ajnQ4yCEAZE4WAD+URtfVtiZPtYb9RbCodBq7lBnERugYgP4f6pSjPP9NyKAaN3iiL7CQmFbKG1s1sUcK1VlKsdA3a8f/gjMcRp18bkQvqkRYpDPEqbjis8gKCUyj6iYd5C4iuRypjgsI1wLttBvIGzpDNNWAfkIADuIMdx9CoYJRw==",
+        "etk_r": "zaw2KrQgnGmh7T0EKxkNMGqlL2mZco2wfG5/7PUTdxVSeCTdbW3E/AQ1XrKo4DtRf6mVIg5Sm4lgzY7EX/cpSqxRlZ8IsDdoA0oj6nMhkvqCojEdDx8Ai93BIZtRZvt7biUcd0D+ByQkDSa+8crJ39uspvn1Ugw4ezjmwLezfI3oIn8YuS97dP9GytaLi/fqtcfKBzlVyi++kI86Pv9pkKY0Y3Ocmjkh88WAHnp1Wb5U2Zggkyud/w1+g7RjF/NFiPx3Zzw50T6VzdFEYIfU2MZIqmlCMeQMXL58xKTj9yVsV97CUxGq389HZC5bMtKEUCtMV1G7zpmOsi0alILKvw==",
+        "rtt": "jqb58irx7Gdb9keRT72SqFKrVHtGwoDimDAS0CJv6ApXazqrvlzKFwuYrZ1PZvIHk6YoS4XvCbmdOECU62kD3S8Ms/t5t68O0KbKYOybN9V1+WXDUQJMQ52PNUdBFj48Tghj1Nq1opgV2zcBd/+JCLiCkB/hrGQ7jwLyFfHIxlN5l3OlzvGJOoJAKXMzI/UhjOD8qO2Ym7F0epEPO9SQ7G31arD899/Sb7/S8MQJ/5oAQG8DTipWKZ4J2AMc0OAvR3kTBLrXKmXgezytaZ5u5wD+Dvp1YzoB0U/aT+CaPG6LpHCrjs6K5geUzi2Fa0opH3z20Vr80uW3yD6tRFxcQA=="
+      }
+    },
+    "hash": "dd150692ae384dfb6dc916096f6aa9685d5056ae7db9e26a5ed421bd24ea2095",
+    "previous_hash": "afbb867428d0e3708aa7172dfcf2e17516f5a077435242158a53b0f9c3ff43d4"
+  },
+  {
+    "timestamp": "2026-04-24T16:21:36.266262+00:00",
+    "event": "PRICING_COMPUTED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-62E576",
+      "timestamp": "2026-04-24T16:21:36.210735+00:00",
+      "sender_account": "BANK_KE-fd7e861cb7ccb8cc-KES",
+      "receiver_account": "MPESA-fd7e861cb7ccb8cc-KES",
+      "amount": 10000.0,
+      "gross_amount": 10000.0,
+      "net_amount": 9050.0,
+      "fees": 950.0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "INITIATED",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_KE",
+            "type": "BANK_KE",
+            "score": 5.3788,
+            "margin": 200.0,
+            "cost": 1500,
+            "converted_amount": 10000.0,
+            "fx_rate": 1
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "score": 7.4345,
+            "margin": 200.0,
+            "cost": 750,
+            "converted_amount": 10000.0,
+            "fx_rate": 1
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "score": 7.4345,
+          "margin": 200.0,
+          "cost": 750,
+          "converted_amount": 10000.0,
+          "fx_rate": 1
+        }
+      },
+      "reason": null,
+      "etk_s": "5741f3f3e55e9522708f7045c7ac0445",
+      "etk_r": "89bee0396d51b20a79faeff03a063b3c",
+      "rtt": "14f86397ea3af06d4f474d20124cf659",
+      "payload_s": "ETK-S|BANK_KE-fd7e861cb7ccb8cc-KES|10000.0|2026-04-24T16:21:36.212846+00:00|210920a94176ffcd",
+      "payload_r": "ETK-R|5741f3f3e55e9522708f7045c7ac0445|MPESA-fd7e861cb7ccb8cc-KES",
+      "payload_rtt": "RTT|5741f3f3e55e9522708f7045c7ac0445|89bee0396d51b20a79faeff03a063b3c|BANK_KE-RN-62E576",
+      "signatures": {
+        "etk_s": "UkTRu9JTd3D6ADJGoaO85pDQhIGb4rEL0Bkc3jmq0KS8zQe5SzXVmNJWPvF1uqXoLtYfpoMyMuj+MIfbDPRHWmrVp5+7zAXrAWhm111VNvGiDQBTMQKkJlGhJKAY9AeMIv38TIgE8UYjttTEybKJY14VZ07Xctbn5XUlf6o0ajnQ4yCEAZE4WAD+URtfVtiZPtYb9RbCodBq7lBnERugYgP4f6pSjPP9NyKAaN3iiL7CQmFbKG1s1sUcK1VlKsdA3a8f/gjMcRp18bkQvqkRYpDPEqbjis8gKCUyj6iYd5C4iuRypjgsI1wLttBvIGzpDNNWAfkIADuIMdx9CoYJRw==",
+        "etk_r": "zaw2KrQgnGmh7T0EKxkNMGqlL2mZco2wfG5/7PUTdxVSeCTdbW3E/AQ1XrKo4DtRf6mVIg5Sm4lgzY7EX/cpSqxRlZ8IsDdoA0oj6nMhkvqCojEdDx8Ai93BIZtRZvt7biUcd0D+ByQkDSa+8crJ39uspvn1Ugw4ezjmwLezfI3oIn8YuS97dP9GytaLi/fqtcfKBzlVyi++kI86Pv9pkKY0Y3Ocmjkh88WAHnp1Wb5U2Zggkyud/w1+g7RjF/NFiPx3Zzw50T6VzdFEYIfU2MZIqmlCMeQMXL58xKTj9yVsV97CUxGq389HZC5bMtKEUCtMV1G7zpmOsi0alILKvw==",
+        "rtt": "jqb58irx7Gdb9keRT72SqFKrVHtGwoDimDAS0CJv6ApXazqrvlzKFwuYrZ1PZvIHk6YoS4XvCbmdOECU62kD3S8Ms/t5t68O0KbKYOybN9V1+WXDUQJMQ52PNUdBFj48Tghj1Nq1opgV2zcBd/+JCLiCkB/hrGQ7jwLyFfHIxlN5l3OlzvGJOoJAKXMzI/UhjOD8qO2Ym7F0epEPO9SQ7G31arD899/Sb7/S8MQJ/5oAQG8DTipWKZ4J2AMc0OAvR3kTBLrXKmXgezytaZ5u5wD+Dvp1YzoB0U/aT+CaPG6LpHCrjs6K5geUzi2Fa0opH3z20Vr80uW3yD6tRFxcQA=="
+      }
+    },
+    "hash": "48f9ba50d70e115fddc2096483b4778c958fae3002535af772419569c2865853",
+    "previous_hash": "dd150692ae384dfb6dc916096f6aa9685d5056ae7db9e26a5ed421bd24ea2095"
+  },
+  {
+    "timestamp": "2026-04-24T16:21:38.333569+00:00",
+    "event": "TX_ENQUEUED",
+    "payload": {
+      "tx_id": "BANK_KE-RN-62E576",
+      "timestamp": "2026-04-24T16:21:36.210735+00:00",
+      "sender_account": "BANK_KE-fd7e861cb7ccb8cc-KES",
+      "receiver_account": "MPESA-fd7e861cb7ccb8cc-KES",
+      "amount": 10000.0,
+      "gross_amount": 10000.0,
+      "net_amount": 9050.0,
+      "fees": 950.0,
+      "currency_from": "KES",
+      "currency_to": "KES",
+      "status": "PENDING",
+      "route_result": {
+        "candidates": [
+          {
+            "rail": "BANK_KE",
+            "type": "BANK_KE",
+            "score": 5.3788,
+            "margin": 200.0,
+            "cost": 1500,
+            "converted_amount": 10000.0,
+            "fx_rate": 1
+          },
+          {
+            "rail": "SMOVE",
+            "type": "SMOVE",
+            "score": 7.4345,
+            "margin": 200.0,
+            "cost": 750,
+            "converted_amount": 10000.0,
+            "fx_rate": 1
+          }
+        ],
+        "best_route": {
+          "rail": "SMOVE",
+          "type": "SMOVE",
+          "score": 7.4345,
+          "margin": 200.0,
+          "cost": 750,
+          "converted_amount": 10000.0,
+          "fx_rate": 1
+        }
+      },
+      "reason": null,
+      "etk_s": "5741f3f3e55e9522708f7045c7ac0445",
+      "etk_r": "89bee0396d51b20a79faeff03a063b3c",
+      "rtt": "14f86397ea3af06d4f474d20124cf659",
+      "payload_s": "ETK-S|BANK_KE-fd7e861cb7ccb8cc-KES|10000.0|2026-04-24T16:21:36.212846+00:00|210920a94176ffcd",
+      "payload_r": "ETK-R|5741f3f3e55e9522708f7045c7ac0445|MPESA-fd7e861cb7ccb8cc-KES",
+      "payload_rtt": "RTT|5741f3f3e55e9522708f7045c7ac0445|89bee0396d51b20a79faeff03a063b3c|BANK_KE-RN-62E576",
+      "signatures": {
+        "etk_s": "UkTRu9JTd3D6ADJGoaO85pDQhIGb4rEL0Bkc3jmq0KS8zQe5SzXVmNJWPvF1uqXoLtYfpoMyMuj+MIfbDPRHWmrVp5+7zAXrAWhm111VNvGiDQBTMQKkJlGhJKAY9AeMIv38TIgE8UYjttTEybKJY14VZ07Xctbn5XUlf6o0ajnQ4yCEAZE4WAD+URtfVtiZPtYb9RbCodBq7lBnERugYgP4f6pSjPP9NyKAaN3iiL7CQmFbKG1s1sUcK1VlKsdA3a8f/gjMcRp18bkQvqkRYpDPEqbjis8gKCUyj6iYd5C4iuRypjgsI1wLttBvIGzpDNNWAfkIADuIMdx9CoYJRw==",
+        "etk_r": "zaw2KrQgnGmh7T0EKxkNMGqlL2mZco2wfG5/7PUTdxVSeCTdbW3E/AQ1XrKo4DtRf6mVIg5Sm4lgzY7EX/cpSqxRlZ8IsDdoA0oj6nMhkvqCojEdDx8Ai93BIZtRZvt7biUcd0D+ByQkDSa+8crJ39uspvn1Ugw4ezjmwLezfI3oIn8YuS97dP9GytaLi/fqtcfKBzlVyi++kI86Pv9pkKY0Y3Ocmjkh88WAHnp1Wb5U2Zggkyud/w1+g7RjF/NFiPx3Zzw50T6VzdFEYIfU2MZIqmlCMeQMXL58xKTj9yVsV97CUxGq389HZC5bMtKEUCtMV1G7zpmOsi0alILKvw==",
+        "rtt": "jqb58irx7Gdb9keRT72SqFKrVHtGwoDimDAS0CJv6ApXazqrvlzKFwuYrZ1PZvIHk6YoS4XvCbmdOECU62kD3S8Ms/t5t68O0KbKYOybN9V1+WXDUQJMQ52PNUdBFj48Tghj1Nq1opgV2zcBd/+JCLiCkB/hrGQ7jwLyFfHIxlN5l3OlzvGJOoJAKXMzI/UhjOD8qO2Ym7F0epEPO9SQ7G31arD899/Sb7/S8MQJ/5oAQG8DTipWKZ4J2AMc0OAvR3kTBLrXKmXgezytaZ5u5wD+Dvp1YzoB0U/aT+CaPG6LpHCrjs6K5geUzi2Fa0opH3z20Vr80uW3yD6tRFxcQA=="
+      }
+    },
+    "hash": "b52a9139aa38b25cade0fb5f050027961c83652d565f29fef8bbf91e313d9a99",
+    "previous_hash": "48f9ba50d70e115fddc2096483b4778c958fae3002535af772419569c2865853"
   }
 ]
