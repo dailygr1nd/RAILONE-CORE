@@ -139,9 +139,9 @@ def send_money(user_id):
 
     receiver_id = get_railone_id_by_national_id(receiver_nid)
 
-if not receiver_id:
-    print("❌ Receiver not found")
-        return
+    if not receiver_id:
+      print("❌ Receiver not found")
+    return
 
     receiver_accounts = get_accounts(receiver_id)
 
