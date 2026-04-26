@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RailOne Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            background: #0f172a;
+            color: white;
+            font-family: Arial;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+
+        .card {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 12px;
+        }
+
+        .card h2 {
+            margin: 0;
+            font-size: 14px;
+            color: #94a3b8;
+        }
+
+        .card p {
+            font-size: 26px;
+            margin-top: 10px;
+        }
+
+        .charts {
+            margin-top: 30px;
+        }
+
+        canvas {
+            background: #1e293b;
+            padding: 15px;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>🚀 RailOne Dashboard</h1>
+
+<div class="grid">
+    <div class="card">
+        <h2>Total Revenue</h2>
+        <p id="revenue">$0</p>
+    </div>
+
+    <div class="card">
+        <h2>Transactions</h2>
+        <p id="txcount">0</p>
+    </div>
+
+    <div class="card">
+        <h2>Avg Profit</h2>
+        <p id="avg">$0</p>
+    </div>
+</div>
+
+<div class="charts">
+    <h2>Daily Revenue</h2>
+    <canvas id="dailyChart"></canvas>
+
+    <h2 style="margin-top:30px;">Revenue by Route</h2>
+    <canvas id="routeChart"></canvas>
+</div>
+
+<script>
+
+let dailyChart;
+let routeChart;
+
+async function loadDashboard() {
+
+    // -----------------------------
+    // METRICS
+    // -----------------------------
+    let metrics = await fetch("http://127.0.0.1:8000/v1/dashboard/metrics")
+        .then(r => r.json());
+
+    document.getElementById("revenue").innerText = "$" + metrics.total_revenue.toFixed(2);
+    document.getElementById("txcount").innerText = metrics.transactions;
+    document.getElementById("avg").innerText = "$" + metrics.avg_profit;
+
+    // -----------------------------
+    // DAILY
+    // -----------------------------
+    let daily = await fetch("http://127.0.0.1:8000/v1/dashboard/daily")
+        .then(r => r.json());
+
+    if (dailyChart) dailyChart.destroy();
+
+    dailyChart = new Chart(document.getElementById("dailyChart"), {
+        type: 'line',
+        data: {
+            labels: daily.map(d => d.date),
+            datasets: [{
+                label: 'Revenue',
+                data: daily.map(d => d.revenue),
+                borderWidth: 2,
+                tension: 0.3
+            }]
+        }
+    });
+
+    // -----------------------------
+    // ROUTE
+    // -----------------------------
+    let routes = await fetch("http://127.0.0.1:8000/v1/dashboard/by-route")
+        .then(r => r.json());
+
+    if (routeChart) routeChart.destroy();
+
+    routeChart = new Chart(document.getElementById("routeChart"), {
+        type: 'doughnut',
+        data: {
+            labels: routes.map(r => r.route),
+            datasets: [{
+                data: routes.map(r => r.revenue)
+            }]
+        }
+    });
+}
+
+// AUTO REFRESH EVERY 5s
+setInterval(loadDashboard, 5000);
+
+loadDashboard();
+
+</script>
+
+</body>
+</html>

@@ -1,9 +1,8 @@
 from ledger.db import engine
-from ledger.models import Base  # ensures models are loaded
+from ledger.models import Base
 
-def init_db():
-    Base.metadata.create_all(bind=engine)
+print("🔧 Creating database tables...")
 
+Base.metadata.create_all(bind=engine)
 
-if __name__ == "__main__":
-    init_db()
+print("✅ Tables created successfully")

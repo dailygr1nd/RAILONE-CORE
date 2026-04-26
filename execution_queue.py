@@ -1,93 +1,143 @@
 # ==============================
-# execution_queue.py
+# execution_queue.py (DB + QUEUE)
 # ==============================
 
 import json
-import time
 import redis
 
+from ledger.db import SessionLocal
+from ledger.models import Transaction
+
+
 # --------------------------------
-# CONFIG
+# REDIS QUEUE
 # --------------------------------
-REDIS_HOST = "localhost"
-REDIS_PORT = 6379
+r = redis.Redis(host="localhost", port=6379, decode_responses=True)
+
 QUEUE_NAME = "railone:tx_queue"
-DEAD_LETTER_QUEUE = "railone:dead_letter"
-
-# --------------------------------
-# REDIS CONNECTION
-# --------------------------------
-redis_client = redis.Redis(
-    host=REDIS_HOST,
-    port=REDIS_PORT,
-    decode_responses=True  # store strings instead of bytes
-)
+DEAD_LETTER = "railone:dead_letter"
 
 
 # --------------------------------
-# ENQUEUE
+# STORE TX (DB)
 # --------------------------------
-def enqueue_tx(tx: dict):
-    """
-    Push transaction into queue
-    """
-    payload = json.dumps(tx)
-    redis_client.rpush(QUEUE_NAME, payload)
+def store_tx(tx):
 
-    print(f"📤 Enqueued TX {tx.get('tx_id')}")
+    session = SessionLocal()
+
+    try:
+        existing = session.get(Transaction, tx["tx_id"])
+
+        if existing:
+            return
+
+        record = Transaction(
+            tx_id=tx["tx_id"],
+            sender_account=tx["sender_account"],
+            receiver_account=tx["receiver_account"],
+            amount=tx["amount"],
+            net_amount=tx.get("net_amount", 0),
+            currency_from=tx["currency_from"],
+            currency_to=tx["currency_to"],
+            status=tx["status"],
+            fee=tx.get("fee", 0),
+            profit=tx.get("profit", 0)
+        )
+
+        session.add(record)
+        session.commit()
+
+    finally:
+        session.close()
 
 
 # --------------------------------
-# DEQUEUE (BLOCKING)
+# UPDATE TX (DB)
 # --------------------------------
-def dequeue_tx(timeout=5):
-    """
-    Blocking pop (waits for new jobs)
-    """
-    result = redis_client.blpop(QUEUE_NAME, timeout=timeout)
+def update_tx(tx_id, updates):
 
-    if not result:
+    session = SessionLocal()
+
+    try:
+        tx = session.get(Transaction, tx_id)
+
+        if not tx:
+            return
+
+        for k, v in updates.items():
+            setattr(tx, k, v)
+
+        session.commit()
+
+    finally:
+        session.close()
+
+
+# --------------------------------
+# GET TX
+# --------------------------------
+def get_tx(tx_id):
+
+    session = SessionLocal()
+
+    try:
+        tx = session.get(Transaction, tx_id)
+
+        if not tx:
+            return None
+
+        return tx.__dict__
+
+    finally:
+        session.close()
+
+
+# --------------------------------
+# GET ALL TX
+# --------------------------------
+def get_all_tx():
+
+    session = SessionLocal()
+
+    try:
+        txs = session.query(Transaction).all()
+
+        return [
+            {
+                "tx_id": t.tx_id,
+                "sender_account": t.sender_account,
+                "receiver_account": t.receiver_account,
+                "amount": t.amount,
+                "currency_from": t.currency_from,
+                "currency_to": t.currency_to,
+                "status": t.status
+            }
+            for t in txs
+        ]
+
+    finally:
+        session.close()
+
+
+# --------------------------------
+# QUEUE OPERATIONS
+# --------------------------------
+def enqueue_tx(tx):
+    r.lpush(QUEUE_NAME, json.dumps(tx))
+
+
+def dequeue_tx():
+
+    raw = r.rpop(QUEUE_NAME)
+
+    if not raw:
         return None
 
-    _, payload = result
-    tx = json.loads(payload)
-
-    return tx
+    return json.loads(raw)
 
 
-# --------------------------------
-# DEAD LETTER QUEUE
-# --------------------------------
-def send_to_dead_letter(tx: dict, reason: str):
-    """
-    Store permanently failed transactions
-    """
-    tx["dead_letter_reason"] = reason
-    tx["failed_at"] = time.time()
+def send_to_dead_letter(tx, reason):
 
-    redis_client.rpush(DEAD_LETTER_QUEUE, json.dumps(tx))
+    tx["failure_reason"] = reason
 
-    print(f"☠️ TX {tx.get('tx_id')} sent to DEAD LETTER: {reason}")
-
-
-# --------------------------------
-# OPTIONAL: INSPECT QUEUE
-# --------------------------------
-def get_queue_length():
-    return redis_client.llen(QUEUE_NAME)
-
-
-def get_dead_letter_count():
-    return redis_client.llen(DEAD_LETTER_QUEUE)
-
-# --------------------------------
-# TX STATE STORAGE
-# --------------------------------
-TX_STORE = "railone:tx_store"
-
-def store_tx(tx: dict):
-    redis_client.hset(TX_STORE, tx["tx_id"], json.dumps(tx))
-
-def get_tx(tx_id: str):
-    data = redis_client.hget(TX_STORE, tx_id)
-    return json.loads(data) if data else None
+    r.lpush(DEAD_LETTER, json.dumps(tx))

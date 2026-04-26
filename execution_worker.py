@@ -1,5 +1,5 @@
 # ==============================
-# execution_worker.py (CLEAN PRO)
+# execution_worker.py (FINAL)
 # ==============================
 
 import time
@@ -7,6 +7,7 @@ import redis
 
 from execution_queue import dequeue_tx, send_to_dead_letter
 from execution_engine import process_execution
+from execution_queue import update_tx
 
 from balance_engine import release_funds
 from treasury_engine import needs_rebalance, rebalance_pool
@@ -29,7 +30,7 @@ def mark_processed(tx_id):
 
 
 # --------------------------------
-# TREASURY HOOK
+# TREASURY HOOK (ISOLATED)
 # --------------------------------
 def run_rebalancing():
     session = SessionLocal()
@@ -37,6 +38,7 @@ def run_rebalancing():
     try:
         for ccy in ["KES", "TZS", "UGX"]:
             if needs_rebalance(session, ccy):
+                print(f"💰 Rebalancing {ccy}")
                 rebalance_pool(session, ccy)
 
         session.commit()
@@ -50,13 +52,13 @@ def run_rebalancing():
 
 
 # --------------------------------
-# SAFE EXECUTION WRAPPER
+# SAFE EXECUTION
 # --------------------------------
 def safe_execute(tx):
 
     tx_id = tx["tx_id"]
 
-    # ✅ Replay protection FIRST
+    # ✅ HARD REPLAY PROTECTION
     if already_processed(tx_id):
         print(f"⚠️ Replay blocked: {tx_id}")
         return True
@@ -69,7 +71,8 @@ def safe_execute(tx):
         if success:
             mark_processed(tx_id)
 
-            # ✅ Post-settlement treasury check
+            update_tx(tx_id, {"status": "SETTLED"})  # ✅ persist success
+
             run_rebalancing()
 
             print(f"✅ TX {tx_id} SETTLED")
@@ -93,12 +96,12 @@ def safe_execute(tx):
             )
 
             session.commit()
-            session.close()
-
-            print("🔓 Funds released")
 
         except Exception as e2:
             print(f"❌ Failed to release funds: {str(e2)}")
+
+        finally:
+            session.close()
 
         return False
 
@@ -111,7 +114,6 @@ def start_worker():
     print("🚀 Execution Worker Started")
 
     while True:
-
         try:
             tx = dequeue_tx()
 
@@ -119,16 +121,22 @@ def start_worker():
                 time.sleep(1)
                 continue
 
-            print(f"\n📥 Picked TX {tx['tx_id']}")
+            tx_id = tx["tx_id"]
+            print(f"\n📥 Picked TX {tx_id}")
 
             success = safe_execute(tx)
 
             if not success:
+                update_tx(tx_id, {
+                    "status": "FAILED",
+                    "reason": "EXECUTION_FAILED"
+                })
+
                 send_to_dead_letter(tx, "EXECUTION_FAILED")
 
         except Exception as loop_error:
             print(f"💥 Worker loop error: {str(loop_error)}")
-            time.sleep(2)  # prevent crash loop
+            time.sleep(2)
 
 
 # --------------------------------

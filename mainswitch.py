@@ -157,3 +157,89 @@ def get_iso(tx_id: str):
         raise HTTPException(404, "TX_NOT_FOUND")
 
     return {"pacs008": build_pacs008(tx)}
+
+    # --------------------------------
+# DASHBOARD METRICS
+# --------------------------------
+from revenue_db import get_total_revenue
+import sqlite3
+
+
+@app.get("/v1/dashboard/summary")
+def dashboard_summary():
+
+    total = get_total_revenue()
+
+    return {
+        "total_revenue": total
+    }
+
+
+@app.get("/v1/dashboard/by-route")
+def revenue_by_route():
+
+    conn = sqlite3.connect("railone_revenue.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT route, SUM(amount)
+    FROM revenue
+    GROUP BY route
+    """)
+
+    rows = c.fetchall()
+    conn.close()
+
+    return [
+        {"route": r[0], "revenue": r[1]}
+        for r in rows
+    ]
+
+
+@app.get("/v1/dashboard/daily")
+def revenue_daily():
+
+    conn = sqlite3.connect("railone_revenue.db")
+    c = conn.cursor()
+
+    c.execute("""
+    SELECT DATE(timestamp), SUM(amount)
+    FROM revenue
+    GROUP BY DATE(timestamp)
+    ORDER BY DATE(timestamp)
+    """)
+
+    rows = c.fetchall()
+    conn.close()
+
+    return [
+        {"date": r[0], "revenue": r[1]}
+        for r in rows
+    ]
+
+@app.get("/v1/dashboard/metrics")
+def dashboard_metrics():
+
+    import sqlite3
+
+    conn = sqlite3.connect("railone_revenue.db")
+    c = conn.cursor()
+
+    # total revenue
+    c.execute("SELECT SUM(amount) FROM revenue")
+    total = c.fetchone()[0] or 0
+
+    # transaction count
+    c.execute("SELECT COUNT(*) FROM revenue")
+    tx_count = c.fetchone()[0]
+
+    # avg profit
+    avg = total / tx_count if tx_count > 0 else 0
+
+    conn.close()
+
+    return {
+        "total_revenue": total,
+        "transactions": tx_count,
+        "avg_profit": round(avg, 2)
+    }

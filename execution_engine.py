@@ -1,35 +1,30 @@
 # ==============================
-# execution_engine.py (FIXED)
+# execution_engine.py (FINAL)
 # ==============================
 
 from ledger.db import SessionLocal
 from ledger.ledger_service import apply_transaction
+from balance_engine import release_funds
 
+
+def process_execution(tx):
+
+    from ledger.ledger_service import apply_transaction
 
 def process_execution(tx):
 
     session = SessionLocal()
 
     try:
-        print(f"⚙️ Executing TX {tx['tx_id']}")
-
         apply_transaction(session, tx)
 
-        tx["status"] = "SETTLED"
-
         session.commit()
-
-        print(f"✅ TX {tx['tx_id']} SETTLED")
 
         return True
 
     except Exception as e:
         session.rollback()
-
-        tx["status"] = "FAILED"
-
-        print(f"❌ TX FAILED: {str(e)}")
-
+        print("Execution failed:", str(e))
         return False
 
     finally:

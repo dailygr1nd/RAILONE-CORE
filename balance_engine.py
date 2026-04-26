@@ -1,71 +1,60 @@
-from ledger.db import SessionLocal
+# ==============================
+# balance_engine.py (FINAL)
+# ==============================
+
 from ledger.models import Account
 
 
-# --------------------------------
-# GET ACCOUNT
-# --------------------------------
-def get_account(session, account_id):
 
-    acc = session.query(Account).filter_by(id=account_id).first()
+def lock_funds(session, account_id, amount):
+
+    acc = session.get(Account, account_id)
 
     if not acc:
-        acc = Account(id=account_id, balance=0.0, reserved=0.0)
-        session.add(acc)
+        return False, "ACCOUNT_NOT_FOUND"
 
-    return acc
+    available = acc.balance - acc.locked_balance
 
-
-# --------------------------------
-# AVAILABLE BALANCE
-# --------------------------------
-def get_available_balance(session, account_id):
-
-    acc = get_account(session, account_id)
-    return acc.balance - acc.reserved
-
-
-# --------------------------------
-# RESERVE FUNDS (LOCK)
-# --------------------------------
-def reserve_funds(session, account_id, amount):
-
-    acc = get_account(session, account_id)
-
-    if (acc.balance - acc.reserved) < amount:
+    if available < amount:
         return False, "INSUFFICIENT_FUNDS"
 
-    acc.reserved += amount
+    acc.locked_balance += amount
+
     return True, None
 
 
-# --------------------------------
-# RELEASE FUNDS (FAIL CASE)
-# --------------------------------
 def release_funds(session, account_id, amount):
 
-    acc = get_account(session, account_id)
-    acc.reserved -= amount
+    acc = session.get(Account, account_id)
 
-    if acc.reserved < 0:
-        acc.reserved = 0
+    if not acc:
+        return
+
+    acc.locked_balance -= amount
+
+    if acc.locked_balance < 0:
+        acc.locked_balance = 0
 
 
-# --------------------------------
-# FINALIZE DEBIT (SETTLEMENT)
-# --------------------------------
 def finalize_debit(session, account_id, amount):
 
-    acc = get_account(session, account_id)
+    acc = session.get(Account, account_id)
 
-    acc.reserved -= amount
+    if not acc:
+        return
+
     acc.balance -= amount
+    acc.locked_balance -= amount
+
+    if acc.locked_balance < 0:
+        acc.locked_balance = 0
 
 
-# --------------------------------
-# CREDIT FUNDS
-# --------------------------------
 def credit_funds(session, account_id, amount):
 
-    acc = get_account(session, account_id)
+    acc = session.get(Account, account_id)
+
+    if not acc:
+        return
+
     acc.balance += amount
