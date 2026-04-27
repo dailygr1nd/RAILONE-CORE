@@ -1,5 +1,5 @@
 # ==============================
-# profit_engine.py
+# profit_engine.py (UPDATED)
 # ==============================
 
 def calculate_profit(tx):
@@ -7,16 +7,15 @@ def calculate_profit(tx):
     gross = tx["gross_amount"]
     net = tx["net_amount"]
 
-    fx_rate = tx.get("fx_rate", 1)
+    market_rate = tx.get("market_rate", 1)
+    applied_rate = tx.get("fx_rate", 1)
 
-    # what user SHOULD have gotten at market rate
-    expected = gross * tx.get("market_rate", fx_rate)
-
+    expected = gross * market_rate
     actual = net
 
     fx_profit = round(expected - actual, 2)
 
-    fee_profit = tx.get("fees", 0)
+    fee_profit = tx.get("fee", 0)
 
     total_profit = round(fx_profit + fee_profit, 2)
 

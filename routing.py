@@ -77,3 +77,103 @@ def get_best_rail(candidate_rails, amount, currency, cross_border=False):
             best = rail
 
     return best or "SMOVE"  # fallback
+
+def build_route(sender_rail, receiver_rail, amount, currency):
+
+    # direct route possible
+    if sender_rail == receiver_rail:
+        return [sender_rail]
+
+    # cross-border KE → TZ via UG
+    if sender_rail == "PSP_KE" and receiver_rail == "BANK_TZ":
+        return ["PSP_KE", "PSP_UG", "BANK_TZ"]
+
+    # fallback: use best rail as bridge
+    bridge = get_best_rail(
+        candidate_rails=["PSP_UG", "SMOVE"],
+        amount=amount,
+        currency=currency,
+        cross_border=True
+    )
+
+    return [sender_rail, bridge, receiver_rail]
+
+def execute_route(tx, router, attestation_engine):
+
+    route = build_route(
+        tx.payload["sender"]["institution"],
+        tx.payload["receiver"]["institution"],
+        tx.payload["amount"]["value"],
+        tx.payload["amount"]["currency"]
+    )
+    tx.append_chain(f"HOP:{route[i-1]}->{inst}")
+
+    current_amount = tx.payload["amount"]["value"]
+
+    for i in range(len(route)):
+
+        inst = route[i]
+
+        # -----------------------------
+        # FIRST HOP (VERIFY + RESERVE)
+        # -----------------------------
+        if i == 0:
+
+            res = router.call(inst, "verify_funds", "user_ke", current_amount)
+
+            attestation_engine.verify(
+                tx.payload_hash,
+                "FUNDS_AVAILABLE",
+                res["attestation"],
+                inst
+            )
+
+            tx.add_attestation(inst, "FUNDS_AVAILABLE", res["attestation"])
+
+            res = router.call(inst, "reserve_funds", "user_ke", current_amount)
+
+            attestation_engine.verify(
+                tx.payload_hash,
+                "FUNDS_RESERVED",
+                res["attestation"],
+                inst
+            )
+
+            tx.add_attestation(inst, "FUNDS_RESERVED", res["attestation"])
+
+        # -----------------------------
+        # INTERMEDIATE HOP
+        # -----------------------------
+        elif i < len(route) - 1:
+
+            res = router.call(inst, "receive_funds", "bridge", current_amount)
+
+            attestation_engine.verify(
+                tx.payload_hash,
+                "SETTLED",
+                res["attestation"],
+                inst
+            )
+
+            tx.add_attestation(inst, "SETTLED", res["attestation"])
+
+            # FX simulation
+            current_amount = int(current_amount * 1.8)
+
+        # -----------------------------
+        # FINAL RECEIVER
+        # -----------------------------
+        else:
+
+            res = router.call(inst, "receive_funds", "user_tz", current_amount)
+
+            attestation_engine.verify(
+                tx.payload_hash,
+                "SETTLED",
+                res["attestation"],
+                inst
+            )
+
+            tx.add_attestation(inst, "SETTLED", res["attestation"])
+
+    return route

@@ -1,26 +1,22 @@
-# ==============================
-# rail_config.py
+# ======================# ==============================
+# rail_config.py (UPDATED)
 # ==============================
 
 RAILS = {
-    "BANK_KE": {
+    "PSP_KE": {
         "currency": "KES",
-        "settlement_account": "SETTLEMENT_BANK_KE_KES"
+        "type": "PSP"
     },
     "BANK_TZ": {
         "currency": "TZS",
-        "settlement_account": "SETTLEMENT_BANK_TZ_TZS"
+        "type": "BANK"
     },
-    "BANK_UG": {
+    "PSP_UG": {
         "currency": "UGX",
-        "settlement_account": "SETTLEMENT_BANK_UG_UGX"
-    },
-    "MPESA": {
-        "currency": "KES",
-        "settlement_account": "SETTLEMENT_MPESA_KES"
+        "type": "WALLET"
     },
     "SMOVE": {
         "currency": "MULTI",
-        "settlement_account": "SETTLEMENT_SMOVE"
+        "type": "LIQUIDITY_BRIDGE"
     }
 }

@@ -1,5 +1,5 @@
 # ==============================
-# account_seed.py
+# account_seed.py (REFACTORED)
 # ==============================
 
 from ledger.db import SessionLocal
@@ -7,6 +7,8 @@ from ledger.models import Account
 
 
 def seed_user_accounts(railone_id):
+
+    
 
     session = SessionLocal()
 
@@ -19,23 +21,23 @@ def seed_user_accounts(railone_id):
             return
 
         accounts = [
-            ("MPESA", "KES", 350000),
-            ("BANK_KE", "KES", 600000),
-            ("BANK_UG", "UGX", 600000),
-            ("BANK_TZ", "TZS", 700000),
-            ("SMOVE", "KES", 700000),
-            ("SMOVE", "USD", 100000),
-            ("SMOVE", "TZS", 300000),
+            ("MPESA", "KES"),
+            ("BANK_KE", "KES"),
+            ("BANK_UG", "UGX"),
+            ("BANK_TZ", "TZS"),
+            ("SMOVE", "KES"),
+            ("SMOVE", "USD"),
+            ("SMOVE", "TZS"),
         ]
 
-        for inst, ccy, balance in accounts:
+        for inst, ccy in accounts:
             acc_id = f"{inst}-{railone_id}-{ccy}"
 
             acc = Account(
                 id=acc_id,
                 currency=ccy,
-                account_type=inst,
-                balance=float(balance),
+                account_type="EXTERNAL_MIRROR",  # 🔥 key change
+                balance=0.0,                     # no assumed balance
                 locked_balance=0.0
             )
 

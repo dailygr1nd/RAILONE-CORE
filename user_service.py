@@ -1,5 +1,5 @@
 # ==============================
-# user_service.py
+# user_service.py (UPDATED)
 # ==============================
 
 from ledger.db import SessionLocal
@@ -33,6 +33,22 @@ def onboard_user(name, national_id):
 
     finally:
         session.close()
+
+def get_user_by_national_id_full(national_id):
+
+    session = SessionLocal()
+
+    try:
+        user = session.query(User).filter_by(national_id=national_id).first()
+
+        if not user:
+            return None
+
+        return user
+
+    finally:
+        session.close()
+
 
 def get_railone_id_by_national_id(national_id):
 

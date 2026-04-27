@@ -1,19 +1,20 @@
 # ==============================
-# Simulation.py (CLEAN + STABLE)
+# Simulation.py (FIXED + SELF TRANSFER)
 # ==============================
 
 from ledger.db import SessionLocal
 from ledger.models import Account
 
-from user_service import onboard_user
+from user_service import onboard_user, get_railone_id_by_national_id
 from account_seed import seed_user_accounts
 
 from transaction_engine import initiate_transaction
 from execution_queue import get_all_tx
 
-from user_service import get_railone_id_by_national_id
+from user_directory import list_users
 
 import sys
+
 
 # --------------------------------
 # UTIL
@@ -65,6 +66,25 @@ def choose_account(accounts, label):
     except:
         print("❌ Invalid selection")
         return None
+
+
+# --------------------------------
+# USERS DIRECTORY
+# --------------------------------
+def show_users():
+
+    print("\n========================================")
+    print("👥 USERS DIRECTORY")
+    print("========================================\n")
+
+    users = list_users()
+
+    if not users:
+        print("No users found")
+        return
+
+    for i, u in enumerate(users, 1):
+        print(f"{i}. {u['railone_id']} | {u['national_id']}")
 
 
 # --------------------------------
@@ -134,14 +154,20 @@ def send_money(user_id):
     if not sender:
         return
 
-   
-    receiver_nid = input("Enter receiver National ID: ")
+    # --------------------------------
+    # SELF TRANSFER OPTION
+    # --------------------------------
+    self_transfer = safe_input("\n🔁 Self transfer? (y/n): ").lower()
 
-    receiver_id = get_railone_id_by_national_id(receiver_nid)
+    if self_transfer == "y":
+        receiver_id = user_id
+    else:
+        receiver_nid = safe_input("Enter receiver National ID: ")
+        receiver_id = get_railone_id_by_national_id(receiver_nid)
 
-    if not receiver_id:
-      print("❌ Receiver not found")
-    return
+        if not receiver_id:
+            print("❌ Receiver not found")
+            return
 
     receiver_accounts = get_accounts(receiver_id)
 
@@ -188,9 +214,8 @@ def send_money(user_id):
 
 
 # --------------------------------
-# ONBOARD USER (LIGHTWEIGHT)
+# ONBOARD USER
 # --------------------------------
-
 print("\n========================================")
 print("🧾 USER ONBOARDING")
 print("========================================")
@@ -202,11 +227,27 @@ print("\n📤 Verifying identity...")
 
 railone_id = onboard_user(name, nid)
 
-seed_user_accounts(railone_id)
+# 🔥 ADD THIS
+from ledger.db import SessionLocal
+from ledger.models import Account
+
+session = SessionLocal()
+
+try:
+    accounts = session.query(Account).filter(Account.id.contains(railone_id)).all()
+
+    for acc in accounts:
+        acc.balance = 500000.0  # give demo funds
+
+    session.commit()
+
+finally:
+    session.close()
 
 print("✅ User onboarded")
 print(f"👤 Name: {name}")
 print(f"🔐 RailOneID: {railone_id}")
+
 
 # --------------------------------
 # MAIN MENU
@@ -216,7 +257,6 @@ def main():
     print("\n=== RAILONE PRODUCTION SIMULATOR ===")
 
     user_id = railone_id
-    seed_user_accounts(user_id)
 
     while True:
 
@@ -225,7 +265,8 @@ def main():
 1. Dashboard
 2. Send Money
 3. Transaction History
-4. Exit
+4. Users Directory
+5. Exit
 ==============================
 """)
 
@@ -241,6 +282,9 @@ def main():
             show_history(user_id)
 
         elif choice == "4":
+            show_users()
+
+        elif choice == "5":
             print("\n👋 Exiting...")
             sys.exit()
 

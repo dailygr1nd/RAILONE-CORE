@@ -1,84 +1,79 @@
 # ==============================
-# quote_engine.py
+# quote_engine.py (MULTI-HOP + LIQUIDITY AWARE)
 # ==============================
 
-from fx_engine import convert
-from corridor_fx_model import get_market_rate
-from smart_router import choose_best_route
-from ledger.db import SessionLocal
+from fx_engine import get_fx_rate
+from routing import build_route_with_constraints
+from liquidity_engine import check_liquidity
 
 
-def generate_quote(
-    sender_account,
-    receiver_account,
-    amount,
-    sender_currency,
-    receiver_currency
-):
+def generate_quote(sender, receiver, amount, currency_from, currency_to):
 
-    session = SessionLocal()
+    route = build_route_with_constraints(
+        sender,
+        receiver,
+        amount,
+        currency_from
+    )
 
-    try:
-        tx = {
-            "sender_account": sender_account,
-            "receiver_account": receiver_account,
-            "gross_amount": amount,
-            "currency_from": sender_currency,
-            "currency_to": receiver_currency
-        }
+    if not route:
+        return {"error": "NO_ROUTE_AVAILABLE"}
 
-        route = choose_best_route(tx, session)
+    current_amount = amount
+    current_currency = currency_from
 
-        if not route:
-            return {
-                "error": "NO_ROUTE_AVAILABLE"
-            }
+    total_fee = 0
+    total_profit = 0
+
+    for i in range(len(route)):
+
+        rail = route[i]
 
         # -----------------------------
-        # LOCAL TRANSFER
+        # FX STEP
         # -----------------------------
-        if route["type"] == "LOCAL":
+        if i > 0:
 
-            fee = round(amount * 0.005, 2)  # 0.5% simple fee
-            receive = round(amount - fee, 2)
+            next_currency = currency_to if i == len(route) - 1 else "UGX"
 
-            return {
-                "route": "LOCAL",
-                "fx_rate": 1.0,
-                "market_rate": 1.0,
-                "fee": fee,
-                "send_amount": amount,
-                "receive_amount": receive,
-                "profit": fee
-            }
+            rate = get_fx_rate(current_currency, next_currency, current_amount)
+
+            if not rate:
+                return {"error": "FX_UNAVAILABLE"}
+
+            converted = current_amount * rate
+
+            # simulate spread
+            market_rate = rate * 1.01
+
+            fx_profit = (current_amount * market_rate) - converted
+
+            total_profit += fx_profit
+
+            current_amount = converted
+            current_currency = next_currency
 
         # -----------------------------
-        # FX TRANSFER
+        # LIQUIDITY CHECK
         # -----------------------------
-        converted, rate = convert(
-            amount,
-            sender_currency,
-            receiver_currency,
-            session
-        )
+        pair = f"{current_currency}_{current_currency}"
 
-        market_rate = get_market_rate(sender_currency, receiver_currency)
+        has_liq, _ = check_liquidity(rail, pair, current_amount)
 
-        fx_profit = round((amount * market_rate) - converted, 2)
+        if not has_liq:
+            return {"error": "LIQUIDITY_FAIL"}
 
-        fee = round(amount * 0.003, 2)  # small fee
+        # -----------------------------
+        # FEES
+        # -----------------------------
+        fee = current_amount * 0.002
+        total_fee += fee
+        current_amount -= fee
 
-        receive = round(converted - fee, 2)
-
-        return {
-            "route": route["type"],
-            "fx_rate": rate,
-            "market_rate": market_rate,
-            "fee": fee,
-            "send_amount": amount,
-            "receive_amount": receive,
-            "profit": fx_profit + fee
-        }
-
-    finally:
-        session.close()
+    return {
+        "route": route,
+        "send_amount": amount,
+        "receive_amount": round(current_amount, 2),
+        "total_fee": round(total_fee, 2),
+        "profit": round(total_profit + total_fee, 2)
+    }

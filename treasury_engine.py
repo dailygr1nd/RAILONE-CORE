@@ -10,8 +10,20 @@ REBALANCE_THRESHOLD = 0.3  # 30%
 
 
 def get_pool(session, currency):
-    pool_id = POOLS[currency]
+    pool_id = POOLS.get(currency) or POOLS.get(f"{currency}_{currency}")
     return session.query(Account).filter_by(id=pool_id).first()
+
+def safe_pool_lookup(key):
+
+    from liquidity_pools import POOLS
+
+    if key in POOLS:
+        return POOLS[key]
+
+    # fallback for single currency
+    pair = f"{key}_{key}"
+
+    return POOLS.get(pair)
 
 
 def needs_rebalance(session, currency):

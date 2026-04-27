@@ -1,33 +1,33 @@
-# psp_ug.py
+from institution_base import InstitutionBase
 
-import time
-import random
+class WalletUganda(InstitutionBase):
 
+    def verify_funds(self, account, amount):
+        self.simulate_latency()
+        self.simulate_failure(0.15)
 
-def process_transfer(
-    amount,
-    sender_id,
-    receiver_id,
-    rtt,
-    utt
-):
-    time.sleep(0.5)
+        if self.get_balance(account) >= amount:
+            return {"status": "OK"}
+        return {"status": "REJECTED"}
 
-    failure_probability = 0.08
+    def reserve_funds(self, account, amount):
+        self.simulate_latency()
+        self.simulate_failure(0.2)
 
-    if random.random() < failure_probability:
+        super().reserve_funds(account, amount)
+
         return {
-            "success": False,
-            "reason": "Mobile money switch unavailable",
-            "institution": "MPESA_UG",
-            "institution_tx_id": None
+            "status": "RESERVED",
+            "attestation": self.sign_attestation("tx_hash", "FUNDS_RESERVED")
         }
 
-    tx_id = f"MPESA-UG-{int(time.time() * 1000)}"
+    def receive_funds(self, account, amount):
+        self.simulate_latency()
+        self.simulate_failure(0.1)
 
-    return {
-        "success": True,
-        "reason": "",
-        "institution": "MPESA_UG",
-        "institution_tx_id": tx_id
-    }
+        self.credit(account, amount)
+
+        return {
+            "status": "SETTLED",
+            "attestation": self.sign_attestation("tx_hash", "SETTLED")
+        }

@@ -2,52 +2,36 @@
 # retry_engine.py (FIXED)
 # ==============================
 
-import time
-import random
+from uuid import uuid4
+from routing import get_best_rail
+from transaction_engine import initiate_transaction
 
 
-MAX_RETRIES = 3
+def retry_transaction(tx):
 
+    if tx["status"] != "FAILED":
+        return {"error": "ONLY_FAILED_TX_CAN_BE_RETRIED"}
 
-# --------------------------------
-# BACKOFF + JITTER
-# --------------------------------
-def sleep_with_backoff(attempt: int):
-    base = 2 ** attempt
-    jitter = random.uniform(0, 1)
-    time.sleep(base + jitter)
+    # --------------------------------
+    # RECOMPUTE BEST ROUTE
+    # --------------------------------
+    new_route = get_best_rail(
+        candidate_rails=["PSP_KE", "PSP_UG", "BANK_TZ", "SMOVE"],
+        amount=tx["amount"],
+        currency=tx["currency_from"],
+        cross_border=True
+    )
 
+    print(f"[RETRY] New route selected: {new_route}")
 
-# --------------------------------
-# SHOULD RETRY
-# --------------------------------
-def should_retry(attempt: int) -> bool:
-    return attempt < MAX_RETRIES
-
-
-# --------------------------------
-# GET RETRY ROUTES
-# --------------------------------
-def get_retry_candidates(route_result, failed_rails):
-
-    alternatives = route_result.get("alternatives", [])
-
-    return [
-        r for r in alternatives
-        if r.get("rail") not in failed_rails
-    ]
-
-
-# --------------------------------
-# NEW: SCHEDULE RETRY (ASYNC)
-# --------------------------------
-def schedule_retry(tx: dict):
-    """
-    For now: simple log + delay placeholder
-    Later: push back into Redis queue with delay
-    """
-
-    print(f"🔁 Scheduling retry for {tx['tx_id']}")
-
-    # simulate delay (you will replace with delayed queue later)
-    sleep_with_backoff(tx.get("attempts", 1))
+    # --------------------------------
+    # RE-INITIATE TRANSACTION
+    # --------------------------------
+    return initiate_transaction(
+        sender_account=tx["sender_account"],
+        receiver_account=tx["receiver_account"],
+        amount=tx["amount"],
+        sender_currency=tx["currency_from"],
+        receiver_currency=tx["currency_to"],
+        idempotency_key=str(uuid4())
+    )

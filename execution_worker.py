@@ -144,3 +144,25 @@ def start_worker():
 # --------------------------------
 if __name__ == "__main__":
     start_worker()
+
+    from ledger.db import SessionLocal
+from ledger.models import Account
+
+def apply_balance_update(tx):
+
+    session = SessionLocal()
+
+    try:
+        sender = session.query(Account).filter_by(id=tx["sender_account"]).first()
+        receiver = session.query(Account).filter_by(id=tx["receiver_account"]).first()
+
+        if sender:
+            sender.balance -= tx["amount"]
+
+        if receiver:
+            receiver.balance += tx["amount"]
+
+        session.commit()
+
+    finally:
+        session.close()

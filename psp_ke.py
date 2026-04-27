@@ -1,33 +1,34 @@
-# psp_ke.py
+from institution_base import InstitutionBase
 
-import time
-import random
+class PSPKenya(InstitutionBase):
 
+    def verify_funds(self, account, amount):
+        self.simulate_latency()
 
-def process_transfer(
-    amount,
-    sender_id,
-    receiver_id,
-    rtt,
-    utt
-):
-    time.sleep(0.5)
+        if self.get_balance(account) >= amount:
+            return {
+                "status": "OK",
+                "attestation": self.sign_attestation("tx_hash", "FUNDS_AVAILABLE")
+            }
+        return {"status": "REJECTED"}
 
-    failure_probability = 0.08
+    def reserve_funds(self, account, amount):
+        self.simulate_latency()
 
-    if random.random() < failure_probability:
+        super().reserve_funds(account, amount)
+
         return {
-            "success": False,
-            "reason": "Mobile money switch unavailable",
-            "institution": "MPESA_KE",
-            "institution_tx_id": None
+            "status": "RESERVED",
+            "attestation": self.sign_attestation("tx_hash", "FUNDS_RESERVED")
         }
 
-    tx_id = f"MPESA-KE-{int(time.time() * 1000)}"
+    def release_funds(self, account, amount):
+        super().release_funds(account, amount)
 
-    return {
-        "success": True,
-        "reason": "",
-        "institution": "MPESA_KE",
-        "institution_tx_id": tx_id
-    }
+    def receive_funds(self, account, amount):
+        self.credit(account, amount)
+
+        return {
+            "status": "SETTLED",
+            "attestation": self.sign_attestation("tx_hash", "SETTLED")
+        }
