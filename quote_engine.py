@@ -5,6 +5,7 @@
 from fx_engine import get_fx_rate
 from routing import build_route_with_constraints
 from liquidity_engine import check_liquidity
+from pricing_engine import compute_total_pricing
 
 
 def generate_quote(sender, receiver, amount, currency_from, currency_to):
@@ -29,10 +30,21 @@ def generate_quote(sender, receiver, amount, currency_from, currency_to):
 
         rail = route[i]
 
+    is_cross_border = currency_from != currency_to
+
+    pricing = compute_total_pricing(
+    amount=amount,
+    route=route,
+    is_cross_border=is_cross_border
+)
+
+    total_fee = pricing["base_fee"] + pricing["routing_fee"]
+    total_profit = pricing["total_revenue"]
+
         # -----------------------------
         # FX STEP
         # -----------------------------
-        if i > 0:
+    if i > 0:
 
             next_currency = currency_to if i == len(route) - 1 else "UGX"
 
@@ -56,24 +68,25 @@ def generate_quote(sender, receiver, amount, currency_from, currency_to):
         # -----------------------------
         # LIQUIDITY CHECK
         # -----------------------------
-        pair = f"{current_currency}_{current_currency}"
+            pair = f"{current_currency}_{current_currency}"
 
-        has_liq, _ = check_liquidity(rail, pair, current_amount)
+    has_liq, _ = check_liquidity(rail, pair, current_amount)
 
-        if not has_liq:
+    if not has_liq:
             return {"error": "LIQUIDITY_FAIL"}
 
         # -----------------------------
         # FEES
         # -----------------------------
-        fee = current_amount * 0.002
-        total_fee += fee
-        current_amount -= fee
+            fee = current_amount * 0.002
+            total_fee += fee
+            current_amount -= fee
 
     return {
-        "route": route,
-        "send_amount": amount,
-        "receive_amount": round(current_amount, 2),
-        "total_fee": round(total_fee, 2),
-        "profit": round(total_profit + total_fee, 2)
-    }
+    "route": route,
+    "send_amount": amount,
+    "receive_amount": round(current_amount - total_fee, 2),
+    "total_fee": round(total_fee, 2),
+    "profit": round(total_profit, 2),
+    "pricing": pricing
+}

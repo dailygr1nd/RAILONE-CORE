@@ -195,9 +195,14 @@ def send_money(user_id):
     print("\n🔎 Processing transaction...\n")
 
     try:
+        # 🔥 ONLY CHANGE — ADD sender_id & receiver_id
         result = initiate_transaction(
             sender_account=sender.id,
             receiver_account=receiver.id,
+
+            sender_id=user_id,        # ✅ NEW
+            receiver_id=receiver_id,  # ✅ NEW
+
             amount=amount,
             sender_currency=sender.currency,
             receiver_currency=receiver.currency
@@ -227,20 +232,15 @@ print("\n📤 Verifying identity...")
 
 railone_id = onboard_user(name, nid)
 
-# 🔥 ADD THIS
-from ledger.db import SessionLocal
-from ledger.models import Account
-
+# 🔥 GIVE DEMO FUNDS
 session = SessionLocal()
-
 try:
     accounts = session.query(Account).filter(Account.id.contains(railone_id)).all()
 
     for acc in accounts:
-        acc.balance = 500000.0  # give demo funds
+        acc.balance = 500000.0
 
     session.commit()
-
 finally:
     session.close()
 

@@ -1,27 +1,43 @@
 # ==============================
-# user_service.py (UPDATED)
+# user_service.py (FINAL FIXED)
 # ==============================
 
 from ledger.db import SessionLocal
 from ledger.models import User
+
+from identity_db import lookup_identity
 from identity_engine import generate_railone_id
 
 
+# --------------------------------
+# ONBOARD USER (IDEMPOTENT)
+# --------------------------------
 def onboard_user(name, national_id):
+
+    record = lookup_identity(national_id, name)
+
+    if record is None:
+        raise Exception("INVALID_IDENTITY")
+
+    if record == "NAME_MISMATCH":
+        raise Exception("NAME_MISMATCH")
 
     session = SessionLocal()
 
     try:
-        existing = session.query(User).filter_by(national_id=national_id).first()
+        # 🔥 reuse existing user
+        existing = session.query(User).filter_by(
+            national_id=national_id
+        ).first()
 
         if existing:
             return existing.railone_id
 
+        # 🔥 create new
         railone_id = generate_railone_id()
 
         user = User(
             railone_id=railone_id,
-            username=None,
             national_id=national_id,
             kyc_status="VERIFIED"
         )
@@ -34,28 +50,18 @@ def onboard_user(name, national_id):
     finally:
         session.close()
 
-def get_user_by_national_id_full(national_id):
 
-    session = SessionLocal()
-
-    try:
-        user = session.query(User).filter_by(national_id=national_id).first()
-
-        if not user:
-            return None
-
-        return user
-
-    finally:
-        session.close()
-
-
+# --------------------------------
+# LOOKUP USER BY NATIONAL ID
+# --------------------------------
 def get_railone_id_by_national_id(national_id):
 
     session = SessionLocal()
 
     try:
-        user = session.query(User).filter_by(national_id=national_id).first()
+        user = session.query(User).filter_by(
+            national_id=national_id
+        ).first()
 
         if not user:
             return None

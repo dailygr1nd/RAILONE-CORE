@@ -1,9 +1,8 @@
 # ==============================
-# transaction_engine.py (STABLE FINAL)
+# transaction_engine.py (FINAL — PROTOCOL CORRECT)
 # ==============================
 
 from datetime import datetime, UTC
-from uuid import uuid4
 
 from audit import log_event
 from execution_queue import enqueue_tx, store_tx
@@ -11,27 +10,24 @@ from execution_queue import enqueue_tx, store_tx
 from balance_engine import lock_funds, release_funds
 from smart_router import choose_best_route
 
-from fx_engine import convert
-from corridor_fx_model import get_market_rate
-from profit_engine import calculate_profit
-
-from revenue_db import record_revenue
 from ledger.db import SessionLocal
+from handshake import run_handshake
+
+import redis
+
+r = redis.Redis(host="localhost", port=6379, decode_responses=True)
 
 
 # --------------------------------
-# HELPERS
+# FAIL HANDLER
 # --------------------------------
-def generate_tx_id(account: str) -> str:
-    prefix = account.split("-")[0]
-    return f"{prefix}-RN-{uuid4().hex[:6].upper()}"
-
-
 def fail(tx: dict, reason: str) -> dict:
+
     tx["status"] = "FAILED"
     tx["reason"] = reason
 
     session = SessionLocal()
+
     try:
         release_funds(session, tx["sender_account"], tx["gross_amount"])
         session.commit()
@@ -50,36 +46,72 @@ def fail(tx: dict, reason: str) -> dict:
 def initiate_transaction(
     sender_account: str,
     receiver_account: str,
+    sender_id: str,
+    receiver_id: str,
     amount: float,
     sender_currency: str,
     receiver_currency: str,
-    quote: dict | None = None,
-    webhook_url: str | None = None,
-    idempotency_key: str | None = None
+    quote: dict | None = None
 ) -> dict:
 
     gross = float(amount)
-    fee = 0.0
 
+    # --------------------------------
+    # 🔐 HANDSHAKE
+    # --------------------------------
+    handshake = run_handshake(
+        sender_id=sender_id,
+        receiver_id=receiver_id,
+        amount=gross,
+        currency=sender_currency
+    )
+
+    # --------------------------------
+    # 🔒 IDEMPOTENCY (ETK-S)
+    # --------------------------------
+    existing = r.get(f"idem:{handshake['etk_s']}")
+
+    if existing:
+        return {
+            "tx_id": existing,
+            "status": "DUPLICATE_BLOCKED"
+        }
+
+    r.set(f"idem:{handshake['etk_s']}", handshake["tx_id"], ex=300)
+
+    # --------------------------------
+    # BUILD TX OBJECT
+    # --------------------------------
     tx = {
-        "tx_id": generate_tx_id(sender_account),
+        "tx_id": handshake["tx_id"],
+        "rtt": handshake["rtt"],
+        "rtt_signature": handshake["rtt_signature"],
+        "etk_s": handshake["etk_s"],
+        "etk_r": handshake["etk_r"],
+        "ctx": handshake["ctx"],
+
+        # UTT will be assigned AFTER execution
+        "utt": None,
+
         "timestamp": datetime.now(UTC).isoformat(),
+
         "sender_account": sender_account,
         "receiver_account": receiver_account,
+
         "amount": gross,
         "gross_amount": gross,
+
         "currency_from": sender_currency,
         "currency_to": receiver_currency,
-        "status": "INITIATED",
-        "webhook_url": webhook_url,
-        "idempotency_key": idempotency_key
+
+        "status": "INITIATED"
     }
 
     log_event("TX_INITIATED", tx)
 
-    # -----------------------------
+    # --------------------------------
     # VALIDATION
-    # -----------------------------
+    # --------------------------------
     if sender_account == receiver_account:
         return fail(tx, "SAME_ACCOUNT")
 
@@ -89,9 +121,9 @@ def initiate_transaction(
     session = SessionLocal()
 
     try:
-        # -----------------------------
+        # --------------------------------
         # ROUTING
-        # -----------------------------
+        # --------------------------------
         route = choose_best_route(tx, session)
 
         if not route:
@@ -99,57 +131,29 @@ def initiate_transaction(
 
         tx["route_result"] = route
 
-        # -----------------------------
+        # 🔐 bind route to RTT
+        tx["route_hash"] = f"{route}-{tx['rtt']}"
+
+        # --------------------------------
         # PRICING
-        # -----------------------------
+        # --------------------------------
         if quote:
-            net_amount = float(quote.get("receive_amount", gross))
-            fee = float(quote.get("fee", 0))
-            profit = float(quote.get("profit", 0))
-            fx_rate = quote.get("fx_rate", 1.0)
-            market_rate = quote.get("market_rate", 1.0)
-
+            tx["net_amount"] = float(quote.get("receive_amount", gross))
+            tx["fee"] = float(quote.get("total_fee", 0))
+            tx["profit"] = float(quote.get("profit", 0))
+            tx["pricing"] = quote.get("pricing", {})
         else:
-            if route["type"] == "LOCAL":
-                net_amount = gross
-                fx_rate = 1.0
-                market_rate = 1.0
-                profit = 0.0
-
-            else:
-                converted, fx_rate = convert(
-                    gross,
-                    sender_currency,
-                    receiver_currency,
-                    session
-                )
-
-                market_rate = get_market_rate(
-                    sender_currency,
-                    receiver_currency
-                )
-
-                net_amount = float(converted)
-
-                profit = calculate_profit({
-                    "gross_amount": gross,
-                    "net_amount": net_amount,
-                    "fx_rate": fx_rate,
-                    "market_rate": market_rate
-                })["total_profit"]
-
-        tx["net_amount"] = net_amount
-        tx["fx_rate"] = fx_rate
-        tx["market_rate"] = market_rate
-        tx["fee"] = fee
-        tx["profit"] = profit
+            tx["net_amount"] = gross
+            tx["fee"] = 0.0
+            tx["profit"] = 0.0
+            tx["pricing"] = {}
 
         log_event("PRICING_COMPUTED", tx)
 
-        # -----------------------------
+        # --------------------------------
         # LOCK FUNDS
-        # -----------------------------
-        total_debit = gross + fee
+        # --------------------------------
+        total_debit = tx["gross_amount"] + tx["fee"]
 
         ok, reason = lock_funds(session, sender_account, total_debit)
 
@@ -165,28 +169,15 @@ def initiate_transaction(
     finally:
         session.close()
 
-    # -----------------------------
+    # --------------------------------
     # ENQUEUE
-    # -----------------------------
+    # --------------------------------
     tx["status"] = "PENDING"
 
     store_tx(tx)
     enqueue_tx(tx)
 
     log_event("TX_ENQUEUED", tx)
-
-    # -----------------------------
-    # REVENUE TRACKING
-    # -----------------------------
-    try:
-        record_revenue(
-            tx_id=tx["tx_id"],
-            amount=tx["profit"],
-            currency=sender_currency,
-            route=tx["route_result"]["type"]
-        )
-    except Exception:
-        pass
 
     return {
         "tx_id": tx["tx_id"],

@@ -34,12 +34,14 @@ def seed_user_accounts(railone_id):
             acc_id = f"{inst}-{railone_id}-{ccy}"
 
             acc = Account(
-                id=acc_id,
-                currency=ccy,
-                account_type="EXTERNAL_MIRROR",  # 🔥 key change
-                balance=0.0,                     # no assumed balance
-                locked_balance=0.0
-            )
+    id=acc_id,
+    currency=ccy,
+    account_type="EXTERNAL_MIRROR",
+
+    # 🔥 simulate external funds (non-custodial mirror)
+    balance=500000.0,
+    locked_balance=0.0
+)
 
             session.add(acc)
 

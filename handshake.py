@@ -40,7 +40,10 @@ def run_handshake(
     )
 
     if not TokenFactory.verify(payload_s, sig_s, institution_id):
-        raise Exception("ETK-S SIGNATURE INVALID")
+     raise Exception("ETK-S SIGNATURE INVALID")
+
+    if TokenFactory.is_expired(payload_s):
+     raise Exception("ETK-S EXPIRED")
 
     ctx.transition(TransactionState.SENDER_LOCKED)
 
@@ -54,7 +57,10 @@ def run_handshake(
     )
 
     if not TokenFactory.verify(payload_r, sig_r, institution_id):
-        raise Exception("ETK-R SIGNATURE INVALID")
+     raise Exception("ETK-R SIGNATURE INVALID")
+
+    if TokenFactory.is_expired(payload_s):  # still tied to original intent
+     raise Exception("HANDSHAKE EXPIRED")
 
     ctx.transition(TransactionState.RECEIVER_CONFIRMED)
 
@@ -73,18 +79,12 @@ def run_handshake(
 
     ctx.transition(TransactionState.HANDSHAKE_VERIFIED)
 
-    # --------------------------------
-    # UTT
-    # --------------------------------
-    utt = TokenFactory.generate_utt(institution_id)
-    ctx.metadata["utt"] = utt
-
+   
     # --------------------------------
     # AUDIT LOG
     # --------------------------------
     payload = {
         "tx_id": tx_id,
-        "utt": utt,
         "rtt": rtt,
         "etk_s": etk_s,
         "etk_r": etk_r,
@@ -100,13 +100,12 @@ def run_handshake(
 
     print("✅ Secure Handshake complete")
     print("TX_ID:", tx_id)
-    print("UTT:", utt)
     print("RTT:", rtt)
 
     return {
         "tx_id": tx_id,
-        "utt": utt,
         "rtt": rtt,
+        "rtt_signature": sig_rtt.hex(), 
         "etk_s": etk_s,
         "etk_r": etk_r,
         "ctx": ctx,

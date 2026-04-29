@@ -114,3 +114,31 @@ class TokenFactory:
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         suffix = secrets.token_hex(4).upper()
         return f"UTT-{institution_id}-{ts}-{suffix}"
+    
+    # --------------------------------
+# TIMESTAMP EXTRACTION
+# --------------------------------
+@staticmethod
+def extract_timestamp(payload: str):
+    try:
+        parts = payload.split("|")
+        for p in parts:
+            if "T" in p and ":" in p:
+                return datetime.fromisoformat(p)
+    except Exception:
+        return None
+
+
+# --------------------------------
+# EXPIRY CHECK
+# --------------------------------
+@staticmethod
+def is_expired(payload: str, ttl_seconds: int = 300) -> bool:
+    ts = TokenFactory.extract_timestamp(payload)
+
+    if not ts:
+        return True
+
+    now = datetime.now(timezone.utc)
+
+    return (now - ts).total_seconds() > ttl_seconds

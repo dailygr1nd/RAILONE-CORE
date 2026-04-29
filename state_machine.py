@@ -1,5 +1,5 @@
 # ==============================
-# state_machine.py (REFINED)
+# state_machine.py (FIXED + COMPLETE)
 # ==============================
 
 from enum import Enum
@@ -9,32 +9,36 @@ from typing import Dict, Any
 
 
 # --------------------------------
-# PROTOCOL-ALIGNED STATES
+# STATES
 # --------------------------------
 class TransactionState(str, Enum):
-    # Initial
+
+    # INIT
     INIT = "INIT"
 
-    # Identity + Intent
+    # IDENTITY + HANDSHAKE
     IDENTITY_VERIFIED = "IDENTITY_VERIFIED"
-    INTENT_LOCKED = "INTENT_LOCKED"  # ETK-S created
+    INTENT_LOCKED = "INTENT_LOCKED"      # ETK-S
+    RECEIVER_CONFIRMED = "RECEIVER_CONFIRMED"  # ETK-R
+    HANDSHAKE_VERIFIED = "HANDSHAKE_VERIFIED"  # RTT
 
-    # Decision Layer
+    # DECISION
     ROUTE_COMPUTED = "ROUTE_COMPUTED"
     PRICED = "PRICED"
-    VALIDATED = "VALIDATED"  # fraud + liquidity
+    VALIDATED = "VALIDATED"
 
-    # Execution Layer
+    # EXECUTION PIPELINE
     PENDING = "PENDING"
-    EXECUTION_QUEUED = "EXECUTION_QUEUED"
+    DISPATCHED = "DISPATCHED"
     EXECUTION_STARTED = "EXECUTION_STARTED"
     EXECUTION_CONFIRMED = "EXECUTION_CONFIRMED"
+    EXECUTION_FAILED = "EXECUTION_FAILED"
 
-    # Settlement
+    # FINALITY
     SETTLED = "SETTLED"
     FINALIZED = "FINALIZED"
 
-    # Failure / Recovery
+    # FAILURE
     FAILED = "FAILED"
     ROLLED_BACK = "ROLLED_BACK"
 
@@ -43,6 +47,7 @@ class TransactionState(str, Enum):
 # VALID TRANSITIONS
 # --------------------------------
 VALID_TRANSITIONS = {
+
     TransactionState.INIT: [
         TransactionState.IDENTITY_VERIFIED,
         TransactionState.FAILED
@@ -54,6 +59,16 @@ VALID_TRANSITIONS = {
     ],
 
     TransactionState.INTENT_LOCKED: [
+        TransactionState.RECEIVER_CONFIRMED,
+        TransactionState.FAILED
+    ],
+
+    TransactionState.RECEIVER_CONFIRMED: [
+        TransactionState.HANDSHAKE_VERIFIED,
+        TransactionState.FAILED
+    ],
+
+    TransactionState.HANDSHAKE_VERIFIED: [
         TransactionState.ROUTE_COMPUTED,
         TransactionState.FAILED
     ],
@@ -102,12 +117,12 @@ VALID_TRANSITIONS = {
         TransactionState.ROLLED_BACK
     ],
 
-    TransactionState.ROLLED_BACK: [],
+    TransactionState.ROLLED_BACK: []
 }
 
 
 # --------------------------------
-# CONTEXT OBJECT (UNCHANGED CORE)
+# CONTEXT OBJECT
 # --------------------------------
 @dataclass
 class TransactionContext:
@@ -125,9 +140,8 @@ class TransactionContext:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     # --------------------------------
-    # STATE TRANSITION
-    # --------------------------------
     def transition(self, new_state: TransactionState):
+
         allowed = VALID_TRANSITIONS.get(self.state, [])
 
         if new_state not in allowed:
@@ -141,14 +155,10 @@ class TransactionContext:
         return self
 
     # --------------------------------
-    # SAFE METADATA ATTACH
-    # --------------------------------
     def attach(self, key: str, value: Any):
         self.metadata[key] = value
         return self
 
-    # --------------------------------
-    # SERIALIZATION
     # --------------------------------
     def to_dict(self):
         return {

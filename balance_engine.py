@@ -13,10 +13,11 @@ def lock_funds(session, account_id, amount):
     if not acc:
         return False, "ACCOUNT_NOT_FOUND"
 
-    available = acc.balance - acc.locked_balance
+    # 🔥 NON-CUSTODIAL MODE
+    # Assume funds exist externally unless explicitly zero
 
-    if available < amount:
-        return False, "INSUFFICIENT_FUNDS"
+    if acc.balance <= 0:
+        return False, "NO_EXTERNAL_BALANCE"
 
     acc.locked_balance += amount
 

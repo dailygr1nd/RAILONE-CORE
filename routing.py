@@ -81,8 +81,8 @@ def get_best_rail(candidate_rails, amount, currency, cross_border=False):
 def build_route(sender_rail, receiver_rail, amount, currency):
 
     # direct route possible
-    if sender_rail == receiver_rail:
-        return [sender_rail]
+    if sender_rail != receiver_rail:
+        return [sender_rail, "SMOVE", receiver_rail]
 
     # cross-border KE → TZ via UG
     if sender_rail == "PSP_KE" and receiver_rail == "BANK_TZ":
