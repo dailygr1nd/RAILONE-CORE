@@ -1,5 +1,5 @@
 # ==============================
-# transaction_engine.py (FINAL — HARD GATED + CLEAN)
+# transaction_engine.py (PROTOCOL LOCKED)
 # ==============================
 
 from datetime import datetime, UTC
@@ -54,16 +54,12 @@ def verify_quote(quote: dict):
         if f not in quote:
             return False, f"MISSING_{f}"
 
-    # --------------------------------
     # EXPIRY
-    # --------------------------------
     now = int(time.time())
     if quote["expires_at"] < now:
         return False, "QUOTE_EXPIRED"
 
-    # --------------------------------
     # SIGNATURE
-    # --------------------------------
     try:
         signature = bytes.fromhex(quote["signature"])
     except Exception:
@@ -112,7 +108,8 @@ def initiate_transaction(
     amount: float,
     sender_currency: str,
     receiver_currency: str,
-    quote: dict | None = None
+    quote: dict,
+    idempotency_key: str | None = None
 ) -> dict:
 
     gross = float(amount)
@@ -128,17 +125,31 @@ def initiate_transaction(
     )
 
     # --------------------------------
-    # 🔒 IDEMPOTENCY (ETK-S)
+    # 🔒 IDEMPOTENCY (EXPLICIT FIRST)
     # --------------------------------
-    existing = r.get(f"idem:{handshake['etk_s']}")
+    if idempotency_key:
+        existing = r.get(f"idem:{idempotency_key}")
+        if existing:
+            return {
+                "tx_id": existing,
+                "status": "DUPLICATE_BLOCKED"
+            }
 
-    if existing:
+    # --------------------------------
+    # 🔒 IDEMPOTENCY (ETK-S FALLBACK)
+    # --------------------------------
+    etk_key = f"idem:{handshake['etk_s']}"
+
+    if r.get(etk_key):
         return {
-            "tx_id": existing,
+            "tx_id": r.get(etk_key),
             "status": "DUPLICATE_BLOCKED"
         }
 
-    r.set(f"idem:{handshake['etk_s']}", handshake["tx_id"], ex=300)
+    r.set(etk_key, handshake["tx_id"], ex=300)
+
+    if idempotency_key:
+        r.set(f"idem:{idempotency_key}", handshake["tx_id"], ex=300)
 
     # --------------------------------
     # BUILD TX
@@ -178,11 +189,8 @@ def initiate_transaction(
     if gross <= 0:
         return fail(tx, "INVALID_AMOUNT")
 
-    if not quote:
-        return fail(tx, "QUOTE_REQUIRED")
-
     # --------------------------------
-    # 🔐 VERIFY QUOTE (HARD GATE)
+    # 🔐 VERIFY QUOTE
     # --------------------------------
     valid, reason = verify_quote(quote)
 
@@ -200,7 +208,7 @@ def initiate_transaction(
     r.set(f"quote:{quote_id}", tx["tx_id"], ex=120)
 
     # --------------------------------
-    # APPLY QUOTE (AUTHORITATIVE)
+    # APPLY QUOTE
     # --------------------------------
     tx["quote_id"] = quote_id
     tx["pricing"] = quote["pricing"]
@@ -209,7 +217,7 @@ def initiate_transaction(
     tx["route_result"] = quote["route"]
 
     # --------------------------------
-    # 🔐 RTT (BIND EVERYTHING)
+    # 🔐 RTT (FINAL BINDING)
     # --------------------------------
     rtt, sig_rtt, payload_rtt = TokenFactory.generate_rtt_with_quote(
         tx["etk_s"],
@@ -230,11 +238,7 @@ def initiate_transaction(
     session = SessionLocal()
 
     try:
-        ok, reason = lock_funds(
-            session,
-            sender_account,
-            gross
-        )
+        ok, reason = lock_funds(session, sender_account, gross)
 
         if not ok:
             return fail(tx, reason)

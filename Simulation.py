@@ -1,5 +1,5 @@
 # ==============================
-# Simulation.py (FIXED + SELF TRANSFER)
+# Simulation.py (FINAL — PROTOCOL SAFE)
 # ==============================
 
 from ledger.db import SessionLocal
@@ -14,17 +14,19 @@ from execution_queue import get_all_tx
 from user_directory import list_users
 
 import sys
+import uuid
 
 from bootstrap import bootstrap
-
-bootstrap()
-
 from core_registry import register_core
 
+from quote_engine import generate_quote
+
+
+# --------------------------------
+# BOOTSTRAP SYSTEM
+# --------------------------------
+bootstrap()
 register_core()
-
-
-
 
 
 # --------------------------------
@@ -144,7 +146,7 @@ STATUS: {tx['status']}
 
 
 # --------------------------------
-# SEND MONEY
+# SEND MONEY (FIXED FLOW)
 # --------------------------------
 def send_money(user_id):
 
@@ -166,7 +168,7 @@ def send_money(user_id):
         return
 
     # --------------------------------
-    # SELF TRANSFER OPTION
+    # SELF TRANSFER
     # --------------------------------
     self_transfer = safe_input("\n🔁 Self transfer? (y/n): ").lower()
 
@@ -193,6 +195,9 @@ def send_money(user_id):
     if not receiver:
         return
 
+    # --------------------------------
+    # AMOUNT
+    # --------------------------------
     try:
         amount = float(safe_input("\n💰 Enter amount: "))
     except:
@@ -206,17 +211,48 @@ def send_money(user_id):
     print("\n🔎 Processing transaction...\n")
 
     try:
-        # 🔥 ONLY CHANGE — ADD sender_id & receiver_id
+        # --------------------------------
+        # 1. GENERATE QUOTE
+        # --------------------------------
+        quote = generate_quote(
+            sender=user_id,
+            receiver=receiver_id,
+            amount=amount,
+            currency_from=sender.currency,
+            currency_to=receiver.currency
+        )
+
+        if "error" in quote:
+            print(f"\n❌ Quote failed: {quote['error']}")
+            return
+
+        print("\n📊 Quote Generated:")
+        print(f"Route: {quote['route']}")
+        print(f"Fee: {quote['total_fee']}")
+        print(f"Receive Amount: {quote['receive_amount']}")
+
+        confirm = safe_input("\nProceed with this quote? (y/n): ").lower()
+
+        if confirm != "y":
+            print("❌ Transaction cancelled")
+            return
+
+        # --------------------------------
+        # 2. INITIATE TRANSACTION
+        # --------------------------------
         result = initiate_transaction(
             sender_account=sender.id,
             receiver_account=receiver.id,
 
-            sender_id=user_id,        # ✅ NEW
-            receiver_id=receiver_id,  # ✅ NEW
+            sender_id=user_id,
+            receiver_id=receiver_id,
 
             amount=amount,
             sender_currency=sender.currency,
-            receiver_currency=receiver.currency
+            receiver_currency=receiver.currency,
+
+            quote=quote,
+            idempotency_key=str(uuid.uuid4())
         )
 
         print("\n========================================")
@@ -230,7 +266,7 @@ def send_money(user_id):
 
 
 # --------------------------------
-# ONBOARD USER
+# USER ONBOARDING
 # --------------------------------
 print("\n========================================")
 print("🧾 USER ONBOARDING")
@@ -243,7 +279,7 @@ print("\n📤 Verifying identity...")
 
 railone_id = onboard_user(name, nid)
 
-# 🔥 GIVE DEMO FUNDS
+# DEMO FUNDING
 session = SessionLocal()
 try:
     accounts = session.query(Account).filter(Account.id.contains(railone_id)).all()

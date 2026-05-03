@@ -1,5 +1,5 @@
 # ==============================
-# handshake_engine.py (FINAL — STATE-ALIGNED)
+# handshake_engine.py (CLEAN — PROTOCOL CORRECT)
 # ==============================
 
 from audit import append_log
@@ -31,12 +31,12 @@ def run_handshake(
     )
 
     # --------------------------------
-    # 1. IDENTITY VERIFIED (ENTRY)
+    # 1. IDENTITY VERIFIED
     # --------------------------------
     ctx.transition(TransactionState.IDENTITY_VERIFIED)
 
     # --------------------------------
-    # 2. ETK-S (SENDER LOCK)
+    # 2. ETK-S
     # --------------------------------
     etk_s, sig_s, payload_s = TokenFactory.generate_etk_s(
         sender_id,
@@ -53,7 +53,7 @@ def run_handshake(
     ctx.transition(TransactionState.INTENT_LOCKED)
 
     # --------------------------------
-    # 3. ETK-R (RECEIVER CONFIRMATION)
+    # 3. ETK-R
     # --------------------------------
     etk_r, sig_r, payload_r = TokenFactory.generate_etk_r(
         etk_s,
@@ -70,67 +70,34 @@ def run_handshake(
     ctx.transition(TransactionState.RECEIVER_CONFIRMED)
 
     # --------------------------------
-    # 4. RTT (HANDSHAKE FINALIZATION)
+    # HANDSHAKE COMPLETE (NO RTT HERE)
     # --------------------------------
-    rtt, rtt_signature, payload_rtt = TokenFactory.generate_rtt_with_quote(
-        etk_s,
-        etk_r,
-        tx_id,
-        institution_id
-    )
-
-    if not TokenFactory.verify(payload_rtt, rtt_signature, institution_id):
-        raise Exception("RTT SIGNATURE INVALID")
-
     ctx.transition(TransactionState.HANDSHAKE_VERIFIED)
 
     # --------------------------------
-    # 5. READY FOR ROUTING
-    # --------------------------------
-    ctx.transition(TransactionState.ROUTE_COMPUTED)
-
-    # --------------------------------
-    # ATTACH METADATA (TRACEABILITY)
+    # ATTACH
     # --------------------------------
     ctx.attach("etk_s", etk_s)
     ctx.attach("etk_r", etk_r)
-    ctx.attach("rtt", rtt)
 
     # --------------------------------
-    # AUDIT LOG (CRITICAL)
+    # AUDIT
     # --------------------------------
-    payload = {
+    append_log("HANDSHAKE_COMPLETE", {
         "tx_id": tx_id,
         "etk_s": etk_s,
         "etk_r": etk_r,
-        "rtt": rtt,
-        "signatures": {
-            "etk_s": sig_s.hex(),
-            "etk_r": sig_r.hex(),
-            "rtt": rtt_signature.hex(),
-        },
-        "state": ctx.state.value,
         "sender_id": sender_id,
         "receiver_id": receiver_id,
         "amount": amount,
-        "currency": currency,
-    }
+    })
 
-    append_log("HANDSHAKE_SECURE", payload)
-
-    # --------------------------------
-    # OUTPUT
-    # --------------------------------
-    print("✅ Secure Handshake complete")
+    print("✅ Handshake complete")
     print("TX_ID:", tx_id)
-    print("RTT:", rtt)
 
     return {
         "tx_id": tx_id,
-        "rtt": rtt,
-        "rtt_signature": rtt_signature.hex(),   # ✅ FIXED
-        "payload_rtt": payload_rtt, # 🔥 REQUIRED FOR VERIFICATION
         "etk_s": etk_s,
         "etk_r": etk_r,
         "ctx": ctx.to_dict()
-   }
+    }

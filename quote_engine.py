@@ -1,5 +1,5 @@
 # ==============================
-# quote_engine.py (PRODUCTION — FIXED)
+# quote_engine.py (FINAL — PROTOCOL SAFE)
 # ==============================
 
 import uuid
@@ -14,7 +14,27 @@ from token_factory import TokenFactory
 QUOTE_TTL = 60  # seconds
 
 
-def generate_quote(sender, receiver, amount, currency_from, currency_to):
+# --------------------------------
+# 🔐 NORMALIZE ROUTE (CRITICAL)
+# --------------------------------
+def normalize_route(route):
+    return {
+        "type": route.get("type"),
+        "rail": route.get("rail"),
+        "cost": round(route.get("cost", 0), 6)
+    }
+
+
+# --------------------------------
+# 🚀 MAIN QUOTE GENERATOR
+# --------------------------------
+def generate_quote(
+    sender,
+    receiver,
+    amount,
+    currency_from,
+    currency_to
+):
 
     # --------------------------------
     # ROUTE
@@ -29,6 +49,8 @@ def generate_quote(sender, receiver, amount, currency_from, currency_to):
     if not route:
         return {"error": "NO_ROUTE_AVAILABLE"}
 
+    route = normalize_route(route)
+
     # --------------------------------
     # PRICING (AUTHORITATIVE)
     # --------------------------------
@@ -36,7 +58,7 @@ def generate_quote(sender, receiver, amount, currency_from, currency_to):
 
     pricing = compute_total_pricing(
         amount=amount,
-        route=route,
+        route=[route],  # ensure consistent structure
         is_cross_border=is_cross_border
     )
 
@@ -47,13 +69,14 @@ def generate_quote(sender, receiver, amount, currency_from, currency_to):
     # QUOTE METADATA
     # --------------------------------
     quote_id = f"Q-{uuid.uuid4().hex[:12].upper()}"
+
     timestamp = int(time.time())
     expires_at = timestamp + QUOTE_TTL
 
     # --------------------------------
-    # CANONICAL PAYLOAD (SIGN THIS ONLY)
+    # 🔐 CANONICAL PAYLOAD (CRITICAL)
     # --------------------------------
-    quote_payload = {
+    payload = {
         "quote_id": quote_id,
         "amount": amount,
         "currency_from": currency_from,
@@ -64,29 +87,28 @@ def generate_quote(sender, receiver, amount, currency_from, currency_to):
         "expires_at": expires_at
     }
 
-    payload_str = json.dumps(quote_payload, sort_keys=True)
+    payload_str = json.dumps(payload, sort_keys=True)
 
     # --------------------------------
-    # SIGNATURE (CRITICAL)
+    # 🔐 SIGN QUOTE
     # --------------------------------
     signature = TokenFactory.sign(payload_str, "R1CORE").hex()
 
     # --------------------------------
-    # RETURN (DO NOT MUTATE STRUCTURE)
+    # RETURN (STRICT STRUCTURE)
     # --------------------------------
     return {
         "quote_id": quote_id,
+        "route": route,
+        "pricing": pricing,
+
         "send_amount": amount,
         "receive_amount": receive_amount,
         "total_fee": total_fee,
-        "pricing": pricing,
-        "route": route,
 
-        # 🔐 CRYPTO
-        "payload": payload_str,
-        "signature": signature,
-
-        # ⏱️ TTL CONTROL
         "timestamp": timestamp,
-        "expires_at": expires_at
+        "expires_at": expires_at,
+
+        "payload": payload_str,
+        "signature": signature
     }
