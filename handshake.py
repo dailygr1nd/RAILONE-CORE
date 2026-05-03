@@ -1,5 +1,5 @@
 # ==============================
-# handshake_engine.py (FINAL)
+# handshake_engine.py (FINAL — STATE-ALIGNED)
 # ==============================
 
 from audit import append_log
@@ -8,11 +8,11 @@ from state_machine import TransactionContext, TransactionState
 
 
 def run_handshake(
-    sender_id,
-    receiver_id,
-    amount,
-    currency="KES",
-    institution_id="R1CORE",
+    sender_id: str,
+    receiver_id: str,
+    amount: float,
+    currency: str = "KES",
+    institution_id: str = "R1CORE",
 ):
 
     print("\n🔐 Running Secure Dual Handshake...")
@@ -31,7 +31,12 @@ def run_handshake(
     )
 
     # --------------------------------
-    # ETK-S
+    # 1. IDENTITY VERIFIED (ENTRY)
+    # --------------------------------
+    ctx.transition(TransactionState.IDENTITY_VERIFIED)
+
+    # --------------------------------
+    # 2. ETK-S (SENDER LOCK)
     # --------------------------------
     etk_s, sig_s, payload_s = TokenFactory.generate_etk_s(
         sender_id,
@@ -40,15 +45,15 @@ def run_handshake(
     )
 
     if not TokenFactory.verify(payload_s, sig_s, institution_id):
-     raise Exception("ETK-S SIGNATURE INVALID")
+        raise Exception("ETK-S SIGNATURE INVALID")
 
     if TokenFactory.is_expired(payload_s):
-     raise Exception("ETK-S EXPIRED")
+        raise Exception("ETK-S EXPIRED")
 
-    ctx.transition(TransactionState.SENDER_LOCKED)
+    ctx.transition(TransactionState.INTENT_LOCKED)
 
     # --------------------------------
-    # ETK-R
+    # 3. ETK-R (RECEIVER CONFIRMATION)
     # --------------------------------
     etk_r, sig_r, payload_r = TokenFactory.generate_etk_r(
         etk_s,
@@ -57,15 +62,15 @@ def run_handshake(
     )
 
     if not TokenFactory.verify(payload_r, sig_r, institution_id):
-     raise Exception("ETK-R SIGNATURE INVALID")
+        raise Exception("ETK-R SIGNATURE INVALID")
 
-    if TokenFactory.is_expired(payload_s):  # still tied to original intent
-     raise Exception("HANDSHAKE EXPIRED")
+    if TokenFactory.is_expired(payload_s):
+        raise Exception("HANDSHAKE EXPIRED")
 
     ctx.transition(TransactionState.RECEIVER_CONFIRMED)
 
     # --------------------------------
-    # RTT
+    # 4. RTT (HANDSHAKE FINALIZATION)
     # --------------------------------
     rtt, sig_rtt, payload_rtt = TokenFactory.generate_rtt(
         etk_s,
@@ -79,25 +84,43 @@ def run_handshake(
 
     ctx.transition(TransactionState.HANDSHAKE_VERIFIED)
 
-   
     # --------------------------------
-    # AUDIT LOG
+    # 5. READY FOR ROUTING
+    # --------------------------------
+    ctx.transition(TransactionState.ROUTE_COMPUTED)
+
+    # --------------------------------
+    # ATTACH METADATA (TRACEABILITY)
+    # --------------------------------
+    ctx.attach("etk_s", etk_s)
+    ctx.attach("etk_r", etk_r)
+    ctx.attach("rtt", rtt)
+
+    # --------------------------------
+    # AUDIT LOG (CRITICAL)
     # --------------------------------
     payload = {
         "tx_id": tx_id,
-        "rtt": rtt,
         "etk_s": etk_s,
         "etk_r": etk_r,
+        "rtt": rtt,
         "signatures": {
             "etk_s": sig_s.hex(),
             "etk_r": sig_r.hex(),
-            "rtt": sig_rtt.hex()
+            "rtt": sig_rtt.hex(),
         },
         "state": ctx.state.value,
+        "sender_id": sender_id,
+        "receiver_id": receiver_id,
+        "amount": amount,
+        "currency": currency,
     }
 
     append_log("HANDSHAKE_SECURE", payload)
 
+    # --------------------------------
+    # OUTPUT
+    # --------------------------------
     print("✅ Secure Handshake complete")
     print("TX_ID:", tx_id)
     print("RTT:", rtt)
@@ -105,7 +128,7 @@ def run_handshake(
     return {
         "tx_id": tx_id,
         "rtt": rtt,
-        "rtt_signature": sig_rtt.hex(), 
+        "rtt_signature": sig_rtt.hex(),
         "etk_s": etk_s,
         "etk_r": etk_r,
         "ctx": ctx,

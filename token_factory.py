@@ -106,7 +106,7 @@ class TokenFactory:
 
         return token, signature, payload
 
-    # --------------------------------
+        # --------------------------------
     # UTT
     # --------------------------------
     @staticmethod
@@ -114,31 +114,43 @@ class TokenFactory:
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         suffix = secrets.token_hex(4).upper()
         return f"UTT-{institution_id}-{ts}-{suffix}"
-    
+
     # --------------------------------
-# TIMESTAMP EXTRACTION
-# --------------------------------
-@staticmethod
-def extract_timestamp(payload: str):
-    try:
-        parts = payload.split("|")
-        for p in parts:
-            if "T" in p and ":" in p:
-                return datetime.fromisoformat(p)
-    except Exception:
-        return None
+    # TIMESTAMP EXTRACTION
+    # --------------------------------
+    @staticmethod
+    def extract_timestamp(payload: str):
+        try:
+            parts = payload.split("|")
+            for p in parts:
+                if "T" in p and ":" in p:
+                    return datetime.fromisoformat(p)
+        except Exception:
+            return None
 
+    # --------------------------------
+    # EXPIRY CHECK
+    # --------------------------------
+    @staticmethod
+    def is_expired(payload: str, ttl_seconds: int = 300) -> bool:
+        """
+        Checks if token payload timestamp is expired.
+        """
 
-# --------------------------------
-# EXPIRY CHECK
-# --------------------------------
-@staticmethod
-def is_expired(payload: str, ttl_seconds: int = 300) -> bool:
-    ts = TokenFactory.extract_timestamp(payload)
+        try:
+            parts = payload.split("|")
 
-    if not ts:
-        return True
+            if len(parts) < 4:
+                return True
 
-    now = datetime.now(timezone.utc)
+            ts = parts[3]
 
-    return (now - ts).total_seconds() > ttl_seconds
+            token_time = datetime.fromisoformat(ts)
+            now = datetime.now(timezone.utc)
+
+            age = (now - token_time).total_seconds()
+
+            return age > ttl_seconds
+
+        except Exception:
+            return True

@@ -15,6 +15,17 @@ from user_directory import list_users
 
 import sys
 
+from bootstrap import bootstrap
+
+bootstrap()
+
+from core_registry import register_core
+
+register_core()
+
+
+
+
 
 # --------------------------------
 # UTIL

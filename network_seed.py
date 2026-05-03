@@ -11,6 +11,7 @@ from user_directory import create_user
 
 from ledger.db import engine
 from ledger.models import Base
+from core_registry import register_core
 
 Base.metadata.create_all(bind=engine)
 
@@ -24,6 +25,9 @@ def seed_institutions():
 
     try:
         institutions = [
+
+            # 🔥 CORE SYSTEM (CRITICAL)
+            ("R1CORE", "RailOne Core", "CORE", "GLOBAL"),
             ("PSP_KE", "Kenya Mobile Money", "PSP", "KE"),
             ("BANK_TZ", "Tanzania Bank", "BANK", "TZ"),
             ("PSP_UG", "Uganda Wallet", "WALLET", "UG"),
@@ -178,6 +182,8 @@ def get_railone_id_by_national_id(national_id):
 def seed_all():
 
     print("🌐 Seeding full RailOne network...")
+
+    register_core()
 
     seed_institutions()
     seed_institution_keys()
