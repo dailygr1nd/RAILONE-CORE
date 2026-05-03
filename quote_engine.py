@@ -1,23 +1,23 @@
 # ==============================
-# quote_engine.py (FINAL — PROTOCOL SAFE)
+# quote_engine.py (PROTOCOL LOCKED)
 # ==============================
 
 import uuid
 import time
 import json
 
-from routing import build_route_with_constraints
+from routing import get_best_rail
 from pricing_engine import compute_total_pricing
 from token_factory import TokenFactory
 
 
-QUOTE_TTL = 60  # seconds
+QUOTE_TTL = 60
 
 
 # --------------------------------
-# 🔐 NORMALIZE ROUTE (CRITICAL)
+# 🔐 NORMALIZE ROUTE
 # --------------------------------
-def normalize_route(route):
+def normalize_route(route: dict):
     return {
         "type": route.get("type"),
         "rail": route.get("rail"),
@@ -26,39 +26,30 @@ def normalize_route(route):
 
 
 # --------------------------------
-# 🚀 MAIN QUOTE GENERATOR
+# 🚀 GENERATE QUOTE
 # --------------------------------
-def generate_quote(
-    sender,
-    receiver,
-    amount,
-    currency_from,
-    currency_to
-):
+def generate_quote(sender, receiver, amount, currency_from, currency_to):
 
     # --------------------------------
     # ROUTE
     # --------------------------------
-    route = build_route_with_constraints(
-        sender,
-        receiver,
-        amount,
-        currency_from
+    route = get_best_rail(
+        candidate_rails=["MPESA", "BANK_KE", "BANK_UG", "BANK_TZ", "SMOVE"],
+        amount=amount,
+        currency=currency_from,
+        cross_border=(currency_from != currency_to)
     )
-
-    if not route:
-        return {"error": "NO_ROUTE_AVAILABLE"}
 
     route = normalize_route(route)
 
     # --------------------------------
-    # PRICING (AUTHORITATIVE)
+    # PRICING
     # --------------------------------
     is_cross_border = currency_from != currency_to
 
     pricing = compute_total_pricing(
         amount=amount,
-        route=[route],  # ensure consistent structure
+        route=[route],
         is_cross_border=is_cross_border
     )
 
@@ -66,16 +57,13 @@ def generate_quote(
     receive_amount = round(amount - total_fee, 2)
 
     # --------------------------------
-    # QUOTE METADATA
+    # QUOTE META
     # --------------------------------
     quote_id = f"Q-{uuid.uuid4().hex[:12].upper()}"
 
-    timestamp = int(time.time())
-    expires_at = timestamp + QUOTE_TTL
+    ts = int(time.time())
+    expires_at = ts + QUOTE_TTL
 
-    # --------------------------------
-    # 🔐 CANONICAL PAYLOAD (CRITICAL)
-    # --------------------------------
     payload = {
         "quote_id": quote_id,
         "amount": amount,
@@ -83,20 +71,17 @@ def generate_quote(
         "currency_to": currency_to,
         "route": route,
         "pricing": pricing,
-        "timestamp": timestamp,
+        "timestamp": ts,
         "expires_at": expires_at
     }
 
     payload_str = json.dumps(payload, sort_keys=True)
 
     # --------------------------------
-    # 🔐 SIGN QUOTE
+    # SIGN
     # --------------------------------
     signature = TokenFactory.sign(payload_str, "R1CORE").hex()
 
-    # --------------------------------
-    # RETURN (STRICT STRUCTURE)
-    # --------------------------------
     return {
         "quote_id": quote_id,
         "route": route,
@@ -106,7 +91,7 @@ def generate_quote(
         "receive_amount": receive_amount,
         "total_fee": total_fee,
 
-        "timestamp": timestamp,
+        "timestamp": ts,
         "expires_at": expires_at,
 
         "payload": payload_str,

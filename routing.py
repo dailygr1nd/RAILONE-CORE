@@ -1,11 +1,17 @@
-# routing.py
+# ==============================
+# routing.py (PROTOCOL READY)
+# ==============================
 
 from routing_brain import compute_rail_health
 from routescoring import score_route
 from liquidity_engine import check_liquidity
 
 
-def classify_rail(account_id):
+# --------------------------------
+# 🔐 RAIL CLASSIFICATION
+# --------------------------------
+def classify_rail(account_id: str) -> str:
+
     if account_id.startswith("BANK_KE"):
         return "BANK_KE"
     if account_id.startswith("BANK_TZ"):
@@ -13,14 +19,8 @@ def classify_rail(account_id):
     if account_id.startswith("BANK_UG"):
         return "BANK_UG"
 
-    if account_id.startswith("PSP_MPESA_KE") or account_id.startswith("PSP_AIRTEL_KE"):
-        return "PSP_KE"
-
-    if account_id.startswith("PSP_MPESA_TZ") or account_id.startswith("PSP_AIRTEL_TZ"):
-        return "PSP_TZ"
-
-    if account_id.startswith("PSP_AIRTEL_UG"):
-        return "PSP_UG"
+    if account_id.startswith("MPESA"):
+        return "MPESA"
 
     if account_id.startswith("SMOVE"):
         return "SMOVE"
@@ -29,9 +29,28 @@ def classify_rail(account_id):
 
 
 # --------------------------------
-# 🔥 SMART ROUTING
+# 🔐 ROUTE OBJECT BUILDER
+# --------------------------------
+def build_route_object(rail: str, amount: float) -> dict:
+    """
+    Canonical route schema used across:
+    - quote_engine
+    - tx_verifier
+    - execution_engine
+    """
+
+    return {
+        "type": rail,
+        "rail": rail,
+        "cost": round(amount * 0.001, 6),  # simple deterministic cost model
+    }
+
+
+# --------------------------------
+# 🔥 SMART RAIL SELECTION
 # --------------------------------
 def get_best_rail(candidate_rails, amount, currency, cross_border=False):
+
     best = None
     best_score = -999
 
@@ -47,57 +66,80 @@ def get_best_rail(candidate_rails, amount, currency, cross_border=False):
         )
 
         if not has_liquidity:
-            continue  # 🚫 cannot use this rail
+            continue
 
         # --------------------------------
-        # HEALTH SCORE
+        # HEALTH
         # --------------------------------
         health_score = compute_rail_health(rail)
 
         # --------------------------------
-        # FINAL SCORING
+        # SCORING
         # --------------------------------
         route_obj = {"type": rail}
 
-        final_score = score_route(
+        score = score_route(
             route=route_obj,
             amount=amount,
-            available_balance=1_000_000  # liquidity already checked
+            available_balance=1_000_000
         )
 
-        # cross-border bias
+        # Cross-border bias
         if cross_border and rail == "SMOVE":
-            final_score += 2
+            score += 2
 
-        # combine intelligence + scoring
-        total_score = health_score + final_score
+        total_score = health_score + score
 
         if total_score > best_score:
             best_score = total_score
             best = rail
 
-    return best or "SMOVE"  # fallback
+    # --------------------------------
+    # FALLBACK
+    # --------------------------------
+    if not best:
+        best = "SMOVE"
 
+    return build_route_object(best, amount)
+
+
+# --------------------------------
+# 🌍 ROUTE SCHEME (MULTI-HOP LOGIC)
+# --------------------------------
 def build_route(sender_rail, receiver_rail, amount, currency):
 
-    # direct route possible
-    if sender_rail != receiver_rail:
-        return [sender_rail, "SMOVE", receiver_rail]
+    """
+    Returns a LIST of route objects
+    """
 
-    # cross-border KE → TZ via UG
-    if sender_rail == "PSP_KE" and receiver_rail == "BANK_TZ":
-        return ["PSP_KE", "PSP_UG", "BANK_TZ"]
+    # --------------------------------
+    # SAME RAIL (DIRECT)
+    # --------------------------------
+    if sender_rail == receiver_rail:
+        return [build_route_object(sender_rail, amount)]
 
-    # fallback: use best rail as bridge
-    bridge = get_best_rail(
-        candidate_rails=["PSP_UG", "SMOVE"],
-        amount=amount,
-        currency=currency,
-        cross_border=True
-    )
+    # --------------------------------
+    # DIRECT BANK → BANK (same region)
+    # --------------------------------
+    if sender_rail.startswith("BANK") and receiver_rail.startswith("BANK"):
+        return [
+            build_route_object(sender_rail, amount),
+            build_route_object(receiver_rail, amount)
+        ]
 
-    return [sender_rail, bridge, receiver_rail]
+    # --------------------------------
+    # DEFAULT CROSS-BORDER VIA CORE (SMOVE)
+    # --------------------------------
+    return [
+        build_route_object(sender_rail, amount),
+        build_route_object("SMOVE", amount),
+        build_route_object(receiver_rail, amount)
+    ]
 
+
+# --------------------------------
+# 🚀 EXECUTION ROUTE (ATTESTATION FLOW)
+# --------------------------------
 def execute_route(tx, router, attestation_engine):
 
     route = build_route(
@@ -106,20 +148,19 @@ def execute_route(tx, router, attestation_engine):
         tx.payload["amount"]["value"],
         tx.payload["amount"]["currency"]
     )
-    tx.append_chain(f"HOP:{route[i-1]}->{inst}")
 
     current_amount = tx.payload["amount"]["value"]
 
     for i in range(len(route)):
 
-        inst = route[i]
+        inst = route[i]["type"]
 
         # -----------------------------
-        # FIRST HOP (VERIFY + RESERVE)
+        # FIRST HOP
         # -----------------------------
         if i == 0:
 
-            res = router.call(inst, "verify_funds", "user_ke", current_amount)
+            res = router.call(inst, "verify_funds", "user", current_amount)
 
             attestation_engine.verify(
                 tx.payload_hash,
@@ -130,7 +171,7 @@ def execute_route(tx, router, attestation_engine):
 
             tx.add_attestation(inst, "FUNDS_AVAILABLE", res["attestation"])
 
-            res = router.call(inst, "reserve_funds", "user_ke", current_amount)
+            res = router.call(inst, "reserve_funds", "user", current_amount)
 
             attestation_engine.verify(
                 tx.payload_hash,
@@ -158,14 +199,14 @@ def execute_route(tx, router, attestation_engine):
             tx.add_attestation(inst, "SETTLED", res["attestation"])
 
             # FX simulation
-            current_amount = int(current_amount * 1.8)
+            current_amount = int(current_amount * 1.01)
 
         # -----------------------------
         # FINAL RECEIVER
         # -----------------------------
         else:
 
-            res = router.call(inst, "receive_funds", "user_tz", current_amount)
+            res = router.call(inst, "receive_funds", "user", current_amount)
 
             attestation_engine.verify(
                 tx.payload_hash,
