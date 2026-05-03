@@ -1,5 +1,5 @@
 # ==============================
-# revenue_engine.py (FINAL)
+# revenue_engine.py (PRODUCTION GRADE)
 # ==============================
 
 from railone_treasury import credit_treasury
@@ -8,7 +8,11 @@ from revenue_db import record_revenue
 
 def extract_revenue(session, tx: dict):
 
-    pricing = tx.get("pricing", {})
+    pricing = tx.get("pricing")
+
+    if not pricing:
+        print("⚠️ No pricing found — skipping revenue")
+        return
 
     base_fee = pricing.get("base_fee", 0)
     routing_fee = pricing.get("routing_fee", 0)
@@ -17,19 +21,36 @@ def extract_revenue(session, tx: dict):
     total = base_fee + routing_fee + fx_profit
 
     if total <= 0:
+        print("⚠️ Zero revenue transaction")
         return
 
-    # 🔥 USE UTT (GLOBAL IDENTITY)
-    utt = tx.get("utt", tx["tx_id"])
+    # --------------------------------
+    # SAFE ROUTE EXTRACTION
+    # --------------------------------
+    route = tx.get("route_result", {})
+    route_type = route.get("type", "UNKNOWN")
 
-    record_revenue(
-        tx_id=utt,
-        amount=round(total, 2),
-        currency=tx["currency_from"],
-        route=tx["route_result"]["type"]
-    )
+    # --------------------------------
+    # USE UTT (FINAL ID)
+    # --------------------------------
+    tx_id = tx.get("utt") or tx.get("tx_id")
 
-    # 🔥 OPTIONAL: credit treasury (non-custodial simulation)
+    try:
+        record_revenue(
+            tx_id=tx_id,
+            amount=round(total, 2),
+            currency=tx.get("currency_from", "UNKNOWN"),
+            route=route_type
+        )
+
+        print(f"💰 Revenue recorded: {total} {tx.get('currency_from')}")
+
+    except Exception as e:
+        print("❌ Revenue DB error:", str(e))
+
+    # --------------------------------
+    # TREASURY CREDIT
+    # --------------------------------
     try:
         credit_treasury(session, total, tx["currency_from"])
     except Exception:

@@ -1,25 +1,86 @@
 # ==============================
-# transaction_engine.py (FINAL — PROTOCOL CORRECT)
+# transaction_engine.py (FINAL — HARD GATED + CLEAN)
 # ==============================
 
 from datetime import datetime, UTC
+import json
+import hashlib
+import time
+import redis
 
 from audit import log_event
 from execution_queue import enqueue_tx, store_tx
 
 from balance_engine import lock_funds, release_funds
-from smart_router import choose_best_route
-
 from ledger.db import SessionLocal
-from handshake import run_handshake
 
-import redis
+from handshake import run_handshake
+from token_factory import TokenFactory
+
 
 r = redis.Redis(host="localhost", port=6379, decode_responses=True)
 
 
 # --------------------------------
-# FAIL HANDLER
+# 🔐 ROUTE HASH (DETERMINISTIC)
+# --------------------------------
+def compute_route_hash(route, rtt):
+    route_str = json.dumps({
+        "type": route.get("type"),
+        "rail": route.get("rail"),
+        "cost": round(route.get("cost", 0), 6)
+    }, sort_keys=True)
+
+    return hashlib.sha256(
+        f"{route_str}|{rtt}".encode()
+    ).hexdigest()
+
+
+# --------------------------------
+# 🔐 VERIFY QUOTE (STRICT)
+# --------------------------------
+def verify_quote(quote: dict):
+
+    required = [
+        "quote_id",
+        "route",
+        "pricing",
+        "expires_at",
+        "signature",
+        "payload"
+    ]
+
+    for f in required:
+        if f not in quote:
+            return False, f"MISSING_{f}"
+
+    # --------------------------------
+    # EXPIRY
+    # --------------------------------
+    now = int(time.time())
+    if quote["expires_at"] < now:
+        return False, "QUOTE_EXPIRED"
+
+    # --------------------------------
+    # SIGNATURE
+    # --------------------------------
+    try:
+        signature = bytes.fromhex(quote["signature"])
+    except Exception:
+        return False, "INVALID_SIGNATURE_FORMAT"
+
+    if not TokenFactory.verify(
+        quote["payload"],
+        signature,
+        "R1CORE"
+    ):
+        return False, "INVALID_QUOTE_SIGNATURE"
+
+    return True, None
+
+
+# --------------------------------
+# ❌ FAIL HANDLER
 # --------------------------------
 def fail(tx: dict, reason: str) -> dict:
 
@@ -41,7 +102,7 @@ def fail(tx: dict, reason: str) -> dict:
 
 
 # --------------------------------
-# MAIN ENTRY
+# 🚀 MAIN ENTRY
 # --------------------------------
 def initiate_transaction(
     sender_account: str,
@@ -80,17 +141,16 @@ def initiate_transaction(
     r.set(f"idem:{handshake['etk_s']}", handshake["tx_id"], ex=300)
 
     # --------------------------------
-    # BUILD TX OBJECT
+    # BUILD TX
     # --------------------------------
     tx = {
         "tx_id": handshake["tx_id"],
-        "rtt": handshake["rtt"],
-        "rtt_signature": handshake["rtt_signature"],
         "etk_s": handshake["etk_s"],
         "etk_r": handshake["etk_r"],
-        "ctx": handshake["ctx"],
 
-        # UTT will be assigned AFTER execution
+        "rtt": None,
+        "rtt_signature": None,
+        "payload_rtt": None,
         "utt": None,
 
         "timestamp": datetime.now(UTC).isoformat(),
@@ -110,7 +170,7 @@ def initiate_transaction(
     log_event("TX_INITIATED", tx)
 
     # --------------------------------
-    # VALIDATION
+    # BASIC VALIDATION
     # --------------------------------
     if sender_account == receiver_account:
         return fail(tx, "SAME_ACCOUNT")
@@ -118,44 +178,63 @@ def initiate_transaction(
     if gross <= 0:
         return fail(tx, "INVALID_AMOUNT")
 
+    if not quote:
+        return fail(tx, "QUOTE_REQUIRED")
+
+    # --------------------------------
+    # 🔐 VERIFY QUOTE (HARD GATE)
+    # --------------------------------
+    valid, reason = verify_quote(quote)
+
+    if not valid:
+        return fail(tx, reason)
+
+    quote_id = quote["quote_id"]
+
+    # --------------------------------
+    # 🔒 QUOTE REPLAY PROTECTION
+    # --------------------------------
+    if r.get(f"quote:{quote_id}"):
+        return fail(tx, "QUOTE_ALREADY_USED")
+
+    r.set(f"quote:{quote_id}", tx["tx_id"], ex=120)
+
+    # --------------------------------
+    # APPLY QUOTE (AUTHORITATIVE)
+    # --------------------------------
+    tx["quote_id"] = quote_id
+    tx["pricing"] = quote["pricing"]
+    tx["fee"] = quote["pricing"]["total_revenue"]
+    tx["net_amount"] = quote["receive_amount"]
+    tx["route_result"] = quote["route"]
+
+    # --------------------------------
+    # 🔐 RTT (BIND EVERYTHING)
+    # --------------------------------
+    rtt, sig_rtt, payload_rtt = TokenFactory.generate_rtt_with_quote(
+        tx["etk_s"],
+        tx["etk_r"],
+        tx["tx_id"],
+        tx["pricing"],
+        quote_id,
+        "R1CORE"
+    )
+
+    tx["rtt"] = rtt
+    tx["rtt_signature"] = sig_rtt.hex()
+    tx["payload_rtt"] = payload_rtt
+
+    # --------------------------------
+    # 🔒 LOCK FUNDS
+    # --------------------------------
     session = SessionLocal()
 
     try:
-        # --------------------------------
-        # ROUTING
-        # --------------------------------
-        route = choose_best_route(tx, session)
-
-        if not route:
-            return fail(tx, "NO_ROUTE_AVAILABLE")
-
-        tx["route_result"] = route
-
-        # 🔐 bind route to RTT
-        tx["route_hash"] = f"{route}-{tx['rtt']}"
-
-        # --------------------------------
-        # PRICING
-        # --------------------------------
-        if quote:
-            tx["net_amount"] = float(quote.get("receive_amount", gross))
-            tx["fee"] = float(quote.get("total_fee", 0))
-            tx["profit"] = float(quote.get("profit", 0))
-            tx["pricing"] = quote.get("pricing", {})
-        else:
-            tx["net_amount"] = gross
-            tx["fee"] = 0.0
-            tx["profit"] = 0.0
-            tx["pricing"] = {}
-
-        log_event("PRICING_COMPUTED", tx)
-
-        # --------------------------------
-        # LOCK FUNDS
-        # --------------------------------
-        total_debit = tx["gross_amount"] + tx["fee"]
-
-        ok, reason = lock_funds(session, sender_account, total_debit)
+        ok, reason = lock_funds(
+            session,
+            sender_account,
+            gross
+        )
 
         if not ok:
             return fail(tx, reason)
@@ -170,6 +249,14 @@ def initiate_transaction(
         session.close()
 
     # --------------------------------
+    # 🔗 ROUTE BINDING
+    # --------------------------------
+    tx["route_hash"] = compute_route_hash(
+        tx["route_result"],
+        tx["rtt"]
+    )
+
+    # --------------------------------
     # ENQUEUE
     # --------------------------------
     tx["status"] = "PENDING"
@@ -182,6 +269,7 @@ def initiate_transaction(
     return {
         "tx_id": tx["tx_id"],
         "status": "PENDING",
+        "rtt": tx["rtt"],
         "estimated_settlement": {
             "min_minutes": 2,
             "max_minutes": 180

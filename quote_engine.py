@@ -1,15 +1,24 @@
 # ==============================
-# quote_engine.py (MULTI-HOP + LIQUIDITY AWARE)
+# quote_engine.py (PRODUCTION — FIXED)
 # ==============================
 
-from fx_engine import get_fx_rate
+import uuid
+import time
+import json
+
 from routing import build_route_with_constraints
-from liquidity_engine import check_liquidity
 from pricing_engine import compute_total_pricing
+from token_factory import TokenFactory
+
+
+QUOTE_TTL = 60  # seconds
 
 
 def generate_quote(sender, receiver, amount, currency_from, currency_to):
 
+    # --------------------------------
+    # ROUTE
+    # --------------------------------
     route = build_route_with_constraints(
         sender,
         receiver,
@@ -20,73 +29,64 @@ def generate_quote(sender, receiver, amount, currency_from, currency_to):
     if not route:
         return {"error": "NO_ROUTE_AVAILABLE"}
 
-    current_amount = amount
-    current_currency = currency_from
-
-    total_fee = 0
-    total_profit = 0
-
-    for i in range(len(route)):
-
-        rail = route[i]
-
+    # --------------------------------
+    # PRICING (AUTHORITATIVE)
+    # --------------------------------
     is_cross_border = currency_from != currency_to
 
     pricing = compute_total_pricing(
-    amount=amount,
-    route=route,
-    is_cross_border=is_cross_border
-)
+        amount=amount,
+        route=route,
+        is_cross_border=is_cross_border
+    )
 
-    total_fee = pricing["base_fee"] + pricing["routing_fee"]
-    total_profit = pricing["total_revenue"]
+    total_fee = pricing["total_revenue"]
+    receive_amount = round(amount - total_fee, 2)
 
-        # -----------------------------
-        # FX STEP
-        # -----------------------------
-    if i > 0:
+    # --------------------------------
+    # QUOTE METADATA
+    # --------------------------------
+    quote_id = f"Q-{uuid.uuid4().hex[:12].upper()}"
+    timestamp = int(time.time())
+    expires_at = timestamp + QUOTE_TTL
 
-            next_currency = currency_to if i == len(route) - 1 else "UGX"
+    # --------------------------------
+    # CANONICAL PAYLOAD (SIGN THIS ONLY)
+    # --------------------------------
+    quote_payload = {
+        "quote_id": quote_id,
+        "amount": amount,
+        "currency_from": currency_from,
+        "currency_to": currency_to,
+        "route": route,
+        "pricing": pricing,
+        "timestamp": timestamp,
+        "expires_at": expires_at
+    }
 
-            rate = get_fx_rate(current_currency, next_currency, current_amount)
+    payload_str = json.dumps(quote_payload, sort_keys=True)
 
-            if not rate:
-                return {"error": "FX_UNAVAILABLE"}
+    # --------------------------------
+    # SIGNATURE (CRITICAL)
+    # --------------------------------
+    signature = TokenFactory.sign(payload_str, "R1CORE").hex()
 
-            converted = current_amount * rate
-
-            # simulate spread
-            market_rate = rate * 1.01
-
-            fx_profit = (current_amount * market_rate) - converted
-
-            total_profit += fx_profit
-
-            current_amount = converted
-            current_currency = next_currency
-
-        # -----------------------------
-        # LIQUIDITY CHECK
-        # -----------------------------
-            pair = f"{current_currency}_{current_currency}"
-
-    has_liq, _ = check_liquidity(rail, pair, current_amount)
-
-    if not has_liq:
-            return {"error": "LIQUIDITY_FAIL"}
-
-        # -----------------------------
-        # FEES
-        # -----------------------------
-            fee = current_amount * 0.002
-            total_fee += fee
-            current_amount -= fee
-
+    # --------------------------------
+    # RETURN (DO NOT MUTATE STRUCTURE)
+    # --------------------------------
     return {
-    "route": route,
-    "send_amount": amount,
-    "receive_amount": round(current_amount - total_fee, 2),
-    "total_fee": round(total_fee, 2),
-    "profit": round(total_profit, 2),
-    "pricing": pricing
-}
+        "quote_id": quote_id,
+        "send_amount": amount,
+        "receive_amount": receive_amount,
+        "total_fee": total_fee,
+        "pricing": pricing,
+        "route": route,
+
+        # 🔐 CRYPTO
+        "payload": payload_str,
+        "signature": signature,
+
+        # ⏱️ TTL CONTROL
+        "timestamp": timestamp,
+        "expires_at": expires_at
+    }

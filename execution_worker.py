@@ -1,5 +1,5 @@
 # ==============================
-# execution_worker.py (PROTOCOL ENFORCED)
+# execution_worker.py (HARD GATE — PROTOCOL ENFORCED)
 # ==============================
 
 import time
@@ -14,7 +14,6 @@ from treasury_engine import needs_rebalance, rebalance_pool
 from revenue_engine import extract_revenue
 from ledger.db import SessionLocal
 
-# 🔥 NEW
 from tx_verifier import verify_transaction
 
 
@@ -55,32 +54,53 @@ def run_rebalancing():
 
 
 # --------------------------------
+# 🔐 HARD VERIFICATION GATE
+# --------------------------------
+def pre_verify_or_reject(tx):
+
+    result = verify_transaction(tx)
+
+    if not result.get("valid"):
+        print(f"🚫 VERIFICATION FAILED: {tx['tx_id']}")
+
+        for c in result.get("checks", []):
+            print(f"   - {c}")
+
+        return False, result
+
+    print(f"✅ Verification passed: {tx['tx_id']}")
+    return True, result
+
+
+# --------------------------------
 # CORE EXECUTION FLOW
 # --------------------------------
 def safe_execute(tx):
 
     tx_id = tx["tx_id"]
 
-    # 🔒 Replay protection (execution-level)
+    # --------------------------------
+    # 🔒 Replay protection
+    # --------------------------------
     if already_processed(tx_id):
         print(f"⚠️ Replay blocked: {tx_id}")
         return True
 
+    # --------------------------------
+    # 🔐 HARD GATE (CRITICAL)
+    # --------------------------------
+    verified, result = pre_verify_or_reject(tx)
+
+    if not verified:
+        return False
+
     session = SessionLocal()
 
     try:
-        print(f"\n⚙️ Executing TX {tx_id}")
-        print(f"🔐 ETK-S: {tx.get('etk_s')}")
-        print(f"🔗 RTT: {tx.get('rtt')}")
+        print(f"⚙️ Executing TX {tx_id}")
 
         # --------------------------------
-        # 🔐 PRE-CHECK: BASIC TOKEN PRESENCE
-        # --------------------------------
-        if not tx.get("etk_s") or not tx.get("etk_r") or not tx.get("rtt"):
-            raise Exception("MISSING_CRYPTO_TOKENS")
-
-        # --------------------------------
-        # 1. EXECUTION (RTT VERIFIED INSIDE)
+        # EXECUTION ENGINE (RTT VERIFIED INSIDE)
         # --------------------------------
         success = process_execution(tx)
 
@@ -89,30 +109,7 @@ def safe_execute(tx):
             return False
 
         # --------------------------------
-        # 🔥 POST-EXECUTION: FULL VERIFICATION
-        # --------------------------------
-        import hashlib
-        import json
-
-        verification = verify_transaction(tx)
-
-        if not verification["valid"]:
-         print("🚨 PROTOCOL VERIFICATION FAILED:")
-        for check in verification.get("checks", []):
-         print(check)
-
-         raise Exception("POST_EXECUTION_VERIFICATION_FAILED")
-
-      # 🔥 CREATE VERIFICATION HASH
-        verification_blob = json.dumps(verification, sort_keys=True)
-        verification_hash = hashlib.sha256(verification_blob.encode()).hexdigest()
-
-        tx["verification_hash"] = verification_hash
-
-        print(f"🔍 Verification Hash: {verification_hash[:16]}...")
-
-        # --------------------------------
-        # 2. REVENUE EXTRACTION
+        # REVENUE EXTRACTION
         # --------------------------------
         try:
             extract_revenue(session, tx)
@@ -120,31 +117,23 @@ def safe_execute(tx):
             print(f"⚠️ Revenue extraction failed: {str(rev_err)}")
 
         # --------------------------------
-        # 3. MARK PROCESSED
+        # MARK PROCESSED
         # --------------------------------
         mark_processed(tx_id)
 
         # --------------------------------
-        # 4. UPDATE STATE
+        # UPDATE STATE
         # --------------------------------
-        update_tx(tx_id, {
-        "status": "SETTLED",
-        "utt": tx.get("utt"),
-        "verification_hash": tx.get("verification_hash")
-      })
+        update_tx(tx_id, {"status": "SETTLED"})
 
         # --------------------------------
-        # 5. TREASURY
+        # TREASURY
         # --------------------------------
         run_rebalancing()
 
-        # --------------------------------
-        # COMMIT
-        # --------------------------------
         session.commit()
 
-        print(f"✅ TX {tx_id} FINALIZED")
-        print(f"🧾 UTT: {tx.get('utt')}")
+        print(f"✅ TX {tx_id} SETTLED")
 
         return True
 
@@ -154,7 +143,7 @@ def safe_execute(tx):
         session.rollback()
 
         # --------------------------------
-        # 🔥 RELEASE FUNDS (FAILSAFE)
+        # 🔥 RELEASE FUNDS
         # --------------------------------
         try:
             release_funds(
@@ -177,7 +166,7 @@ def safe_execute(tx):
 # --------------------------------
 def start_worker():
 
-    print("🚀 Execution Worker Started")
+    print("🚀 Execution Worker Started (HARD GATED)")
 
     while True:
         try:
@@ -195,10 +184,10 @@ def start_worker():
             if not success:
                 update_tx(tx_id, {
                     "status": "FAILED",
-                    "reason": "EXECUTION_FAILED"
+                    "reason": "VERIFICATION_OR_EXECUTION_FAILED"
                 })
 
-                send_to_dead_letter(tx, "EXECUTION_FAILED")
+                send_to_dead_letter(tx, "FAILED_VERIFICATION_OR_EXECUTION")
 
         except Exception as loop_error:
             print(f"💥 Worker loop error: {str(loop_error)}")

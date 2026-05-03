@@ -1,5 +1,5 @@
 # ==============================
-# trust_registry.py (ADVANCED + SAFE)
+# trust_registry.py (ADVANCED + SAFE + CONSISTENT)
 # ==============================
 
 from datetime import datetime, timedelta
@@ -11,11 +11,37 @@ class TrustRegistry:
     - manages institution identities
     - handles key lifecycle (active, expired, revoked)
     - supports rotation + historical verification
+    - ensures cross-process key consistency
     """
 
     _registry = {}
 
     KEY_TTL_DAYS = 90
+
+    # --------------------------------
+    # 🔁 ENSURE INSTITUTION (CRITICAL FIX)
+    # --------------------------------
+    @staticmethod
+    def ensure_institution(institution_id: str):
+        """
+        Ensures institution exists in registry.
+        Reconstructs trust state from KeyManager if missing.
+        """
+
+        if institution_id in TrustRegistry._registry:
+            return
+
+        try:
+            from key_manager import KeyManager
+
+            private_key = KeyManager.get_private_key(institution_id)
+            public_key = private_key.public_key()
+
+            TrustRegistry.register_institution(institution_id, public_key)
+
+        except Exception:
+            # Institution not available yet
+            return
 
     # --------------------------------
     # REGISTER / ONBOARD
@@ -24,6 +50,7 @@ class TrustRegistry:
     def register_institution(institution_id: str, public_key):
         now = datetime.utcnow()
 
+        # 🔒 Prevent duplicate overwrite
         if institution_id in TrustRegistry._registry:
             print(f"⚠️ Institution already exists: {institution_id}")
             return
@@ -48,6 +75,10 @@ class TrustRegistry:
     # --------------------------------
     @staticmethod
     def get_public_key(institution_id: str):
+
+        # 🔥 Ensure registry is populated (fix)
+        TrustRegistry.ensure_institution(institution_id)
+
         inst = TrustRegistry._registry.get(institution_id)
 
         if not inst:
@@ -58,7 +89,6 @@ class TrustRegistry:
 
         now = datetime.utcnow()
 
-        # return latest valid active key
         for key in reversed(inst["keys"]):
             if key["status"] == "ACTIVE":
                 if key["expires_at"] < now:
@@ -73,6 +103,9 @@ class TrustRegistry:
     # --------------------------------
     @staticmethod
     def rotate_key(institution_id: str, new_public_key):
+
+        TrustRegistry.ensure_institution(institution_id)
+
         inst = TrustRegistry._registry.get(institution_id)
 
         if not inst:
@@ -80,7 +113,6 @@ class TrustRegistry:
 
         now = datetime.utcnow()
 
-        # expire old keys
         for key in inst["keys"]:
             if key["status"] == "ACTIVE":
                 key["status"] = "EXPIRED"
@@ -98,10 +130,13 @@ class TrustRegistry:
         print(f"🔄 Key rotated for {institution_id} (v{version})")
 
     # --------------------------------
-    # VERIFY SUPPORT (CRITICAL)
+    # VERIFY SUPPORT
     # --------------------------------
     @staticmethod
     def get_all_keys(institution_id: str):
+
+        TrustRegistry.ensure_institution(institution_id)
+
         inst = TrustRegistry._registry.get(institution_id)
 
         if not inst:
@@ -117,6 +152,10 @@ class TrustRegistry:
         """
         Used for signature verification across rotated keys
         """
+
+        # 🔥 CRITICAL FIX: auto-rehydrate trust state
+        TrustRegistry.ensure_institution(institution_id)
+
         inst = TrustRegistry._registry.get(institution_id)
 
         if not inst:
@@ -137,6 +176,9 @@ class TrustRegistry:
     # --------------------------------
     @staticmethod
     def deactivate_institution(institution_id: str):
+
+        TrustRegistry.ensure_institution(institution_id)
+
         inst = TrustRegistry._registry.get(institution_id)
 
         if not inst:
@@ -148,6 +190,9 @@ class TrustRegistry:
 
     @staticmethod
     def activate_institution(institution_id: str):
+
+        TrustRegistry.ensure_institution(institution_id)
+
         inst = TrustRegistry._registry.get(institution_id)
 
         if not inst:
@@ -156,3 +201,4 @@ class TrustRegistry:
         inst["status"] = "ACTIVE"
 
         print(f"✅ Institution activated: {institution_id}")
+        

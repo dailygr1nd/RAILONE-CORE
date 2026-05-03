@@ -72,14 +72,14 @@ def run_handshake(
     # --------------------------------
     # 4. RTT (HANDSHAKE FINALIZATION)
     # --------------------------------
-    rtt, sig_rtt, payload_rtt = TokenFactory.generate_rtt(
+    rtt, rtt_signature, payload_rtt = TokenFactory.generate_rtt_with_quote(
         etk_s,
         etk_r,
         tx_id,
         institution_id
     )
 
-    if not TokenFactory.verify(payload_rtt, sig_rtt, institution_id):
+    if not TokenFactory.verify(payload_rtt, rtt_signature, institution_id):
         raise Exception("RTT SIGNATURE INVALID")
 
     ctx.transition(TransactionState.HANDSHAKE_VERIFIED)
@@ -107,7 +107,7 @@ def run_handshake(
         "signatures": {
             "etk_s": sig_s.hex(),
             "etk_r": sig_r.hex(),
-            "rtt": sig_rtt.hex(),
+            "rtt": rtt_signature.hex(),
         },
         "state": ctx.state.value,
         "sender_id": sender_id,
@@ -128,8 +128,9 @@ def run_handshake(
     return {
         "tx_id": tx_id,
         "rtt": rtt,
-        "rtt_signature": sig_rtt.hex(),
+        "rtt_signature": rtt_signature.hex(),   # ✅ FIXED
+        "payload_rtt": payload_rtt, # 🔥 REQUIRED FOR VERIFICATION
         "etk_s": etk_s,
         "etk_r": etk_r,
-        "ctx": ctx,
-    }
+        "ctx": ctx.to_dict()
+   }

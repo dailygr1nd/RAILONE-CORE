@@ -1,296 +1,276 @@
+# 🏦 RailOne — Transaction Orchestration & Settlement Engine
 
-                        ┌────────────────────────────┐
-                        │      TRANSACTION INPUT     │
-                        │  (sender, receiver, amt)   │
-                        └────────────┬───────────────┘
-                                     │
-                                     ▼
-                ┌─────────────────────────────────────┐
-                │          routing.py                 │
-                │  (Candidate Rail Generator)        │
-                │                                     │
-                │ - classify rails                   │
-                │ - list possible paths             │
-                └────────────┬────────────────────────┘
-                                     │
-                                     ▼
-        ┌────────────────────────────────────────────────────┐
-        │            routing_brain.py                       │
-        │        (Rail Intelligence Layer)                 │
-        │                                                    │
-        │ - success rates                                   │
-        │ - latency intelligence                            │
-        │ - rail health scoring                             │
-        └────────────┬──────────────────────────────────────┘
-                                     │
-                                     ▼
-        ┌────────────────────────────────────────────────────┐
-        │          corridor_engine.py ⭐ (CORE BRAIN)       │
-        │                                                    │
-        │ - simulates real-world outcomes                   │
-        │ - applies FX + liquidity + failure models         │
-        │ - evaluates ALL candidate paths                   │
-        │ - chooses best expected outcome                   │
-        └────────────┬──────────────────────────────────────┘
-                                     │
-                                     ▼
-        ┌────────────────────────────────────────────────────┐
-        │              tx_engine.py                         │
-        │        (Execution Layer / Settlement)             │
-        │                                                    │
-        │ - executes selected rail path                     │
-        └────────────┬──────────────────────────────────────┘
-                                     │
-                                     ▼
-        ┌────────────────────────────────────────────────────┐
-        │        routing_metrics.py (Memory Layer)         │
-        │                                                    │
-        │ - logs success/failure                            │
-        │ - updates latency                                 │
-        │ - feeds learning system                           │
-        └────────────┬──────────────────────────────────────┘
-                                     │
-                                     ▼
-        ┌────────────────────────────────────────────────────┐
-        │      corridor_learning.py ⭐ (ADAPTATION)         │
-        │                                                    │
-        │ - adjusts probabilities                           │
-        │ - improves routing intelligence                   │
-        │ - evolves corridor behavior                       │
-        └────────────────────────────────────────────────────┘
+RailOne is a **cryptographically verifiable, quote-bound transaction engine** designed for cross-rail financial interoperability.
 
-
-
-# 🧠 RailOne Core Cryptographic & Transaction Terminology
-
-## 🔐 Ephemeral & Transaction Identity Layer
-
-RailOne uses a multi-stage token system to model secure, idempotent, and verifiable financial transactions across distributed rails.
-
-All tokens are:
-
-* **Ephemeral**
-* **Idempotent**
-* Represented as **128-bit cryptographic values**
-* Stored and transmitted as **hashed (display-safe) strings**
+It enables secure, deterministic, and auditable transaction execution across distributed financial systems (banks, PSPs, wallets) using a multi-stage token protocol.
 
 ---
 
-# 🧩 1. ETK-S — Ephemeral Transaction Key (Sender Lock)
+# 🚀 Core Capabilities
 
-### Definition
+### 🔐 Cryptographic Transaction Integrity
 
-The **ETK-S** is generated at the point of transaction initiation by the sender.
+* Multi-stage token handshake (ETK-S → ETK-R → RTT)
+* RSA-based signing and verification
+* Trust registry with key rotation support
+* Replay protection and idempotency enforcement
 
-### Purpose
+### 💱 Quote-Bound Execution
 
-* Locks **sender intent**
-* Prevents duplicate submission (idempotency guard)
-* Acts as the first half of the transaction handshake
+* Transactions are **locked to signed quotes**
+* Pricing and routing cannot be altered post-initiation
+* Expiry and replay protection enforced at protocol level
 
-### Properties
+### 🔗 Deterministic Routing & Pricing
 
-* Generated at sender initiation
-* Time-bound / ephemeral
-* Bound to:
+* Multi-hop routing support
+* Liquidity-aware execution
+* Tiered pricing + FX spread + routing premium
+* Route integrity hashing
 
-  * sender identity token
-  * transaction payload
-  * timestamp
+### ⚙️ Execution Safety
 
-### Output
+* Pre-execution verification (hard gate)
+* Post-execution verification (audit guarantee)
+* Automatic rollback + fund release on failure
+* Dead-letter queue for invalid transactions
 
-* 128-bit key (hashed representation)
+### 🧾 Full Auditability
+
+* Cryptographic traceability via RTT
+* Final settlement identity via UTT
+* Verification hashing for audit trails
+* Structured event logging
 
 ---
 
-# 🧩 2. ETK-R — Ephemeral Transaction Key (Receiver Lock)
+# 🧠 Architecture Overview
 
-### Definition
+```
+Identity Layer → ETK-S (Sender Intent Lock)
+Routing Layer  → ETK-R (Receiver Confirmation)
+Core Engine    → RTT (Transaction Binding)
+Execution Layer → Ledger + UTT Assignment
+Audit Layer     → Verification + Logging
+```
 
-The **ETK-R** is generated after receiver-side validation and confirmation.
+---
 
-### Purpose
+# 🔑 Token Model
 
-* Locks **receiver acceptance**
-* Completes the transaction handshake model
-* Acts as a cryptographic derivative of ETK-S
+## 1. ETK-S (Ephemeral Transaction Key — Sender)
 
-### Relationship
+* Locks sender intent
+* Prevents duplicate submission
+* Time-bound + signed
 
-> ETK-R is a **deterministic derivative of ETK-S**
+## 2. ETK-R (Receiver Confirmation)
 
-This ensures:
+* Derived from ETK-S
+* Confirms receiver acceptance
+* Ensures continuity of transaction state
 
-* Transaction integrity continuity
-* Non-repudiation between sender and receiver states
+## 3. RTT (RailOne Tracking Token)
 
-### Properties
-
-* Derived, not independently random
-* Bound to:
+* Final handshake token
+* Binds:
 
   * ETK-S
-  * receiver identity token
-  * acceptance state
-
----
-
-# 🔗 3. RTT — RailOne Tracking Token
-
-### Definition
-
-The **RTT (RailOne Tracking Token)** is the final **handshake verification token**.
-
-### Purpose
-
-* Confirms full transaction handshake completion
-* Verifies integrity between ETK-S and ETK-R
-* Serves as system-level transaction trace key
-
-### Generation Logic
+  * ETK-R
+  * Transaction ID
+  * Pricing
+  * Quote ID
 
 ```
-RTT = HASH(ETK-S + ETK-R + transaction_context)
+RTT = HASH(ETK-S + ETK-R + TX_ID + PRICING_HASH + QUOTE_ID)
 ```
 
-### Properties
-
-* Finalized after both sender + receiver locks exist
+* Signed by institution (R1CORE)
 * Used for:
 
-  * routing validation
-  * ledger anchoring
+  * execution authorization
   * audit verification
+  * route integrity validation
 
----
+## 4. UTT (Unique Transaction Token)
 
-# 🧾 4. UTT — Unique Transaction Token
-
-### Definition
-
-The **UTT (Unique Transaction Token)** is the **global system-level transaction identifier**.
-
-### Purpose
-
-* Acts as the **primary transaction ID across RailOne**
-* Ensures global uniqueness of all processed transactions
-* Links RailOne processing events across services
-
-### Institutional Role
-
-The UTT also embeds:
-
-* Institution identifier (RailOne participant / bank / rail node)
-* Transaction metadata context
-
-### Format Standard
-
-UTT is structured in an **ISO-style transaction format**:
+* Assigned during execution
+* Global transaction identity
 
 ```
-UTT-{INSTITUTION_ID}-{TIMESTAMP}-{HASH_SUFFIX}
-```
-
-Example:
-
-```
-UTT-R1BANK-20260413T142355Z-A9F3C2B1
+UTT-{INSTITUTION}-{TIMESTAMP}-{SUFFIX}
 ```
 
 ---
 
-# 🧾 Transaction Object Embedding Standard
-
-Every RailOne transaction object contains:
-
-### Required Fields:
-
-* UTT (global transaction ID)- proves RailOne processed, verified the tx and sent settlement instructions. 
-* RTT (handshake verification token)
-*TX_ID(Institutional specific ID tied to a transaction)
-* ETK-S (sender intent lock)
-* ETK-R (receiver confirmation lock)
-* timestamp (ISO 8601 format)
-* sender_id
-* receiver_id
-* amount
-* currency
-* status
-
----
-
-# ⏱️ ISO 8601 Time Standard
-
-All RailOne timestamps MUST follow:
+# 🔄 Transaction Lifecycle
 
 ```
-YYYY-MM-DDTHH:MM:SSZ
-```
+1. HANDSHAKE
+   → ETK-S generated
+   → ETK-R derived
 
-Example:
+2. QUOTE
+   → Route + pricing computed
+   → Signed + expiry enforced
 
-```
-2026-04-13T14:23:55Z
+3. TRANSACTION INIT
+   → Quote verified
+   → RTT generated (binding layer)
+   → Funds locked
+
+4. EXECUTION
+   → RTT verified (hard gate)
+   → Ledger applied
+   → UTT assigned
+
+5. FINALIZATION
+   → Revenue extracted
+   → Treasury rebalanced
+   → Transaction settled
 ```
 
 ---
 
-# 🔄 Transaction Lifecycle (Cryptographic Flow)
-
-```
-1. ETK-S generated (Sender locks intent)
-        ↓
-2. Transaction routed / held
-        ↓
-3. Receiver validates → ETK-R generated
-        ↓
-4. RTT computed (handshake validation)
-        ↓
-5. UTT assigned (global system ID)
-        ↓
-6. Ledger commit + audit entry
-```
-
----
-
-# 🧠 Design Principles
-
-RailOne transaction security model is built on:
+# 🔐 Security Model
 
 ### 1. Idempotency
 
-* No transaction can be duplicated or replayed
+* ETK-S prevents duplicate transactions
+* Redis-backed replay protection
 
 ### 2. Ephemerality
 
-* ETK-S and ETK-R expire after transaction completion window
+* Tokens expire within defined TTL
+* Quotes expire before execution
 
-### 3. Cryptographic Traceability
+### 3. Cryptographic Verification
 
-* RTT ensures full handshake integrity
+* All critical payloads are signed
+* Multi-key verification via TrustRegistry
 
-### 4. System-wide Uniqueness
+### 4. Economic Integrity
 
-* UTT guarantees global transaction identity across all rails
+* Pricing hash embedded in RTT
+* Quote binding prevents tampering
 
-### 5. Institutional Awareness
+### 5. Execution Gating
 
-* TX_ID embeds institution-level routing metadata
+* No transaction executes without passing verification
 
 ---
 
-# 🏦 Architectural Role in RailOne
+# ⚙️ Key Components
 
-These tokens sit at the **core of RailOne’s transaction engine**:
+| Component            | Role                               |
+| -------------------- | ---------------------------------- |
+| `transaction_engine` | Orchestrates transaction lifecycle |
+| `handshake_engine`   | Generates ETK-S + ETK-R            |
+| `token_factory`      | Token creation + signing           |
+| `tx_verifier`        | Cryptographic validation           |
+| `execution_worker`   | Settlement engine                  |
+| `execution_engine`   | Ledger application                 |
+| `quote_engine`       | Route + pricing generation         |
+| `trust_registry`     | Key lifecycle management           |
+| `key_manager`        | Private key storage (HSM-ready)    |
+| `revenue_engine`     | Revenue extraction                 |
+| `treasury_engine`    | Liquidity rebalancing              |
 
-```
-Identity Layer → ETK-S generation
-Routing Layer  → ETK-R confirmation
-Core Engine    → RTT computation
-System Layer   → UTT assignment
-Ledger Layer   → Immutable recording
-```
+---
 
+# 📊 Revenue Model
 
-ETK-S and ETK-R together with RTT, are 128 bit keys. These keys are chained as ETK-R is a derivative of ETK-S. and RTT is a derivative of ETK-S, AND ETK-R. These keys are displayed as hashed strings in the system and can be decoded by the server on audit level interactions/invetsigations. That is done for security purposes both in transit and in storage in the logs.
+RailOne captures value through:
+
+* Base transaction fees (tiered)
+* FX spread (cross-border)
+* Routing intelligence premium
+
+Revenue is:
+
+* computed at quote stage
+* enforced via RTT binding
+* extracted post-settlement
+
+---
+
+# 🧪 Simulation Environment
+
+The system includes:
+
+* CLI transaction simulator
+* Multi-institution mock network
+* Mirror accounts with liquidity
+* Redis-backed queues
+* SQLite/Postgres ledger support
+
+---
+
+# 🧱 Production Readiness
+
+RailOne is architected to support:
+
+* HSM-backed key storage
+* API-based institution integration
+* Real-time settlement rails
+* Horizontal scaling via workers
+* Regulatory audit requirements
+
+---
+
+# ⚠️ Current Status
+
+**Near-MVP (Protocol Complete)**
+
+✔ Cryptographic transaction model
+✔ Deterministic routing & pricing
+✔ Execution safety + rollback
+✔ Audit-grade verification
+
+Remaining for full production:
+
+* API gateway hardening
+* Rate limiting + auth enforcement
+* External rail integrations
+* Monitoring + observability
+* Persistent HSM integration
+
+---
+
+# 🧭 Design Philosophy
+
+RailOne treats transactions as:
+
+> **Verifiable state transitions, not mutable database events**
+
+Every transaction is:
+
+* cryptographically bound
+* economically deterministic
+* auditable end-to-end
+
+---
+
+# 🏁 Conclusion
+
+RailOne is not just a payment system.
+
+It is a **transaction protocol** designed for:
+
+* interoperability
+* trust minimization
+* institutional-grade execution
+
+---
+
+# 📌 Next Steps
+
+* Integrate real PSP/bank APIs
+* Deploy HSM-backed key infrastructure
+* Add API authentication + rate limiting
+* Introduce monitoring (Prometheus/Grafana)
+* Expand multi-currency liquidity engine
+
+---
+
+**RailOne — Building the rails behind the rails.**

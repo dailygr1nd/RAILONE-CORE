@@ -95,16 +95,31 @@ class TokenFactory:
 
         return token, signature, payload
 
-    # --------------------------------
-    # RTT
-    # --------------------------------
-    @staticmethod
-    def generate_rtt(etk_s, etk_r, tx_id, institution_id):
-        payload = f"RTT|{etk_s}|{etk_r}|{tx_id}"
-        token = TokenFactory._hash(payload)
-        signature = TokenFactory.sign(payload, institution_id)
 
-        return token, signature, payload
+    # --------------------------------
+# RTT (QUOTE + PRICING BOUND)
+# --------------------------------
+    @staticmethod
+    def generate_rtt_with_quote(
+        etk_s,
+        etk_r,
+        tx_id,
+        pricing: dict,
+        quote_id: str,
+        institution_id: str
+):
+     import json
+     import hashlib
+
+     pricing_str = json.dumps(pricing, sort_keys=True)
+     pricing_hash = hashlib.sha256(pricing_str.encode()).hexdigest()[:32]
+
+     payload = f"RTT|{etk_s}|{etk_r}|{tx_id}|{pricing_hash}|{quote_id}"
+
+     token = TokenFactory._hash(payload)
+     signature = TokenFactory.sign(payload, institution_id)
+
+     return token, signature, payload
 
         # --------------------------------
     # UTT

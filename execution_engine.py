@@ -1,5 +1,5 @@
 # ==============================
-# execution_engine.py (PROTOCOL ENFORCED)
+# execution_engine.py (CRYPTO-STRICT)
 # ==============================
 
 from ledger.db import SessionLocal
@@ -13,39 +13,72 @@ def process_execution(tx):
     session = SessionLocal()
 
     try:
-        # --------------------------------
-        # 🔐 VERIFY RTT (CRITICAL)
-        # --------------------------------
-        expected_payload = f"RTT|{tx['etk_s']}|{tx['etk_r']}|{tx['tx_id']}"
+        print(f"🔐 ETK-S: {tx.get('etk_s')}")
+        print(f"🔗 RTT: {tx.get('rtt')}")
 
-        # NOTE: signature must be stored in tx during handshake
-        signature = bytes.fromhex(tx["rtt_signature"])
+        # --------------------------------
+        # 🔐 1. LOAD RTT DATA (SOURCE OF TRUTH)
+        # --------------------------------
+        payload_rtt = tx.get("payload_rtt")
+        sig_rtt_hex = tx.get("rtt_signature")
 
+        if not payload_rtt or not sig_rtt_hex:
+            raise Exception("RTT_DATA_MISSING")
+
+        try:
+            signature = bytes.fromhex(sig_rtt_hex)
+        except Exception:
+            raise Exception("INVALID_RTT_SIGNATURE_FORMAT")
+
+        # --------------------------------
+        # 🔐 2. VERIFY SIGNATURE
+        # --------------------------------
         if not TokenFactory.verify(
-            expected_payload,
+            payload_rtt,
             signature,
             "R1CORE"
         ):
-            raise Exception("RTT_VERIFICATION_FAILED")
+            raise Exception("RTT_SIGNATURE_INVALID")
 
         # --------------------------------
-        # APPLY LEDGER
+        # 🔐 3. VERIFY HASH CONSISTENCY
+        # --------------------------------
+        expected_rtt = TokenFactory._hash(payload_rtt)
+
+        if expected_rtt != tx.get("rtt"):
+            raise Exception("RTT_HASH_MISMATCH")
+
+        # --------------------------------
+        # 🔐 4. OPTIONAL: STRUCTURAL CHECK
+        # --------------------------------
+        parts = payload_rtt.split("|")
+
+        if len(parts) != 4 or parts[0] != "RTT":
+            raise Exception("RTT_PAYLOAD_INVALID")
+
+        # --------------------------------
+        # 💳 5. APPLY LEDGER
         # --------------------------------
         apply_transaction(session, tx)
 
         # --------------------------------
-        # 🔥 GENERATE UTT (FINAL STATE)
+        # 🧾 6. GENERATE UTT (FINAL IDENTITY)
         # --------------------------------
         utt = TokenFactory.generate_utt("R1CORE")
         tx["utt"] = utt
 
+        # --------------------------------
+        # 💾 COMMIT
+        # --------------------------------
         session.commit()
+
+        print(f"✅ Execution complete | UTT: {utt}")
 
         return True
 
     except Exception as e:
         session.rollback()
-        print("Execution failed:", str(e))
+        print("❌ Execution failed:", str(e))
         return False
 
     finally:
