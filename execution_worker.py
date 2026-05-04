@@ -1,5 +1,5 @@
 # ==============================
-# execution_worker.py (HARD GATE — PROTOCOL ENFORCED)
+# execution_worker.py (EVENT-DRIVEN)
 # ==============================
 
 import time
@@ -15,14 +15,15 @@ from revenue_engine import extract_revenue
 from ledger.db import SessionLocal
 
 from tx_verifier import verify_transaction
+from webhook_dispatcher import dispatch_event
 
 
-# --------------------------------
-# REDIS (REPLAY PROTECTION)
-# --------------------------------
 r = redis.Redis(host="localhost", port=6379, decode_responses=True)
 
 
+# --------------------------------
+# REPLAY PROTECTION
+# --------------------------------
 def already_processed(tx_id):
     return r.get(f"processed:{tx_id}") is not None
 
@@ -32,7 +33,7 @@ def mark_processed(tx_id):
 
 
 # --------------------------------
-# TREASURY REBALANCING
+# TREASURY
 # --------------------------------
 def run_rebalancing():
     session = SessionLocal()
@@ -54,7 +55,7 @@ def run_rebalancing():
 
 
 # --------------------------------
-# 🔐 HARD VERIFICATION GATE
+# VERIFICATION GATE
 # --------------------------------
 def pre_verify_or_reject(tx):
 
@@ -68,30 +69,27 @@ def pre_verify_or_reject(tx):
 
         return False, result
 
-    print(f"✅ Verification passed: {tx['tx_id']}")
     return True, result
 
 
 # --------------------------------
-# CORE EXECUTION FLOW
+# CORE EXECUTION
 # --------------------------------
 def safe_execute(tx):
 
     tx_id = tx["tx_id"]
 
-    # --------------------------------
-    # 🔒 Replay protection
-    # --------------------------------
     if already_processed(tx_id):
         print(f"⚠️ Replay blocked: {tx_id}")
         return True
 
     # --------------------------------
-    # 🔐 HARD GATE (CRITICAL)
+    # VERIFY
     # --------------------------------
     verified, result = pre_verify_or_reject(tx)
 
     if not verified:
+        dispatch_event(tx, "transaction.failed")
         return False
 
     session = SessionLocal()
@@ -100,16 +98,21 @@ def safe_execute(tx):
         print(f"⚙️ Executing TX {tx_id}")
 
         # --------------------------------
-        # EXECUTION ENGINE (RTT VERIFIED INSIDE)
+        # 🔥 EMIT EXECUTING
+        # --------------------------------
+        dispatch_event(tx, "transaction.executing")
+
+        # --------------------------------
+        # EXECUTE
         # --------------------------------
         success = process_execution(tx)
 
         if not success:
-            print(f"❌ TX {tx_id} FAILED (execution)")
+            dispatch_event(tx, "transaction.failed")
             return False
 
         # --------------------------------
-        # REVENUE EXTRACTION
+        # REVENUE
         # --------------------------------
         try:
             extract_revenue(session, tx)
@@ -125,6 +128,7 @@ def safe_execute(tx):
         # UPDATE STATE
         # --------------------------------
         update_tx(tx_id, {"status": "SETTLED"})
+        dispatch_event(tx, "transaction.completed")
 
         # --------------------------------
         # TREASURY
@@ -142,9 +146,6 @@ def safe_execute(tx):
 
         session.rollback()
 
-        # --------------------------------
-        # 🔥 RELEASE FUNDS
-        # --------------------------------
         try:
             release_funds(
                 session,
@@ -154,6 +155,8 @@ def safe_execute(tx):
             session.commit()
         except Exception as e2:
             print(f"❌ Failed to release funds: {str(e2)}")
+
+        dispatch_event(tx, "transaction.failed")
 
         return False
 
@@ -166,7 +169,7 @@ def safe_execute(tx):
 # --------------------------------
 def start_worker():
 
-    print("🚀 Execution Worker Started (HARD GATED)")
+    print("🚀 Execution Worker Started (EVENT DRIVEN)")
 
     while True:
         try:
@@ -194,8 +197,5 @@ def start_worker():
             time.sleep(2)
 
 
-# --------------------------------
-# ENTRY
-# --------------------------------
 if __name__ == "__main__":
     start_worker()

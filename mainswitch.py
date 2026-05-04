@@ -1,5 +1,5 @@
 # ==============================
-# mainswitch.py (CLEAN + SAFE)
+# mainswitch.py (PROTOCOL ALIGNED)
 # ==============================
 
 from fastapi import FastAPI, Request, HTTPException
@@ -44,7 +44,7 @@ async def create_transfer(request: Request):
     idem_key = headers.get("Idempotency-Key")
 
     # --------------------------------
-    # VALIDATION
+    # BASIC VALIDATION
     # --------------------------------
     if not api_key:
         raise HTTPException(401, "MISSING_API_KEY")
@@ -101,9 +101,12 @@ async def create_transfer(request: Request):
     required = [
         "sender_account",
         "receiver_account",
+        "sender_id",
+        "receiver_id",
         "amount",
         "currency_from",
-        "currency_to"
+        "currency_to",
+        "quote"
     ]
 
     for field in required:
@@ -111,15 +114,17 @@ async def create_transfer(request: Request):
             raise HTTPException(400, f"MISSING_{field}")
 
     # --------------------------------
-    # EXECUTE
+    # EXECUTION (ENGINE OWNS VALIDATION)
     # --------------------------------
     result = initiate_transaction(
         sender_account=body["sender_account"],
         receiver_account=body["receiver_account"],
+        sender_id=body["sender_id"],
+        receiver_id=body["receiver_id"],
         amount=body["amount"],
         sender_currency=body["currency_from"],
         receiver_currency=body["currency_to"],
-        webhook_url=body.get("webhook_url"),
+        quote=body["quote"],
         idempotency_key=idem_key
     )
 
@@ -158,8 +163,9 @@ def get_iso(tx_id: str):
 
     return {"pacs008": build_pacs008(tx)}
 
-    # --------------------------------
-# DASHBOARD METRICS
+
+# --------------------------------
+# DASHBOARD METRICS (unchanged)
 # --------------------------------
 from revenue_db import get_total_revenue
 import sqlite3
@@ -167,12 +173,7 @@ import sqlite3
 
 @app.get("/v1/dashboard/summary")
 def dashboard_summary():
-
-    total = get_total_revenue()
-
-    return {
-        "total_revenue": total
-    }
+    return {"total_revenue": get_total_revenue()}
 
 
 @app.get("/v1/dashboard/by-route")
@@ -190,10 +191,7 @@ def revenue_by_route():
     rows = c.fetchall()
     conn.close()
 
-    return [
-        {"route": r[0], "revenue": r[1]}
-        for r in rows
-    ]
+    return [{"route": r[0], "revenue": r[1]} for r in rows]
 
 
 @app.get("/v1/dashboard/daily")
@@ -212,28 +210,21 @@ def revenue_daily():
     rows = c.fetchall()
     conn.close()
 
-    return [
-        {"date": r[0], "revenue": r[1]}
-        for r in rows
-    ]
+    return [{"date": r[0], "revenue": r[1]} for r in rows]
+
 
 @app.get("/v1/dashboard/metrics")
 def dashboard_metrics():
 
-    import sqlite3
-
     conn = sqlite3.connect("railone_revenue.db")
     c = conn.cursor()
 
-    # total revenue
     c.execute("SELECT SUM(amount) FROM revenue")
     total = c.fetchone()[0] or 0
 
-    # transaction count
     c.execute("SELECT COUNT(*) FROM revenue")
     tx_count = c.fetchone()[0]
 
-    # avg profit
     avg = total / tx_count if tx_count > 0 else 0
 
     conn.close()

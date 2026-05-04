@@ -41,6 +41,7 @@ def process_execution(tx):
         # --------------------------------
         utt = TokenFactory.generate_utt("R1CORE")
         tx["utt"] = utt
+        tx["status"] = "EXECUTING"
 
         session.commit()
 

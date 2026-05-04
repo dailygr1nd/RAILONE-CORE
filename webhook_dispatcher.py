@@ -1,7 +1,3 @@
-# ==============================
-# webhook_dispatcher.py (QUEUE ONLY)
-# ==============================
-
 from webhook_queue import enqueue_webhook
 
 
@@ -21,8 +17,6 @@ def dispatch_event(tx: dict, event_type: str):
         "currency": tx["currency_from"],
         "timestamp": tx["timestamp"]
     }
-
-    print(f"📡 Queuing webhook → {event_type}")
 
     enqueue_webhook({
         "url": url,

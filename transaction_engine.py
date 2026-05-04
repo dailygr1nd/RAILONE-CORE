@@ -17,6 +17,8 @@ from ledger.db import SessionLocal
 from handshake import run_handshake
 from token_factory import TokenFactory
 
+from webhook_dispatcher import dispatch_event
+
 
 r = redis.Redis(host="localhost", port=6379, decode_responses=True)
 
@@ -93,6 +95,7 @@ def fail(tx: dict, reason: str) -> dict:
 
     store_tx(tx)
     log_event("TX_FAILED", tx)
+    dispatch_event(tx, "transaction.failed")
 
     return tx
 
@@ -179,6 +182,7 @@ def initiate_transaction(
     }
 
     log_event("TX_INITIATED", tx)
+    dispatch_event(tx, "transaction.initiated")
 
     # --------------------------------
     # BASIC VALIDATION
@@ -267,6 +271,7 @@ def initiate_transaction(
 
     store_tx(tx)
     enqueue_tx(tx)
+    dispatch_event(tx, "transaction.pending")
 
     log_event("TX_ENQUEUED", tx)
 
