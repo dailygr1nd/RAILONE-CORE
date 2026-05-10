@@ -1,57 +1,65 @@
 # ==============================
-# revenue_engine.py (PRODUCTION GRADE)
+# revenue_engine.py (PROTOCOL ALIGNED)
 # ==============================
 
-from railone_treasury import credit_treasury
 from revenue_db import record_revenue
 
 
-def extract_revenue(session, tx: dict):
-
-    pricing = tx.get("pricing")
-
-    if not pricing:
-        print("⚠️ No pricing found — skipping revenue")
-        return
-
-    base_fee = pricing.get("base_fee", 0)
-    routing_fee = pricing.get("routing_fee", 0)
-    fx_profit = pricing.get("fx_profit", 0)
-
-    total = base_fee + routing_fee + fx_profit
-
-    if total <= 0:
-        print("⚠️ Zero revenue transaction")
-        return
-
-    # --------------------------------
-    # SAFE ROUTE EXTRACTION
-    # --------------------------------
-    route = tx.get("route_result", {})
-    route_type = route.get("type", "UNKNOWN")
-
-    # --------------------------------
-    # USE UTT (FINAL ID)
-    # --------------------------------
-    tx_id = tx.get("utt") or tx.get("tx_id")
+def extract_revenue(session, tx):
 
     try:
-        record_revenue(
-            tx_id=tx_id,
-            amount=round(total, 2),
-            currency=tx.get("currency_from", "UNKNOWN"),
-            route=route_type
+
+        pricing = tx.get("pricing", {})
+
+        gross_amount = float(tx.get("gross_amount", 0))
+
+        fee_amount = float(
+            pricing.get("fee_amount", tx.get("fee", 0))
         )
 
-        print(f"💰 Revenue recorded: {total} {tx.get('currency_from')}")
+        fx_profit = float(
+            pricing.get("fx_profit", 0)
+        )
+
+        currency = tx.get("currency_from")
+
+        route_result = tx.get("route_result", {})
+
+        route = route_result.get(
+            "rail",
+            route_result.get("type", "UNKNOWN")
+        )
+
+        total_revenue = fee_amount + fx_profit
+
+        # --------------------------------
+        # STORE REVENUE
+        # --------------------------------
+        record_revenue(
+            tx_id=tx["tx_id"],
+            gross_amount=gross_amount,
+            fee_amount=fee_amount,
+            fx_profit=fx_profit,
+            currency=currency,
+            route=route
+        )
+
+        print(
+            f"💰 Revenue captured → "
+            f"{total_revenue} {currency}"
+        )
+
+        return {
+            "gross_amount": gross_amount,
+            "fee_amount": fee_amount,
+            "fx_profit": fx_profit,
+            "total_revenue": total_revenue,
+            "currency": currency,
+            "route": route
+        }
 
     except Exception as e:
-        print("❌ Revenue DB error:", str(e))
 
-    # --------------------------------
-    # TREASURY CREDIT
-    # --------------------------------
-    try:
-        credit_treasury(session, total, tx["currency_from"])
-    except Exception:
-        pass
+        print(f"❌ Revenue DB error: {str(e)}")
+
+        return None

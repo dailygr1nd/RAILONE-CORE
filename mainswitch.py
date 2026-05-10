@@ -19,6 +19,17 @@ from iso_adapter import build_pacs008
 
 app = FastAPI()
 
+from ledger.db import SessionLocal
+
+from treasury_engine import (
+    treasury_snapshot,
+    get_treasury_pressure,
+    get_corridor_state
+)
+
+from railone_treasury import (
+    treasury_snapshot as railone_snapshot
+)
 
 # --------------------------------
 # UTIL
@@ -234,3 +245,97 @@ def dashboard_metrics():
         "transactions": tx_count,
         "avg_profit": round(avg, 2)
     }
+# --------------------------------
+# TREASURY SNAPSHOT
+# --------------------------------
+@app.get("/v1/treasury/snapshot")
+def get_treasury_snapshot():
+
+    session = SessionLocal()
+
+    try:
+
+        network = treasury_snapshot(session)
+
+        railone = railone_snapshot(session)
+
+        return {
+            "network_liquidity": network,
+            "railone_reserves": railone
+        }
+
+    finally:
+        session.close()
+
+# --------------------------------
+# TREASURY PRESSURE
+# --------------------------------
+@app.get("/v1/treasury/pressure/{currency}")
+def treasury_pressure(currency: str):
+
+    session = SessionLocal()
+
+    try:
+
+        result = get_treasury_pressure(
+            session,
+            currency.upper()
+        )
+
+        return result
+
+    finally:
+        session.close()
+
+# --------------------------------
+# CORRIDOR PRESSURE
+# --------------------------------
+@app.get("/v1/corridors/pressure/{pair}")
+def corridor_pressure(pair: str):
+
+    session = SessionLocal()
+
+    try:
+
+        result = get_corridor_state(
+            session,
+            pair.upper()
+        )
+
+        return result
+
+    finally:
+        session.close()
+
+# --------------------------------
+# NETWORK LIQUIDITY
+# --------------------------------
+@app.get("/v1/network/liquidity")
+def network_liquidity():
+
+    session = SessionLocal()
+
+    try:
+
+        currencies = [
+            "KES",
+            "UGX",
+            "TZS",
+            "USD"
+        ]
+
+        data = {}
+
+        for currency in currencies:
+
+            data[currency] = get_treasury_pressure(
+                session,
+                currency
+            )
+
+        return {
+            "network": data
+        }
+
+    finally:
+        session.close()                        

@@ -1,58 +1,184 @@
 # ==============================
-# execution_engine.py (FINAL — HARD VERIFIED)
+# execution_engine.py
 # ==============================
 
 from ledger.db import SessionLocal
-from ledger.ledger_service import apply_transaction
+
+from ledger.ledger_service import (
+    apply_transaction
+)
 
 from token_factory import TokenFactory
+
 from tx_verifier import verify_transaction
 
+from execution_queue import (
+    update_tx
+)
 
+from balance_engine import (
+    release_funds
+)
+
+from webhook_dispatcher import (
+    dispatch_event
+)
+
+from audit import log_event
+
+
+# --------------------------------
+# PROCESS EXECUTION
+# --------------------------------
 def process_execution(tx):
 
     session = SessionLocal()
 
     try:
+
         # --------------------------------
-        # 🔐 FULL PRE-VERIFICATION
+        # PRE-VERIFICATION
         # --------------------------------
         verification = verify_transaction(tx)
 
         if not verification["valid"]:
-            raise Exception(f"PRE_VERIFICATION_FAILED: {verification['checks']}")
+
+            raise Exception(
+                f"PRE_VERIFICATION_FAILED: "
+                f"{verification['checks']}"
+            )
 
         # --------------------------------
-        # 🔐 RTT RE-CHECK (DEFENSE IN DEPTH)
+        # RTT VERIFICATION
         # --------------------------------
         payload = tx["payload_rtt"]
-        signature = bytes.fromhex(tx["rtt_signature"])
 
-        if not TokenFactory.verify(payload, signature, "R1CORE"):
-            raise Exception("RTT_VERIFICATION_FAILED")
+        signature = bytes.fromhex(
+            tx["rtt_signature"]
+        )
+
+        if not TokenFactory.verify(
+            payload,
+            signature,
+            "R1CORE"
+        ):
+
+            raise Exception(
+                "RTT_VERIFICATION_FAILED"
+            )
 
         # --------------------------------
         # APPLY LEDGER
         # --------------------------------
-        apply_transaction(session, tx)
+        apply_transaction(
+            session,
+            tx
+        )
 
         # --------------------------------
-        # FINAL TOKEN
+        # GENERATE UTT
         # --------------------------------
-        utt = TokenFactory.generate_utt("R1CORE")
+        utt = TokenFactory.generate_utt(
+            "R1CORE"
+        )
+
         tx["utt"] = utt
-        tx["status"] = "EXECUTING"
+
+        # --------------------------------
+        # FINALIZE
+        # --------------------------------
+        tx["status"] = "SETTLED"
+
+        update_tx(
+            tx["tx_id"],
+            {
+                "status": "SETTLED"
+            }
+        )
 
         session.commit()
 
-        print("✅ Transaction Settled:", tx["tx_id"])
+        log_event(
+            "TX_SETTLED",
+            tx
+        )
+
+        dispatch_event(
+            tx,
+            "transaction.settled"
+        )
+
+        print(
+            f"✅ Transaction Settled: "
+            f"{tx['tx_id']}"
+        )
 
         return True
 
     except Exception as e:
+
         session.rollback()
-        print("❌ Execution failed:", str(e))
+
+        error = str(e)
+
+        print(
+            f"❌ Execution failed: "
+            f"{error}"
+        )
+
+        # --------------------------------
+        # RELEASE LOCKED FUNDS
+        # --------------------------------
+        try:
+
+            release_funds(
+                session,
+                tx["sender_account"],
+                tx["gross_amount"]
+            )
+
+            session.commit()
+
+            print(
+                f"🔓 Released locked funds: "
+                f"{tx['gross_amount']}"
+            )
+
+        except Exception as rollback_error:
+
+            session.rollback()
+
+            print(
+                f"❌ Rollback failed: "
+                f"{rollback_error}"
+            )
+
+        # --------------------------------
+        # MARK FAILED
+        # --------------------------------
+        tx["status"] = "FAILED"
+
+        tx["failure_reason"] = error
+
+        update_tx(
+            tx["tx_id"],
+            {
+                "status": "FAILED"
+            }
+        )
+
+        log_event(
+            "TX_FAILED",
+            tx
+        )
+
+        dispatch_event(
+            tx,
+            "transaction.failed"
+        )
+
         return False
 
     finally:
+
         session.close()

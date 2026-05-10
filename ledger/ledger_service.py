@@ -25,9 +25,8 @@ def _post(session, tx_id, account_id, amount, entry_type, currency):
 
     session.add(entry)
 
-
 # --------------------------------
-# APPLY TRANSACTION (RECORD ONLY)
+# APPLY TRANSACTION
 # --------------------------------
 def apply_transaction(session, tx):
 
@@ -39,26 +38,125 @@ def apply_transaction(session, tx):
     sender_ccy = tx["currency_from"]
     receiver_ccy = tx["currency_to"]
 
-    gross = tx["gross_amount"]
-    net = tx["net_amount"]
-    fee = tx.get("fee", 0)
+    gross = float(tx["gross_amount"])
+    net = float(tx["net_amount"])
 
-    # -----------------------------
-    # CORE ENTRIES (EVENT RECORDING)
-    # -----------------------------
-    _post(session, tx_id, sender, gross, "DEBIT", sender_ccy)
-    _post(session, tx_id, receiver, net, "CREDIT", receiver_ccy)
+    fee = float(tx.get("fee", 0))
 
+    # --------------------------------
+    # SAME CURRENCY
+    # --------------------------------
+    if sender_ccy == receiver_ccy:
+
+        _post(
+            session,
+            tx_id,
+            sender,
+            gross,
+            "DEBIT",
+            sender_ccy
+        )
+
+        _post(
+            session,
+            tx_id,
+            receiver,
+            net,
+            "CREDIT",
+            receiver_ccy
+        )
+
+    # --------------------------------
+    # CROSS BORDER / FX
+    # --------------------------------
+    else:
+
+        sender_treasury = (
+        f"RAILONE_TREASURY_{sender_ccy}"
+    )
+
+        receiver_treasury = (
+        f"RAILONE_TREASURY_{receiver_ccy}"
+    )
+
+        source_settlement = float(
+        tx["net_source_amount"]
+    )
+
+        destination_settlement = float(
+        tx["net_amount"]
+    )
+
+    # --------------------------------
+    # SOURCE SIDE
+    # --------------------------------
+
+    # Sender loses full source amount
+    _post(
+        session,
+        tx_id,
+        sender,
+        gross,
+        "DEBIT",
+        sender_ccy
+    )
+
+    # Treasury receives source settlement
+    _post(
+        session,
+        tx_id,
+        sender_treasury,
+        source_settlement,
+        "CREDIT",
+        sender_ccy
+    )
+
+    # Revenue receives fee
     if fee > 0:
-        revenue_account = f"RAILONE_REVENUE-{sender_ccy}"
 
-        _post(session, tx_id, sender, fee, "DEBIT", sender_ccy)
-        _post(session, tx_id, revenue_account, fee, "CREDIT", sender_ccy)
+        revenue_account = (
+            f"RAILONE_REVENUE-{sender_ccy}"
+        )
 
-    # -----------------------------
-    # VALIDATION (STILL IMPORTANT)
-    # -----------------------------
-    _validate_transaction(session, tx_id)
+        _post(
+            session,
+            tx_id,
+            revenue_account,
+            fee,
+            "CREDIT",
+            sender_ccy
+        )
+
+    # --------------------------------
+    # DESTINATION SIDE
+    # --------------------------------
+
+    # Treasury releases destination currency
+    _post(
+        session,
+        tx_id,
+        receiver_treasury,
+        destination_settlement,
+        "DEBIT",
+        receiver_ccy
+    )
+
+    # Receiver gets destination funds
+    _post(
+        session,
+        tx_id,
+        receiver,
+        destination_settlement,
+        "CREDIT",
+        receiver_ccy
+    )
+    # --------------------------------
+    # VALIDATE
+    # --------------------------------
+    _validate_transaction(
+        session,
+        tx_id
+    )
 
 
 # --------------------------------

@@ -214,10 +214,42 @@ def initiate_transaction(
     # --------------------------------
     # APPLY QUOTE
     # --------------------------------
-    tx["quote_id"] = quote_id
+    tx["quote_id"] = quote["quote_id"]
+
     tx["pricing"] = quote["pricing"]
-    tx["fee"] = quote["pricing"]["total_revenue"]
-    tx["net_amount"] = quote["receive_amount"]
+
+    tx["fee"] = round(
+       quote["total_fee"],
+    2
+    )
+
+    # --------------------------------
+    # FX STATE
+    # --------------------------------
+    tx["market_rate"] = quote.get(
+       "market_rate",
+    1
+    )
+
+    tx["fx_rate"] = quote.get(
+       "fx_rate",
+    1
+    )
+
+    tx["net_source_amount"] = quote.get(
+       "net_source_amount",
+    gross
+    )
+
+    # --------------------------------
+    # SETTLEMENT AMOUNTS
+    # --------------------------------
+    tx["gross_amount"] = gross
+
+    tx["net_amount"] = quote[
+       "receive_amount"
+    ]
+
     tx["route_result"] = quote["route"]
 
     # --------------------------------

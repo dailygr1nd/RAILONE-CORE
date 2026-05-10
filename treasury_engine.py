@@ -2,55 +2,240 @@
 # treasury_engine.py
 # ==============================
 
+"""
+RailOne Treasury Engine
+
+Responsibilities:
+- Liquidity pool lookup
+- Reserve health monitoring
+- Rebalancing simulation
+- Treasury observability
+- Corridor liquidity support (future-ready)
+"""
+
 from ledger.models import Account
 from liquidity_pools import POOLS
 
+
+# --------------------------------
+# CONFIG
+# --------------------------------
 TARGET_BALANCE = 5_000_000
-REBALANCE_THRESHOLD = 0.3  # 30%
+
+REBALANCE_THRESHOLD = 0.30
+WARNING_THRESHOLD = 0.50
+HEALTHY_THRESHOLD = 0.80
 
 
-def get_pool(session, currency):
-    pool_id = POOLS.get(currency) or POOLS.get(f"{currency}_{currency}")
-    return session.query(Account).filter_by(id=pool_id).first()
-
+# --------------------------------
+# SAFE LOOKUP
+# --------------------------------
 def safe_pool_lookup(key):
 
-    from liquidity_pools import POOLS
-
+    # direct hit
     if key in POOLS:
         return POOLS[key]
 
-    # fallback for single currency
+    # fallback same-currency corridor
     pair = f"{key}_{key}"
 
     return POOLS.get(pair)
 
 
-def needs_rebalance(session, currency):
+# --------------------------------
+# GET POOL ACCOUNT
+# --------------------------------
+def get_pool(session, currency):
+
+    pool_id = safe_pool_lookup(currency)
+
+    if not pool_id:
+        return None
+
+    return (
+        session
+        .query(Account)
+        .filter_by(id=pool_id)
+        .first()
+    )
+
+
+# --------------------------------
+# RESERVE HEALTH
+# --------------------------------
+def get_reserve_health(session, currency):
 
     acc = get_pool(session, currency)
 
     if not acc:
-        return False
 
-    ratio = acc.balance / TARGET_BALANCE
+        return {
+            "currency": currency,
+            "status": "MISSING_POOL",
+            "health_ratio": 0,
+            "balance": 0,
+            "target_balance": TARGET_BALANCE
+        }
 
-    return ratio < REBALANCE_THRESHOLD
+    ratio = round(acc.balance / TARGET_BALANCE, 4)
+
+    # --------------------------------
+    # HEALTH STATES
+    # --------------------------------
+    if ratio < REBALANCE_THRESHOLD:
+        status = "CRITICAL"
+
+    elif ratio < WARNING_THRESHOLD:
+        status = "LOW"
+
+    elif ratio < HEALTHY_THRESHOLD:
+        status = "STABLE"
+
+    else:
+        status = "HEALTHY"
+
+    return {
+        "currency": currency,
+        "status": status,
+        "health_ratio": ratio,
+        "balance": round(acc.balance, 2),
+        "target_balance": TARGET_BALANCE
+    }
 
 
+# --------------------------------
+# REBALANCE CHECK
+# --------------------------------
+def needs_rebalance(session, currency):
+
+    health = get_reserve_health(
+        session,
+        currency
+    )
+
+    return health["health_ratio"] < REBALANCE_THRESHOLD
+
+
+# --------------------------------
+# REBALANCE POOL
+# --------------------------------
 def rebalance_pool(session, currency):
 
     acc = get_pool(session, currency)
 
     if not acc:
-        return
+
+        print(f"⚠️ Missing treasury pool: {currency}")
+        return False
 
     deficit = TARGET_BALANCE - acc.balance
 
     if deficit <= 0:
-        return
 
-    # 🔥 For now: simulate refill (later connect real treasury / FX desk)
+        print(f"✅ {currency} treasury already healthy")
+        return False
+
+    # --------------------------------
+    # SIMULATED REFILL
+    # --------------------------------
     acc.balance += deficit
 
-    print(f"🏦 Rebalanced {currency} pool by {deficit}")
+    print(
+        f"🏦 Rebalanced {currency} treasury "
+        f"by {round(deficit, 2)}"
+    )
+
+    return True
+
+
+# --------------------------------
+# TREASURY SNAPSHOT
+# --------------------------------
+def treasury_snapshot(session, currencies=None):
+
+    currencies = currencies or [
+        "KES",
+        "UGX",
+        "TZS",
+        "USD"
+    ]
+
+    snapshot = []
+
+    for currency in currencies:
+
+        snapshot.append(
+            get_reserve_health(
+                session,
+                currency
+            )
+        )
+
+    return snapshot
+
+
+# --------------------------------
+# TREASURY PRESSURE SCORE
+# --------------------------------
+def get_treasury_pressure(session, currency):
+
+    health = get_reserve_health(
+        session,
+        currency
+    )
+
+    ratio = health["health_ratio"]
+
+    # invert ratio into pressure
+    pressure = round(1 - min(ratio, 1), 4)
+
+    return {
+        "currency": currency,
+        "pressure": pressure,
+        "status": health["status"]
+    }
+
+
+# --------------------------------
+# CORRIDOR TREASURY STATE
+# --------------------------------
+def get_corridor_state(
+    session,
+    currency_pair
+):
+
+    try:
+        source, dest = currency_pair.split("_")
+
+    except Exception:
+
+        return {
+            "currency_pair": currency_pair,
+            "status": "INVALID_PAIR"
+        }
+
+    source_health = get_reserve_health(
+        session,
+        source
+    )
+
+    dest_health = get_reserve_health(
+        session,
+        dest
+    )
+
+    combined_pressure = round(
+        (
+            (1 - min(source_health["health_ratio"], 1))
+            +
+            (1 - min(dest_health["health_ratio"], 1))
+        ) / 2,
+        4
+    )
+
+    return {
+        "currency_pair": currency_pair,
+        "source": source_health,
+        "destination": dest_health,
+        "pressure": combined_pressure
+    }

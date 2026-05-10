@@ -1,26 +1,41 @@
 # ==============================
-# profit_engine.py (UPDATED)
+# profit_engine.py (INFRA MODEL)
 # ==============================
 
 def calculate_profit(tx):
 
-    gross = tx["gross_amount"]
-    net = tx["net_amount"]
+    gross_amount = float(tx.get("gross_amount", 0))
+    fee_profit = float(tx.get("fee", 0))
 
-    market_rate = tx.get("market_rate", 1)
-    applied_rate = tx.get("fx_rate", 1)
+    market_rate = float(tx.get("market_rate", 1))
+    applied_rate = float(tx.get("fx_rate", 1))
 
-    expected = gross * market_rate
-    actual = net
+    # --------------------------------
+    # FX SPREAD PROFIT
+    # --------------------------------
+    fx_profit = 0
 
-    fx_profit = round(expected - actual, 2)
+    if market_rate > 0 and applied_rate > 0:
 
-    fee_profit = tx.get("fee", 0)
+        rate_delta = applied_rate - market_rate
 
-    total_profit = round(fx_profit + fee_profit, 2)
+        fx_profit = round(
+            gross_amount * rate_delta,
+            2
+        )
+
+    # --------------------------------
+    # TOTAL
+    # --------------------------------
+    total_profit = round(
+        fee_profit + fx_profit,
+        2
+    )
 
     return {
-        "fx_profit": fx_profit,
-        "fee_profit": fee_profit,
-        "total_profit": total_profit
+        "fee_profit": round(fee_profit, 2),
+        "fx_profit": round(fx_profit, 2),
+        "total_profit": round(total_profit, 2),
+        "market_rate": market_rate,
+        "applied_rate": applied_rate
     }
