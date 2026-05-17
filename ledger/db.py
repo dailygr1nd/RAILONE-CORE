@@ -2,13 +2,10 @@
 # ledger/db.py
 # ==============================
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from db import engine, SessionLocal, Base
 
-DATABASE_URL = "sqlite:///railone.db"
-
-engine = create_engine(DATABASE_URL, echo=False)
-
-SessionLocal = sessionmaker(bind=engine)
-
-Base = declarative_base()
+__all__ = [
+    "engine",
+    "SessionLocal",
+    "Base"
+]

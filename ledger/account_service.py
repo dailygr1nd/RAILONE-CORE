@@ -2,7 +2,7 @@ from ledger.db import SessionLocal
 from ledger.models import Account
 
 
-def ensure_account_exists(account_id, provider, currency, owner_id=None, account_type="USER", balance=0.0):
+def ensure_account_exists(account_id, provider, currency, owner_id=None, account_type="USER", mirrored_available_state=0.0):
     session = SessionLocal()
 
     acc = session.query(Account).filter_by(id=account_id).first()
@@ -17,7 +17,7 @@ def ensure_account_exists(account_id, provider, currency, owner_id=None, account
         provider=provider,
         currency=currency,
         account_type=account_type,
-        balance=balance
+        mirrored_available_state=mirrored_available_state
     )
 
     session.add(acc)

@@ -6,7 +6,7 @@ class WalletUganda(InstitutionBase):
         self.simulate_latency()
         self.simulate_failure(0.15)
 
-        if self.get_balance(account) >= amount:
+        if self.get_mirrored_available_state(account) >= amount:
             return {"status": "OK"}
         return {"status": "REJECTED"}
 

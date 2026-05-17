@@ -1,5 +1,5 @@
 # ==============================
-# balance_engine.py (FINAL)
+# mirrored_available_state_engine.py (FINAL)
 # ==============================
 
 from ledger.models import Account
@@ -16,10 +16,10 @@ def lock_funds(session, account_id, amount):
     # 🔥 NON-CUSTODIAL MODE
     # Assume funds exist externally unless explicitly zero
 
-    if acc.balance <= 0:
-        return False, "NO_EXTERNAL_BALANCE"
+    if acc.mirrored_available_state <= 0:
+        return False, "NO_EXTERNAL_mirrored_available_state"
 
-    acc.locked_balance += amount
+    acc.execution_reservation += amount
 
     return True, None
 
@@ -31,10 +31,10 @@ def release_funds(session, account_id, amount):
     if not acc:
         return
 
-    acc.locked_balance -= amount
+    acc.execution_reservation -= amount
 
-    if acc.locked_balance < 0:
-        acc.locked_balance = 0
+    if acc.execution_reservation < 0:
+        acc.execution_reservation = 0
 
 
 def finalize_debit(session, account_id, amount):
@@ -44,11 +44,11 @@ def finalize_debit(session, account_id, amount):
     if not acc:
         return
 
-    acc.balance -= amount
-    acc.locked_balance -= amount
+    acc.mirrored_available_state -= amount
+    acc.execution_reservation -= amount
 
-    if acc.locked_balance < 0:
-        acc.locked_balance = 0
+    if acc.execution_reservation < 0:
+        acc.execution_reservation = 0
 
 
 def credit_funds(session, account_id, amount):
@@ -58,4 +58,4 @@ def credit_funds(session, account_id, amount):
     if not acc:
         return
 
-    acc.balance += amount
+    acc.mirrored_available_state += amount

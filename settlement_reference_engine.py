@@ -1,28 +1,28 @@
 # ==============================
-# treasury_engine.py
+# settlement_refence_engine.py
 # ==============================
 
 """
-RailOne Treasury Engine
+RailOne settlement_refence Engine
 
 Responsibilities:
 - Liquidity pool lookup
 - Reserve health monitoring
 - Rebalancing simulation
-- Treasury observability
+- settlement_refence observability
 - Corridor liquidity support (future-ready)
 """
 
 from ledger.models import Account
-from liquidity_pools import POOLS
+from settlement_capacity_signal import POOLS
 
 
 # --------------------------------
 # CONFIG
 # --------------------------------
-TARGET_BALANCE = 5_000_000
+TARGET_mirrored_available_state = 5_000_000
 
-REBALANCE_THRESHOLD = 0.30
+REmirrored_available_state_THRESHOLD = 0.30
 WARNING_THRESHOLD = 0.50
 HEALTHY_THRESHOLD = 0.80
 
@@ -73,16 +73,16 @@ def get_reserve_health(session, currency):
             "currency": currency,
             "status": "MISSING_POOL",
             "health_ratio": 0,
-            "balance": 0,
-            "target_balance": TARGET_BALANCE
+            "mirrored_available_state": 0,
+            "target_mirrored_available_state": TARGET_mirrored_available_state
         }
 
-    ratio = round(acc.balance / TARGET_BALANCE, 4)
+    ratio = round(acc.mirrored_available_state / TARGET_mirrored_available_state, 4)
 
     # --------------------------------
     # HEALTH STATES
     # --------------------------------
-    if ratio < REBALANCE_THRESHOLD:
+    if ratio < REmirrored_available_state_THRESHOLD:
         status = "CRITICAL"
 
     elif ratio < WARNING_THRESHOLD:
@@ -98,50 +98,50 @@ def get_reserve_health(session, currency):
         "currency": currency,
         "status": status,
         "health_ratio": ratio,
-        "balance": round(acc.balance, 2),
-        "target_balance": TARGET_BALANCE
+        "mirrored_available_state": round(acc.mirrored_available_state, 2),
+        "target_mirrored_available_state": TARGET_mirrored_available_state
     }
 
 
 # --------------------------------
-# REBALANCE CHECK
+# REmirrored_available_state CHECK
 # --------------------------------
-def needs_rebalance(session, currency):
+def needs_remirrored_available_state(session, currency):
 
     health = get_reserve_health(
         session,
         currency
     )
 
-    return health["health_ratio"] < REBALANCE_THRESHOLD
+    return health["health_ratio"] < REmirrored_available_state_THRESHOLD
 
 
 # --------------------------------
-# REBALANCE POOL
+# REmirrored_available_state POOL
 # --------------------------------
-def rebalance_pool(session, currency):
+def remirrored_available_state_pool(session, currency):
 
     acc = get_pool(session, currency)
 
     if not acc:
 
-        print(f"⚠️ Missing treasury pool: {currency}")
+        print(f"⚠️ Missing settlement_refence pool: {currency}")
         return False
 
-    deficit = TARGET_BALANCE - acc.balance
+    deficit = TARGET_mirrored_available_state - acc.mirrored_available_state
 
     if deficit <= 0:
 
-        print(f"✅ {currency} treasury already healthy")
+        print(f"✅ {currency} settlement_refence already healthy")
         return False
 
     # --------------------------------
     # SIMULATED REFILL
     # --------------------------------
-    acc.balance += deficit
+    acc.mirrored_available_state += deficit
 
     print(
-        f"🏦 Rebalanced {currency} treasury "
+        f"🏦 Remirrored_available_stated {currency} settlement_refence "
         f"by {round(deficit, 2)}"
     )
 
@@ -149,9 +149,9 @@ def rebalance_pool(session, currency):
 
 
 # --------------------------------
-# TREASURY SNAPSHOT
+# settlement_refence SNAPSHOT
 # --------------------------------
-def treasury_snapshot(session, currencies=None):
+def settlement_refence_snapshot(session, currencies=None):
 
     currencies = currencies or [
         "KES",
@@ -175,9 +175,9 @@ def treasury_snapshot(session, currencies=None):
 
 
 # --------------------------------
-# TREASURY PRESSURE SCORE
+# settlement_refence PRESSURE SCORE
 # --------------------------------
-def get_treasury_pressure(session, currency):
+def get_settlement_refence_pressure(session, currency):
 
     health = get_reserve_health(
         session,
@@ -197,7 +197,7 @@ def get_treasury_pressure(session, currency):
 
 
 # --------------------------------
-# CORRIDOR TREASURY STATE
+# CORRIDOR settlement_refence STATE
 # --------------------------------
 def get_corridor_state(
     session,

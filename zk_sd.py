@@ -58,7 +58,7 @@ def create_user_accounts(nid, railone_id):
             currency=ccy,
             account_type="USER",
             owner_id=railone_id,
-            balance=100000.0  # simulation seed
+            mirrored_available_state=100000.0  # simulation seed
         )
 
         created_accounts.append({

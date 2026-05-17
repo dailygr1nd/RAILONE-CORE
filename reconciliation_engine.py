@@ -9,32 +9,32 @@ from ledger.models import JournalEntry, Account
 
 def _rebuild_from_ledger(session):
 
-    balances = defaultdict(float)
+    mirrored_available_states = defaultdict(float)
 
     entries = session.query(JournalEntry).all()
 
     for e in entries:
         if e.entry_type == "CREDIT":
-            balances[e.account_id] += e.amount
+            mirrored_available_states[e.account_id] += e.amount
         elif e.entry_type == "DEBIT":
-            balances[e.account_id] -= e.amount
+            mirrored_available_states[e.account_id] -= e.amount
 
-    return balances
+    return mirrored_available_states
 
 
 def run_reconciliation():
 
     session = SessionLocal()
 
-    ledger_balances = _rebuild_from_ledger(session)
+    ledger_mirrored_available_states = _rebuild_from_ledger(session)
     accounts = session.query(Account).all()
 
     issues = []
 
     for acc in accounts:
 
-        ledger_val = round(ledger_balances.get(acc.id, 0.0), 2)
-        actual_val = round(acc.balance, 2)
+        ledger_val = round(ledger_mirrored_available_states.get(acc.id, 0.0), 2)
+        actual_val = round(acc.mirrored_available_state, 2)
 
         if abs(ledger_val - actual_val) > 0.01:
             issues.append({

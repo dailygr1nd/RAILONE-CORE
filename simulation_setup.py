@@ -8,7 +8,7 @@ psp_ke = PSPKenya("PSP_KE", "key_ke")
 bank_tz = BankTanzania("BANK_TZ", "key_tz")
 wallet_ug = WalletUganda("WALLET_UG", "key_ug")
 
-# Seed balances
+# Seed mirrored_available_states
 psp_ke.ledger["user_ke"] = 20000
 bank_tz.ledger["user_tz"] = 5000
 wallet_ug.ledger["user_ug"] = 3000

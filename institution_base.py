@@ -10,20 +10,20 @@ class InstitutionBase:
         self.reserved = {}
 
     # ---------- Ledger ----------
-    def get_balance(self, account):
+    def get_mirrored_available_state(self, account):
         return self.ledger.get(account, 0)
 
     def credit(self, account, amount):
-        self.ledger[account] = self.get_balance(account) + amount
+        self.ledger[account] = self.get_mirrored_available_state(account) + amount
 
     def debit(self, account, amount):
-        if self.get_balance(account) < amount:
+        if self.get_mirrored_available_state(account) < amount:
             raise Exception("INSUFFICIENT_FUNDS")
         self.ledger[account] -= amount
 
     # ---------- Reservation ----------
     def reserve_funds(self, account, amount):
-        if self.get_balance(account) < amount:
+        if self.get_mirrored_available_state(account) < amount:
             raise Exception("INSUFFICIENT_FUNDS")
 
         self.debit(account, amount)

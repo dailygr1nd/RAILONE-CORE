@@ -1,14 +1,14 @@
 # ==============================
-# railone_treasury.py
+# railone_settlement_refence.py
 # ==============================
 
 """
-RailOne Treasury Accounts
+RailOne settlement_refence Accounts
 
 Purpose:
 - Hold RailOne fee revenue
 - Hold FX spread profits
-- Track treasury reserves
+- Track settlement_refence reserves
 - Support corridor liquidity operations
 """
 
@@ -17,37 +17,37 @@ from ledger.models import Account
 
 
 # --------------------------------
-# TREASURY ACCOUNTS
+# settlement_refence ACCOUNTS
 # --------------------------------
 RAILONE_ACCOUNTS = {
-    "KES": "RAILONE_TREASURY_KES",
-    "USD": "RAILONE_TREASURY_USD",
-    "UGX": "RAILONE_TREASURY_UGX",
-    "TZS": "RAILONE_TREASURY_TZS"
+    "KES": "RAILONE_settlement_refence_KES",
+    "USD": "RAILONE_settlement_refence_USD",
+    "UGX": "RAILONE_settlement_refence_UGX",
+    "TZS": "RAILONE_settlement_refence_TZS"
 }
 
 
 # --------------------------------
 # GET ACCOUNT ID
 # --------------------------------
-def get_treasury_account_id(currency):
+def get_settlement_refence_account_id(currency):
 
     acc_id = RAILONE_ACCOUNTS.get(currency)
 
     if not acc_id:
         raise Exception(
-            f"NO_TREASURY_ACCOUNT_FOR_{currency}"
+            f"NO_settlement_refence_ACCOUNT_FOR_{currency}"
         )
 
     return acc_id
 
 
 # --------------------------------
-# GET TREASURY ACCOUNT
+# GET settlement_refence ACCOUNT
 # --------------------------------
-def get_treasury_account(session, currency):
+def get_settlement_refence_account(session, currency):
 
-    acc_id = get_treasury_account_id(currency)
+    acc_id = get_settlement_refence_account_id(currency)
 
     acc = (
         session
@@ -58,16 +58,16 @@ def get_treasury_account(session, currency):
 
     if not acc:
         raise Exception(
-            f"TREASURY_ACCOUNT_NOT_FOUND: {acc_id}"
+            f"settlement_refence_ACCOUNT_NOT_FOUND: {acc_id}"
         )
 
     return acc
 
 
 # --------------------------------
-# CREDIT TREASURY
+# CREDIT settlement_refence
 # --------------------------------
-def credit_treasury(
+def credit_settlement_refence(
     session,
     currency,
     amount
@@ -78,20 +78,20 @@ def credit_treasury(
     if amount <= 0:
         return False
 
-    acc = get_treasury_account(
+    acc = get_settlement_refence_account(
         session,
         currency
     )
 
-    acc.balance += amount
+    acc.mirrored_available_state += amount
 
     return True
 
 
 # --------------------------------
-# DEBIT TREASURY
+# DEBIT settlement_refence
 # --------------------------------
-def debit_treasury(
+def debit_settlement_refence(
     session,
     currency,
     amount
@@ -102,42 +102,42 @@ def debit_treasury(
     if amount <= 0:
         return False
 
-    acc = get_treasury_account(
+    acc = get_settlement_refence_account(
         session,
         currency
     )
 
-    if acc.balance < amount:
+    if acc.mirrored_available_state < amount:
 
         raise Exception(
-            f"TREASURY_INSUFFICIENT_FUNDS: {currency}"
+            f"settlement_refence_INSUFFICIENT_FUNDS: {currency}"
         )
 
-    acc.balance -= amount
+    acc.mirrored_available_state -= amount
 
     return True
 
 
 # --------------------------------
-# GET TREASURY BALANCE
+# GET settlement_refence mirrored_available_state
 # --------------------------------
-def get_treasury_balance(
+def get_settlement_refence_mirrored_available_state(
     session,
     currency
 ):
 
-    acc = get_treasury_account(
+    acc = get_settlement_refence_account(
         session,
         currency
     )
 
-    return round(acc.balance, 2)
+    return round(acc.mirrored_available_state, 2)
 
 
 # --------------------------------
-# TREASURY SNAPSHOT
+# settlement_refence SNAPSHOT
 # --------------------------------
-def treasury_snapshot(session):
+def settlement_refence_snapshot(session):
 
     snapshot = {}
 
@@ -146,7 +146,7 @@ def treasury_snapshot(session):
         try:
 
             snapshot[currency] = (
-                get_treasury_balance(
+                get_settlement_refence_mirrored_available_state(
                     session,
                     currency
                 )
@@ -162,7 +162,7 @@ def treasury_snapshot(session):
 # --------------------------------
 # ENSURE ACCOUNTS EXIST
 # --------------------------------
-def ensure_treasury_accounts(session):
+def ensure_settlement_refence_accounts(session):
 
     for currency, acc_id in RAILONE_ACCOUNTS.items():
 
@@ -179,8 +179,8 @@ def ensure_treasury_accounts(session):
         acc = Account(
             id=acc_id,
             currency=currency,
-            account_type="RAILONE_TREASURY",
-            balance=0
+            account_type="RAILONE_settlement_refence",
+            mirrored_available_state=0
         )
 
         session.add(acc)
@@ -191,15 +191,15 @@ def ensure_treasury_accounts(session):
 # --------------------------------
 # BOOTSTRAP
 # --------------------------------
-def bootstrap_treasury():
+def bootstrap_settlement_refence():
 
     session = SessionLocal()
 
     try:
 
-        ensure_treasury_accounts(session)
+        ensure_settlement_refence_accounts(session)
 
-        print("🏦 RailOne treasury initialized")
+        print("🏦 RailOne settlement_refence initialized")
 
     finally:
         session.close()

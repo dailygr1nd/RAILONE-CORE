@@ -5,7 +5,7 @@ class PSPKenya(InstitutionBase):
     def verify_funds(self, account, amount):
         self.simulate_latency()
 
-        if self.get_balance(account) >= amount:
+        if self.get_mirrored_available_state(account) >= amount:
             return {
                 "status": "OK",
                 "attestation": self.sign_attestation("tx_hash", "FUNDS_AVAILABLE")

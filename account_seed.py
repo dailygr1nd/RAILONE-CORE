@@ -39,8 +39,8 @@ def seed_user_accounts(railone_id):
     account_type="EXTERNAL_MIRROR",
 
     # 🔥 simulate external funds (non-custodial mirror)
-    balance=500000.0,
-    locked_balance=0.0
+    mirrored_available_state=500000.0,
+    execution_reservation=0.0
 )
 
             session.add(acc)

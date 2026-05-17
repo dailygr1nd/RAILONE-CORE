@@ -3,7 +3,7 @@
 # ==============================
 
 from fx_engine import convert
-from liquidity_pools import POOLS
+from settlement_capacity_signals import POOLS
 from ledger.models import Account
 
 
@@ -40,7 +40,7 @@ def has_liquidity(session, currency, amount):
     if not acc:
         return False
 
-    return acc.balance >= amount
+    return acc.mirrored_available_state >= amount
 
 
 def route_local(tx, session):

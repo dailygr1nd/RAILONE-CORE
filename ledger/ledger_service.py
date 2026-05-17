@@ -71,12 +71,12 @@ def apply_transaction(session, tx):
     # --------------------------------
     else:
 
-        sender_treasury = (
-        f"RAILONE_TREASURY_{sender_ccy}"
+        sender_settlement_refence = (
+        f"RAILONE_settlement_refence_{sender_ccy}"
     )
 
-        receiver_treasury = (
-        f"RAILONE_TREASURY_{receiver_ccy}"
+        receiver_settlement_refence = (
+        f"RAILONE_settlement_refence_{receiver_ccy}"
     )
 
         source_settlement = float(
@@ -101,11 +101,11 @@ def apply_transaction(session, tx):
         sender_ccy
     )
 
-    # Treasury receives source settlement
+    # settlement_refence receives source settlement
     _post(
         session,
         tx_id,
-        sender_treasury,
+        sender_settlement_refence,
         source_settlement,
         "CREDIT",
         sender_ccy
@@ -131,11 +131,11 @@ def apply_transaction(session, tx):
     # DESTINATION SIDE
     # --------------------------------
 
-    # Treasury releases destination currency
+    # settlement_refence releases destination currency
     _post(
         session,
         tx_id,
-        receiver_treasury,
+        receiver_settlement_refence,
         destination_settlement,
         "DEBIT",
         receiver_ccy
@@ -203,7 +203,7 @@ def _validate_transaction(session, tx_id):
 
     for ccy, total in currency_map.items():
         if round(total, 2) != 0:
-            raise Exception(f"LEDGER_IMBALANCE: {ccy} → {total}")
+            raise Exception(f"LEDGER_IMmirrored_available_state: {ccy} → {total}")
 
 
 # --------------------------------
@@ -213,5 +213,5 @@ def apply_genesis(session, account_id, amount):
 
     currency = account_id.split("-")[-1]
 
-    # Only log genesis, do NOT mutate balance
+    # Only log genesis, do NOT mutate mirrored_available_state
     _post(session, "GENESIS", account_id, amount, "CREDIT", currency)

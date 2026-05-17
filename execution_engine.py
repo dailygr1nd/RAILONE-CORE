@@ -16,7 +16,7 @@ from execution_queue import (
     update_tx
 )
 
-from balance_engine import (
+from mirrored_available_state_engine import (
     release_funds
 )
 

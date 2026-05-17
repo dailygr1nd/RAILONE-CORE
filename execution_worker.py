@@ -8,8 +8,8 @@ import redis
 from execution_queue import dequeue_tx, send_to_dead_letter, update_tx
 from execution_engine import process_execution
 
-from balance_engine import release_funds
-from treasury_engine import needs_rebalance, rebalance_pool
+from mirrored_available_state_engine import release_funds
+from settlement_reference_engine import needs_remirrored_available_state, remirrored_available_state_pool
 
 from revenue_engine import extract_revenue
 from ledger.db import SessionLocal
@@ -33,21 +33,21 @@ def mark_processed(tx_id):
 
 
 # --------------------------------
-# TREASURY
+# settlement_refence
 # --------------------------------
 def run_rebalancing():
     session = SessionLocal()
 
     try:
         for ccy in ["KES", "TZS", "UGX"]:
-            if needs_rebalance(session, ccy):
+            if needs_remirrored_available_state(session, ccy):
                 print(f"💰 Rebalancing {ccy}")
-                rebalance_pool(session, ccy)
+                remirrored_available_state_pool(session, ccy)
 
         session.commit()
 
     except Exception as e:
-        print(f"⚠️ Treasury rebalance error: {str(e)}")
+        print(f"⚠️ settlement_refence remirrored_available_state error: {str(e)}")
         session.rollback()
 
     finally:
@@ -131,7 +131,7 @@ def safe_execute(tx):
         dispatch_event(tx, "transaction.completed")
 
         # --------------------------------
-        # TREASURY
+        # settlement_refence
         # --------------------------------
         run_rebalancing()
 

@@ -5,7 +5,7 @@ class BankTanzania(InstitutionBase):
     def verify_funds(self, account, amount):
         self.simulate_latency(0.5, 2.0)
 
-        if self.get_balance(account) >= amount:
+        if self.get_mirrored_available_state(account) >= amount:
             return {"status": "OK"}
         return {"status": "REJECTED"}
 

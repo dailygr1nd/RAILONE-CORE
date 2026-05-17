@@ -11,7 +11,7 @@ import redis
 from audit import log_event
 from execution_queue import enqueue_tx, store_tx
 
-from balance_engine import lock_funds, release_funds
+from mirrored_available_state_engine import lock_funds, release_funds
 from ledger.db import SessionLocal
 
 from handshake import run_handshake

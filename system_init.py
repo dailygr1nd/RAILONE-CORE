@@ -50,8 +50,8 @@ def init_system():
                     id=acc_id,
                     currency=ccy,
                     account_type="USER",
-                    balance=0.0,
-                    locked_balance=0.0,
+                    mirrored_available_state=0.0,
+                    execution_reservation=0.0,
                     allow_overdraft="false"
                 )
 

@@ -48,19 +48,38 @@ def get_accounts(user_id):
 
 
 def print_accounts(accounts):
+
     if not accounts:
         print("\n❌ No accounts found\n")
         return
 
     for i, acc in enumerate(accounts, 1):
-        available = acc.balance - acc.locked_balance
+
+        mirrored_state = (
+            acc.mirrored_available_state or 0.0
+        )
+
+        execution_reservation = (
+            acc.execution_reservation or 0.0
+        )
+
+        available_execution_capacity = (
+            mirrored_state - execution_reservation
+        )
 
         print(f"""
 {i}. {acc.account_type} | {acc.currency}
+
    {acc.id}
-   Balance: {acc.balance:,.2f}
-   Locked: {acc.locked_balance:,.2f}
-   Available: {available:,.2f}
+
+   Mirrored State:
+   {mirrored_state:,.2f}
+
+   Execution Reservation:
+   {execution_reservation:,.2f}
+
+   Available Execution Capacity:
+   {available_execution_capacity:,.2f}
 """)
 
 
@@ -285,7 +304,7 @@ try:
     accounts = session.query(Account).filter(Account.id.contains(railone_id)).all()
 
     for acc in accounts:
-        acc.balance = 500000.0
+        acc.mirrored_available_state = 500000.0
 
     session.commit()
 finally:

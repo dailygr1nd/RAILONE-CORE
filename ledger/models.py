@@ -36,8 +36,16 @@ class Account(Base):
     currency = Column(String)
     account_type = Column(String)
 
-    balance = Column(Float, default=0.0)
-    locked_balance = Column(Float, default=0.0)
+    mirrored_available_state = Column(
+    Float,
+    default=0.0,
+    nullable=False
+)
+    execution_reservation = Column(
+    Float,
+    default=0.0,
+    nullable=False
+)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 

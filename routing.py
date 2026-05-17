@@ -81,7 +81,7 @@ def get_best_rail(candidate_rails, amount, currency, cross_border=False):
         score = score_route(
             route=route_obj,
             amount=amount,
-            available_balance=1_000_000
+            available_mirrored_available_state=1_000_000
         )
 
         # Cross-border bias

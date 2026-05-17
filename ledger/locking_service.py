@@ -8,7 +8,7 @@ def lock_funds(session: Session, account_id: str, amount: float):
     if not acc:
         return False
 
-    available = acc.balance - acc.reserved
+    available = acc.mirrored_available_state - acc.reserved
 
     if available < amount:
         return False
@@ -34,6 +34,6 @@ def settle_funds(session: Session, account_id: str, amount: float):
         return False
 
     acc.reserved -= amount
-    acc.balance -= amount
+    acc.mirrored_available_state -= amount
 
     return True

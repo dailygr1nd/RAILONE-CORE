@@ -4,11 +4,11 @@ from routing_metrics import (
 )
 
 
-def score_route(route, amount, available_balance):
+def score_route(route, amount, available_mirrored_available_state):
 
     route_type = route["type"]
 
-    if amount > available_balance:
+    if amount > available_mirrored_available_state:
         return -999
 
     success_rate = get_live_success_rate(route_type)
