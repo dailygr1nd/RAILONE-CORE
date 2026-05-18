@@ -13,25 +13,77 @@ from ledger.db import Base
 # ACCOUNT MODEL
 # --------------------------------
 class Account(Base):
+
     __tablename__ = "accounts"
 
-    id = Column(String, primary_key=True)
+    id = Column(
+        String,
+        primary_key=True
+    )
 
-    currency = Column(String)
-    account_type = Column(String)
+    # --------------------------------
+    # CONTINUITY OWNER
+    # --------------------------------
+    owner_id = Column(
+        String,
+        nullable=True,
+        index=True
+    )
 
+    # --------------------------------
+    # EXECUTION PROVIDER
+    # --------------------------------
+    provider = Column(
+        String,
+        nullable=False,
+        index=True
+    )
+
+    # --------------------------------
+    # CURRENCY DOMAIN
+    # --------------------------------
+    currency = Column(
+        String,
+        nullable=False,
+        index=True
+    )
+
+    # --------------------------------
+    # ACCOUNT TYPE
+    # --------------------------------
+    account_type = Column(
+        String,
+        nullable=False
+    )
+
+    # --------------------------------
+    # NON-CUSTODIAL MIRROR STATE
+    # --------------------------------
     mirrored_available_state = Column(
-    Float,
-    default=0.0,
-    nullable=False
-)
-    execution_reservation = Column(
-    Float,
-    default=0.0,
-    nullable=False
-)
+        Float,
+        default=0.0
+    )
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    locked_mirrored_available_state = Column(
+        Float,
+        default=0.0
+    )
+
+    # --------------------------------
+    # EXECUTION RESERVATION
+    # --------------------------------
+    execution_reservation = Column(
+        Float,
+        default=0.0
+    )
+
+    # --------------------------------
+    # TIMESTAMPS
+    # --------------------------------
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow
+    )
 
 
 # --------------------------------

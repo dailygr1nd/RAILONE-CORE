@@ -118,7 +118,7 @@ class User(Base):
 
         Index(
             "idx_users_continuity_uid",
-            "continuity_uid"
+            "railone_id"
         ),
 
         Index(
@@ -177,7 +177,7 @@ class RIGObject(Base):
 
         Index(
             "idx_rig_continuity_uid",
-            "continuity_uid"
+            "railone_id"
         ),
     )
 
@@ -239,7 +239,7 @@ class RIOObject(Base):
 
         Index(
             "idx_rio_continuity_uid",
-            "continuity_uid"
+            "railone_id"
         ),
     )
 
@@ -308,7 +308,7 @@ class RIVObject(Base):
 
         Index(
             "idx_riv_continuity_uid",
-            "continuity_uid"
+            "railone_id"
         ),
 
         Index(
@@ -376,7 +376,7 @@ class IdentityAttestation(Base):
 
         Index(
             "idx_identity_attestation_uid",
-            "continuity_uid"
+            "railone_id"
         ),
     )
 
@@ -438,7 +438,7 @@ class IdentityReplayEvent(Base):
 
         Index(
             "idx_identity_replay_uid",
-            "continuity_uid"
+            "railone_id"
         ),
     )
 
@@ -494,6 +494,6 @@ class ZKSDRecord(Base):
 
         Index(
             "idx_zksd_uid",
-            "continuity_uid"
+            "railone_id"
         ),
     )

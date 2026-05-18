@@ -4,7 +4,7 @@
 
 from audit import append_log
 from token_factory import TokenFactory
-from state_machine import TransactionContext, TransactionState
+from execution.state_machine import TransactionContext, TransactionState
 
 from uuid import uuid4
 

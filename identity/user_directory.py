@@ -4,6 +4,7 @@
 
 from ledger.db import SessionLocal
 from identity.models import User
+from identity.identity_engine import generate_railone_id
 
 
 # --------------------------------

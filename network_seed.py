@@ -2,11 +2,19 @@
 # network_seed.py (FULL NETWORK)
 # ==============================
 from identity.account_seed import seed_user_accounts
+from identity.identity_engine import generate_railone_id
 
 
 from uuid import uuid4
+from identity.zk_sd import onboard_user
 from ledger.db import SessionLocal
-from ledger.models import Institution, InstitutionKey, UserAccountLink, User
+from ledger.models import (
+    Institution,
+    InstitutionKey,
+    UserAccountLink
+)
+
+from identity.models import User
 from identity.user_directory import create_user
 
 from ledger.db import engine
@@ -141,8 +149,19 @@ def seed_users():
     created = []
 
     for name, nid in users:
-        user = create_user(name, nid)
-        railone_id = user["railone_id"]
+        from identity.zk_sd import onboard_user
+
+        user = onboard_user(
+            name=name,
+            nid=nid
+        )
+        identity = generate_railone_id(
+            corridor="EA",
+            trust_tier="T2",
+            revision=1
+        )
+
+        railone_id = identity["railone_id"]
 
         seed_user_links(railone_id)
         seed_user_accounts(railone_id)

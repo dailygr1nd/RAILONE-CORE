@@ -296,7 +296,12 @@ nid = input("Enter National ID: ")
 
 print("\n📤 Verifying identity...")
 
-railone_id = onboard_user(name, nid)
+user = onboard_user(
+    name=name,
+    national_id=nid
+)
+
+railone_id = user["railone_id"]
 
 # DEMO FUNDING
 session = SessionLocal()

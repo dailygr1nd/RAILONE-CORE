@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from db import SessionLocal
 
-from event_store import ExecutionEvent
+from execution.event_store import ExecutionEvent
 
 
 # ==========================================

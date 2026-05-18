@@ -12,7 +12,7 @@ import uuid
 
 from typing import Dict, Any, List, Optional
 
-from state_machine import TransactionState
+from execution.state_machine import TransactionState
 
 
 # ==========================================

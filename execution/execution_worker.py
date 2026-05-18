@@ -44,7 +44,7 @@ from checkpoint_engine import (
     create_checkpoint
 )
 
-from state_machine import (
+from execution.state_machine import (
     TransactionContext,
     TransactionState
 )
