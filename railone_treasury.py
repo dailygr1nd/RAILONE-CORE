@@ -1,14 +1,14 @@
 # ==============================
-# railone_settlement_refence.py
+# railone_settlement_reference.py
 # ==============================
 
 """
-RailOne settlement_refence Accounts
+RailOne settlement_reference Accounts
 
 Purpose:
 - Hold RailOne fee revenue
 - Hold FX spread profits
-- Track settlement_refence reserves
+- Track settlement_reference reserves
 - Support corridor liquidity operations
 """
 
@@ -17,37 +17,37 @@ from ledger.models import Account
 
 
 # --------------------------------
-# settlement_refence ACCOUNTS
+# settlement_reference ACCOUNTS
 # --------------------------------
 RAILONE_ACCOUNTS = {
-    "KES": "RAILONE_settlement_refence_KES",
-    "USD": "RAILONE_settlement_refence_USD",
-    "UGX": "RAILONE_settlement_refence_UGX",
-    "TZS": "RAILONE_settlement_refence_TZS"
+    "KES": "RAILONE_settlement_reference_KES",
+    "USD": "RAILONE_settlement_reference_USD",
+    "UGX": "RAILONE_settlement_reference_UGX",
+    "TZS": "RAILONE_settlement_reference_TZS"
 }
 
 
 # --------------------------------
 # GET ACCOUNT ID
 # --------------------------------
-def get_settlement_refence_account_id(currency):
+def get_settlement_reference_account_id(currency):
 
     acc_id = RAILONE_ACCOUNTS.get(currency)
 
     if not acc_id:
         raise Exception(
-            f"NO_settlement_refence_ACCOUNT_FOR_{currency}"
+            f"NO_settlement_reference_ACCOUNT_FOR_{currency}"
         )
 
     return acc_id
 
 
 # --------------------------------
-# GET settlement_refence ACCOUNT
+# GET settlement_reference ACCOUNT
 # --------------------------------
-def get_settlement_refence_account(session, currency):
+def get_settlement_reference_account(session, currency):
 
-    acc_id = get_settlement_refence_account_id(currency)
+    acc_id = get_settlement_reference_account_id(currency)
 
     acc = (
         session
@@ -58,16 +58,16 @@ def get_settlement_refence_account(session, currency):
 
     if not acc:
         raise Exception(
-            f"settlement_refence_ACCOUNT_NOT_FOUND: {acc_id}"
+            f"settlement_reference_ACCOUNT_NOT_FOUND: {acc_id}"
         )
 
     return acc
 
 
 # --------------------------------
-# CREDIT settlement_refence
+# CREDIT settlement_reference
 # --------------------------------
-def credit_settlement_refence(
+def credit_settlement_reference(
     session,
     currency,
     amount
@@ -78,7 +78,7 @@ def credit_settlement_refence(
     if amount <= 0:
         return False
 
-    acc = get_settlement_refence_account(
+    acc = get_settlement_reference_account(
         session,
         currency
     )
@@ -89,9 +89,9 @@ def credit_settlement_refence(
 
 
 # --------------------------------
-# DEBIT settlement_refence
+# DEBIT settlement_reference
 # --------------------------------
-def debit_settlement_refence(
+def debit_settlement_reference(
     session,
     currency,
     amount
@@ -102,7 +102,7 @@ def debit_settlement_refence(
     if amount <= 0:
         return False
 
-    acc = get_settlement_refence_account(
+    acc = get_settlement_reference_account(
         session,
         currency
     )
@@ -110,7 +110,7 @@ def debit_settlement_refence(
     if acc.mirrored_available_state < amount:
 
         raise Exception(
-            f"settlement_refence_INSUFFICIENT_FUNDS: {currency}"
+            f"settlement_reference_INSUFFICIENT_FUNDS: {currency}"
         )
 
     acc.mirrored_available_state -= amount
@@ -119,14 +119,14 @@ def debit_settlement_refence(
 
 
 # --------------------------------
-# GET settlement_refence mirrored_available_state
+# GET settlement_reference mirrored_available_state
 # --------------------------------
-def get_settlement_refence_mirrored_available_state(
+def get_settlement_reference_mirrored_available_state(
     session,
     currency
 ):
 
-    acc = get_settlement_refence_account(
+    acc = get_settlement_reference_account(
         session,
         currency
     )
@@ -135,9 +135,9 @@ def get_settlement_refence_mirrored_available_state(
 
 
 # --------------------------------
-# settlement_refence SNAPSHOT
+# settlement_reference SNAPSHOT
 # --------------------------------
-def settlement_refence_snapshot(session):
+def settlement_reference_snapshot(session):
 
     snapshot = {}
 
@@ -146,7 +146,7 @@ def settlement_refence_snapshot(session):
         try:
 
             snapshot[currency] = (
-                get_settlement_refence_mirrored_available_state(
+                get_settlement_reference_mirrored_available_state(
                     session,
                     currency
                 )
@@ -162,7 +162,7 @@ def settlement_refence_snapshot(session):
 # --------------------------------
 # ENSURE ACCOUNTS EXIST
 # --------------------------------
-def ensure_settlement_refence_accounts(session):
+def ensure_settlement_reference_accounts(session):
 
     for currency, acc_id in RAILONE_ACCOUNTS.items():
 
@@ -179,7 +179,7 @@ def ensure_settlement_refence_accounts(session):
         acc = Account(
             id=acc_id,
             currency=currency,
-            account_type="RAILONE_settlement_refence",
+            account_type="RAILONE_settlement_reference",
             mirrored_available_state=0
         )
 
@@ -191,15 +191,15 @@ def ensure_settlement_refence_accounts(session):
 # --------------------------------
 # BOOTSTRAP
 # --------------------------------
-def bootstrap_settlement_refence():
+def bootstrap_settlement_reference():
 
     session = SessionLocal()
 
     try:
 
-        ensure_settlement_refence_accounts(session)
+        ensure_settlement_reference_accounts(session)
 
-        print("🏦 RailOne settlement_refence initialized")
+        print("🏦 RailOne settlement_reference initialized")
 
     finally:
         session.close()

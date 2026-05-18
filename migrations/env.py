@@ -21,6 +21,8 @@ if config.config_file_name is not None:
 
 from db import Base
 from ledger.models import *
+from event_store import *
+from identity.models import *
 
 
 target_metadata = Base.metadata

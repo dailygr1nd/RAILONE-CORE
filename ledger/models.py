@@ -8,22 +8,6 @@ from datetime import datetime
 from ledger.db import Base
 
 
-# --------------------------------
-# USER MODEL
-# --------------------------------
-from sqlalchemy import Column, String
-
-class User(Base):
-    __tablename__ = "users"
-
-    railone_id = Column(String, primary_key=True)
-    national_id = Column(String, unique=True, nullable=False)
-
-    # 🔥 ADD THIS
-    full_name = Column(String, nullable=True)
-
-    kyc_status = Column(String, default="PENDING")
-
 
 # --------------------------------
 # ACCOUNT MODEL

@@ -3,7 +3,7 @@
 # ==============================
 
 from ledger.db import engine, SessionLocal
-from ledger.models import Base, Account
+from db import Base, Account
 from ledger.ledger_service import apply_genesis
 
 

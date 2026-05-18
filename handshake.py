@@ -6,6 +6,9 @@ from audit import append_log
 from token_factory import TokenFactory
 from state_machine import TransactionContext, TransactionState
 
+from uuid import uuid4
+
+
 
 def run_handshake(
     sender_id: str,
@@ -24,6 +27,7 @@ def run_handshake(
 
     ctx = TransactionContext(
         tx_id=tx_id,
+        continuity_id=f"R1CONT-{uuid4().hex[:16].upper()}",
         amount=amount,
         currency=currency,
         sender_id=sender_id,

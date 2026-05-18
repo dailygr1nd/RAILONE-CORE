@@ -3,10 +3,9 @@
 # ==============================
 
 from ledger.db import SessionLocal
-from ledger.models import User
+from identity.models import User
 
-from identity_db import lookup_identity
-from identity_engine import generate_railone_id
+from identity.identity_engine import generate_railone_id
 
 
 # --------------------------------
@@ -14,13 +13,18 @@ from identity_engine import generate_railone_id
 # --------------------------------
 def onboard_user(name, national_id):
 
-    record = lookup_identity(national_id, name)
+    session = SessionLocal()
 
-    if record is None:
-        raise Exception("INVALID_IDENTITY")
+    existing_identity = (
 
-    if record == "NAME_MISMATCH":
-        raise Exception("NAME_MISMATCH")
+    session.query(User)
+
+    .filter_by(
+        national_id=national_id
+    )
+
+    .first()
+)
 
     session = SessionLocal()
 
@@ -34,7 +38,13 @@ def onboard_user(name, national_id):
             return existing.railone_id
 
         # 🔥 create new
-        railone_id = generate_railone_id()
+        identity = generate_railone_id(
+        corridor="EA",
+        trust_tier="T2",
+        revision=1
+        )
+
+        railone_id = identity["railone_id"]
 
         user = User(
             railone_id=railone_id,

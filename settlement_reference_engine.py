@@ -1,15 +1,15 @@
 # ==============================
-# settlement_refence_engine.py
+# settlement_reference_engine.py
 # ==============================
 
 """
-RailOne settlement_refence Engine
+RailOne settlement_reference Engine
 
 Responsibilities:
 - Liquidity pool lookup
 - Reserve health monitoring
 - Rebalancing simulation
-- settlement_refence observability
+- settlement_reference observability
 - Corridor liquidity support (future-ready)
 """
 
@@ -125,14 +125,14 @@ def remirrored_available_state_pool(session, currency):
 
     if not acc:
 
-        print(f"⚠️ Missing settlement_refence pool: {currency}")
+        print(f"⚠️ Missing settlement_reference pool: {currency}")
         return False
 
     deficit = TARGET_mirrored_available_state - acc.mirrored_available_state
 
     if deficit <= 0:
 
-        print(f"✅ {currency} settlement_refence already healthy")
+        print(f"✅ {currency} settlement_reference already healthy")
         return False
 
     # --------------------------------
@@ -141,7 +141,7 @@ def remirrored_available_state_pool(session, currency):
     acc.mirrored_available_state += deficit
 
     print(
-        f"🏦 Remirrored_available_stated {currency} settlement_refence "
+        f"🏦 Remirrored_available_stated {currency} settlement_reference "
         f"by {round(deficit, 2)}"
     )
 
@@ -149,9 +149,9 @@ def remirrored_available_state_pool(session, currency):
 
 
 # --------------------------------
-# settlement_refence SNAPSHOT
+# settlement_reference SNAPSHOT
 # --------------------------------
-def settlement_refence_snapshot(session, currencies=None):
+def settlement_reference_snapshot(session, currencies=None):
 
     currencies = currencies or [
         "KES",
@@ -175,9 +175,9 @@ def settlement_refence_snapshot(session, currencies=None):
 
 
 # --------------------------------
-# settlement_refence PRESSURE SCORE
+# settlement_reference PRESSURE SCORE
 # --------------------------------
-def get_settlement_refence_pressure(session, currency):
+def get_settlement_reference_pressure(session, currency):
 
     health = get_reserve_health(
         session,
@@ -197,7 +197,7 @@ def get_settlement_refence_pressure(session, currency):
 
 
 # --------------------------------
-# CORRIDOR settlement_refence STATE
+# CORRIDOR settlement_reference STATE
 # --------------------------------
 def get_corridor_state(
     session,

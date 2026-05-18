@@ -2,7 +2,7 @@
 # account_resolver.py
 # ==============================
 
-from ledger.models import UserAccountLink
+from identity.models import UserAccountLink
 from ledger.db import SessionLocal
 
 

@@ -1,10 +1,10 @@
 # zk_sd.py
+from identity.identity_engine import generate_railone_id
 
 import hashlib
 import random
 from datetime import datetime, timezone
 
-from identity_db import lookup_identity
 from ledger.account_service import ensure_account_exists
 
 USED_IDS = set()
@@ -21,14 +21,14 @@ def hash_str(data: str) -> str:
 # KYC TIER ENGINE
 # --------------------------
 def generate_kyc_level():
-    return random.choice(["TIER_1", "TIER_2", "TIER_3"])
+
+    return random.choice([
+        "T1",
+        "T2",
+        "T3"
+    ])
 
 
-# --------------------------
-# RAILONE ID DISPLAY
-# --------------------------
-def generate_railone_id(identity_token: str) -> str:
-    return identity_token[:16]
 
 
 # --------------------------
@@ -90,19 +90,16 @@ def onboard_user(name, nid, role="user"):
     # --------------------------
     # REGISTRY LOOKUP
     # --------------------------
-    record = lookup_identity(nid, name)
+    record = {
 
-    if record is None:
-        print("❌ ID not found")
-        return None
+    "name": name,
 
-    if record == "NAME_MISMATCH":
-        print("❌ Name does not match ID record")
-        return None
+    "national_id": nid,
 
-    if record["status"] != "valid":
-        print("❌ ID not valid")
-        return None
+    "country": "EA",
+
+    "status": "valid"
+    }
 
     # --------------------------
     # IDENTITY LAYER
@@ -113,7 +110,13 @@ def onboard_user(name, nid, role="user"):
 
     zk_proof = hash_str(identity_token + ":ZK_ATTEST")
 
-    railone_id = generate_railone_id(identity_token)
+    identity = generate_railone_id(
+    corridor="EA",
+    trust_tier="T2",
+    revision=1
+    )
+
+    railone_id = identity["railone_id"]
 
     created_accounts = create_user_accounts(nid, railone_id)
 

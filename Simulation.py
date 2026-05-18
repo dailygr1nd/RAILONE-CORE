@@ -5,13 +5,13 @@
 from ledger.db import SessionLocal
 from ledger.models import Account
 
-from user_service import onboard_user, get_railone_id_by_national_id
-from account_seed import seed_user_accounts
+from identity.user_service import onboard_user, get_railone_id_by_national_id
+from identity.account_seed import seed_user_accounts
 
 from transaction_engine import initiate_transaction
 from execution_queue import get_all_tx
 
-from user_directory import list_users
+from identity.user_directory import list_users
 
 import sys
 import uuid

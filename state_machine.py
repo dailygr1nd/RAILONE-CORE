@@ -11,6 +11,9 @@ from typing import Dict, Any, Optional
 
 from event_emitter import emit_event
 
+from uuid import uuid4
+
+
 
 # ==========================================
 # STATES
@@ -183,6 +186,8 @@ class TransactionContext:
     # CORE CONTINUITY ATTRIBUTES
     # --------------------------------
     tx_id: str
+
+    continuity_id=f"R1CONT-{uuid4().hex[:16].upper()}"
 
     amount: float
 

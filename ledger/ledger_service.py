@@ -71,12 +71,12 @@ def apply_transaction(session, tx):
     # --------------------------------
     else:
 
-        sender_settlement_refence = (
-        f"RAILONE_settlement_refence_{sender_ccy}"
+        sender_settlement_reference = (
+        f"RAILONE_settlement_reference_{sender_ccy}"
     )
 
-        receiver_settlement_refence = (
-        f"RAILONE_settlement_refence_{receiver_ccy}"
+        receiver_settlement_reference = (
+        f"RAILONE_settlement_reference_{receiver_ccy}"
     )
 
         source_settlement = float(
@@ -101,11 +101,11 @@ def apply_transaction(session, tx):
         sender_ccy
     )
 
-    # settlement_refence receives source settlement
+    # settlement_reference receives source settlement
     _post(
         session,
         tx_id,
-        sender_settlement_refence,
+        sender_settlement_reference,
         source_settlement,
         "CREDIT",
         sender_ccy
@@ -131,11 +131,11 @@ def apply_transaction(session, tx):
     # DESTINATION SIDE
     # --------------------------------
 
-    # settlement_refence releases destination currency
+    # settlement_reference releases destination currency
     _post(
         session,
         tx_id,
-        receiver_settlement_refence,
+        receiver_settlement_reference,
         destination_settlement,
         "DEBIT",
         receiver_ccy

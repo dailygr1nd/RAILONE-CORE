@@ -21,14 +21,14 @@ app = FastAPI()
 
 from ledger.db import SessionLocal
 
-from settlement_refence_engine import (
-    settlement_refence_snapshot,
-    get_settlement_refence_pressure,
+from settlement_reference_engine import (
+    settlement_reference_snapshot,
+    get_settlement_reference_pressure,
     get_corridor_state
 )
 
-from railone_settlement_refence import (
-    settlement_refence_snapshot as railone_snapshot
+from railone_settlement_reference import (
+    settlement_reference_snapshot as railone_snapshot
 )
 
 # --------------------------------
@@ -246,16 +246,16 @@ def dashboard_metrics():
         "avg_profit": round(avg, 2)
     }
 # --------------------------------
-# settlement_refence SNAPSHOT
+# settlement_reference SNAPSHOT
 # --------------------------------
-@app.get("/v1/settlement_refence/snapshot")
-def get_settlement_refence_snapshot():
+@app.get("/v1/settlement_reference/snapshot")
+def get_settlement_reference_snapshot():
 
     session = SessionLocal()
 
     try:
 
-        network = settlement_refence_snapshot(session)
+        network = settlement_reference_snapshot(session)
 
         railone = railone_snapshot(session)
 
@@ -268,16 +268,16 @@ def get_settlement_refence_snapshot():
         session.close()
 
 # --------------------------------
-# settlement_refence PRESSURE
+# settlement_reference PRESSURE
 # --------------------------------
-@app.get("/v1/settlement_refence/pressure/{currency}")
-def settlement_refence_pressure(currency: str):
+@app.get("/v1/settlement_reference/pressure/{currency}")
+def settlement_reference_pressure(currency: str):
 
     session = SessionLocal()
 
     try:
 
-        result = get_settlement_refence_pressure(
+        result = get_settlement_reference_pressure(
             session,
             currency.upper()
         )
@@ -328,7 +328,7 @@ def network_liquidity():
 
         for currency in currencies:
 
-            data[currency] = get_settlement_refence_pressure(
+            data[currency] = get_settlement_reference_pressure(
                 session,
                 currency
             )

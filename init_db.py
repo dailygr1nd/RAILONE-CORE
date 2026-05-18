@@ -6,7 +6,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 
 from ledger.db import engine
-from ledger.models import Base
+from db import Base
 
 print("🔧 Creating database tables...")
 

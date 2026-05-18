@@ -10,7 +10,7 @@ def get_route(sender_inst, receiver_inst):
 
     return [sender_inst, receiver_inst]
 
-from attestation_engine import AttestationEngine
+from identity.attestation_engine import AttestationEngine
 from route_planner import get_route
 
 

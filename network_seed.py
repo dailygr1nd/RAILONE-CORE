@@ -1,16 +1,16 @@
 # ==============================
 # network_seed.py (FULL NETWORK)
 # ==============================
-from account_seed import seed_user_accounts
+from identity.account_seed import seed_user_accounts
 
 
 from uuid import uuid4
 from ledger.db import SessionLocal
 from ledger.models import Institution, InstitutionKey, UserAccountLink, User
-from user_directory import create_user
+from identity.user_directory import create_user
 
 from ledger.db import engine
-from ledger.models import Base
+from db import Base
 from core_registry import register_core
 
 Base.metadata.create_all(bind=engine)

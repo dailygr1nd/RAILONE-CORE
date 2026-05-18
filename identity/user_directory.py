@@ -2,9 +2,8 @@
 # user_directory.py (FULLY FIXED)
 # ==============================
 
-from uuid import uuid4
 from ledger.db import SessionLocal
-from ledger.models import User
+from identity.models import User
 
 
 # --------------------------------
@@ -26,7 +25,15 @@ def create_user(full_name: str, national_id: str):
                 "created": False
             }
 
-        railone_id = f"R1-{uuid4().hex[:10].upper()}"
+        from identity.identity_engine import generate_railone_id
+
+        identity = generate_railone_id(
+            corridor="EA",
+            trust_tier="T2",
+            revision=1
+        )
+
+        railone_id = identity["railone_id"]
 
         user = User(
             railone_id=railone_id,
