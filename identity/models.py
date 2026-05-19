@@ -30,7 +30,9 @@ class User(Base):
     __tablename__ = "users"
 
     # --------------------------------
-    # PUBLIC IDENTITY
+    # PUBLIC STRUCTURED IDENTITY
+    # Example:
+    # R1-EA-T3-84F2A91-R2
     # --------------------------------
     railone_id = Column(
         String,
@@ -38,29 +40,34 @@ class User(Base):
     )
 
     # --------------------------------
-    # CONTINUITY REFERENCES
+    # IMMUTABLE CONTINUITY SEGMENT
+    # Embedded inside RailOne ID
     # --------------------------------
     continuity_uid = Column(
         String,
         unique=True,
-        nullable=True
+        nullable=False,
+        index=True
     )
 
+    # --------------------------------
+    # IDENTITY LAYERS
+    # --------------------------------
     rig_id = Column(
         String,
         unique=True,
-        nullable=True
+        nullable=False
     )
 
     rio_id = Column(
         String,
         unique=True,
-        nullable=True
+        nullable=False
     )
 
     active_riv_id = Column(
         String,
-        nullable=True
+        nullable=False
     )
 
     # --------------------------------
@@ -68,31 +75,34 @@ class User(Base):
     # --------------------------------
     corridor = Column(
         String,
-        nullable=True,
+        nullable=False,
         default="EA"
     )
 
     trust_tier = Column(
         String,
-        nullable=True,
+        nullable=False,
         default="T0"
     )
 
     revision = Column(
         Integer,
-        nullable=True,
+        nullable=False,
         default=1
     )
 
     # --------------------------------
     # USER DATA
     # --------------------------------
-    full_name = Column(String)
+    full_name = Column(
+        String,
+        nullable=False
+    )
 
     national_id = Column(
         String,
         unique=True,
-        nullable=True
+        nullable=False
     )
 
     kyc_status = Column(
@@ -105,6 +115,7 @@ class User(Base):
     # --------------------------------
     created_at = Column(
         DateTime(timezone=True),
+
         default=lambda:
             datetime.now(
                 timezone.utc
@@ -118,7 +129,7 @@ class User(Base):
 
         Index(
             "idx_users_continuity_uid",
-            "railone_id"
+            "continuity_uid"
         ),
 
         Index(
@@ -144,7 +155,8 @@ class RIGObject(Base):
     continuity_uid = Column(
         String,
         unique=True,
-        nullable=True
+        nullable=False,
+        index=True
     )
 
     genesis_provider = Column(
@@ -177,14 +189,14 @@ class RIGObject(Base):
 
         Index(
             "idx_rig_continuity_uid",
-            "railone_id"
+            "continuity_uid"
         ),
     )
 
 
 # ==========================================
 # RIO OBJECTS
-# Canonical Identity Continuity Objects
+# Canonical Continuity Objects
 # ==========================================
 class RIOObject(Base):
 
@@ -198,27 +210,28 @@ class RIOObject(Base):
     continuity_uid = Column(
         String,
         unique=True,
-        nullable=True
+        nullable=False,
+        index=True
     )
 
     rig_id = Column(
         String,
-        nullable=True
+        nullable=False
     )
 
     current_riv_id = Column(
         String,
-        nullable=True
+        nullable=False
     )
 
     trust_tier = Column(
         String,
-        nullable=True
+        nullable=False
     )
 
     corridor = Column(
         String,
-        nullable=True
+        nullable=False
     )
 
     identity_state = Column(
@@ -239,7 +252,7 @@ class RIOObject(Base):
 
         Index(
             "idx_rio_continuity_uid",
-            "railone_id"
+            "continuity_uid"
         ),
     )
 
@@ -259,22 +272,23 @@ class RIVObject(Base):
 
     rio_id = Column(
         String,
-        nullable=True
+        nullable=False
     )
 
     continuity_uid = Column(
         String,
-        nullable=True
+        nullable=False,
+        index=True
     )
 
     revision = Column(
         Integer,
-        nullable=True
+        nullable=False
     )
 
     trust_tier = Column(
         String,
-        nullable=True
+        nullable=False
     )
 
     revision_reason = Column(
@@ -308,7 +322,7 @@ class RIVObject(Base):
 
         Index(
             "idx_riv_continuity_uid",
-            "railone_id"
+            "continuity_uid"
         ),
 
         Index(
@@ -333,12 +347,13 @@ class IdentityAttestation(Base):
 
     continuity_uid = Column(
         String,
-        nullable=True
+        nullable=False,
+        index=True
     )
 
     riv_id = Column(
         String,
-        nullable=True
+        nullable=False
     )
 
     institution_id = Column(
@@ -372,14 +387,6 @@ class IdentityAttestation(Base):
             )
     )
 
-    __table_args__ = (
-
-        Index(
-            "idx_identity_attestation_uid",
-            "railone_id"
-        ),
-    )
-
 
 # ==========================================
 # IDENTITY REPLAY EVENTS
@@ -396,20 +403,23 @@ class IdentityReplayEvent(Base):
 
     continuity_uid = Column(
         String,
-        nullable=True
+        nullable=False,
+        index=True
     )
 
     rio_id = Column(
-        String
+        String,
+        nullable=False
     )
 
     riv_id = Column(
-        String
+        String,
+        nullable=False
     )
 
     event_type = Column(
         String,
-        nullable=True
+        nullable=False
     )
 
     previous_state = Column(
@@ -434,14 +444,6 @@ class IdentityReplayEvent(Base):
             )
     )
 
-    __table_args__ = (
-
-        Index(
-            "idx_identity_replay_uid",
-            "railone_id"
-        ),
-    )
-
 
 # ==========================================
 # ZK-SD RECORDS
@@ -458,11 +460,13 @@ class ZKSDRecord(Base):
 
     continuity_uid = Column(
         String,
-        nullable=True
+        nullable=False,
+        index=True
     )
 
     riv_id = Column(
-        String
+        String,
+        nullable=False
     )
 
     disclosure_type = Column(
@@ -488,12 +492,4 @@ class ZKSDRecord(Base):
             datetime.now(
                 timezone.utc
             )
-    )
-
-    __table_args__ = (
-
-        Index(
-            "idx_zksd_uid",
-            "railone_id"
-        ),
     )

@@ -16,7 +16,7 @@ def create_user(full_name: str, national_id: str):
 
     try:
         # 🔒 prevent duplicates
-        existing = session.query(User).filter_by(national_id=national_id).first()
+        existing = session.query(User).filter_by(national_id=nid).first()
 
         if existing:
             return {
@@ -39,7 +39,7 @@ def create_user(full_name: str, national_id: str):
         user = User(
             railone_id=railone_id,
             full_name=full_name,
-            national_id=national_id,
+            national_id=nid,
             kyc_status="VERIFIED"
         )
 
@@ -65,7 +65,7 @@ def get_user_by_national_id(national_id):
     session = SessionLocal()
 
     try:
-        user = session.query(User).filter_by(national_id=national_id).first()
+        user = session.query(User).filter_by(national_id=nid).first()
 
         if not user:
             return None

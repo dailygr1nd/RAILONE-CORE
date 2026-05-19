@@ -8,16 +8,20 @@ from db import SessionLocal
 from identity.models import User
 
 from identity.identity_engine import (
-    generate_railone_id
+    generate_railone_identity
 )
 
 
 # ==========================================
-# ONBOARD USER (CONTINUITY SAFE)
+# ONBOARD USER
 # ==========================================
 def onboard_user(
+
     name,
-    national_id
+
+    nid,
+
+    corridor="EA"
 ):
 
     session = SessionLocal()
@@ -32,7 +36,7 @@ def onboard_user(
             session.query(User)
 
             .filter_by(
-                national_id=national_id
+                national_id=nid
             )
 
             .first()
@@ -46,6 +50,9 @@ def onboard_user(
 
                 "railone_id":
                     existing.railone_id,
+
+                "continuity_uid":
+                    existing.continuity_uid,
 
                 "full_name":
                     existing.full_name,
@@ -61,53 +68,54 @@ def onboard_user(
             }
 
         # ==========================================
-        # NEW CONTINUITY IDENTITY
+        # GENERATE CONTINUITY IDENTITY
         # ==========================================
-        identity = generate_railone_id(
+        identity = generate_railone_identity(
 
-            corridor="EA",
+            corridor=corridor,
 
             trust_tier="T2",
 
             revision=1
         )
 
-        railone_id = identity["railone_id"]
-
         # ==========================================
         # CREATE USER
         # ==========================================
         user = User(
 
-            railone_id=railone_id,
+            railone_id=
+                identity["railone_id"],
 
-            continuity_uid=identity[
-                "railone_id"
-            ],
+            continuity_uid=
+                identity["continuity_uid"],
 
-            rig_id=identity[
-                "rig_id"
-            ],
+            rig_id=
+                identity["rig"],
 
-            rio_id=identity[
-                "rio_id"
-            ],
+            rio_id=
+                identity["rio"],
 
-            active_riv_id=identity[
-                "riv_id"
-            ],
+            active_riv_id=
+                identity["riv"],
 
-            corridor="EA",
+            corridor=
+                identity["corridor"],
 
-            trust_tier="T2",
+            trust_tier=
+                identity["trust_tier"],
 
-            revision=1,
+            revision=
+                identity["revision"],
 
-            full_name=name,
+            full_name=
+                name,
 
-            national_id=national_id,
+            national_id=
+                nid,
 
-            kyc_status="VERIFIED"
+            kyc_status=
+                "VERIFIED"
         )
 
         session.add(user)
@@ -119,19 +127,22 @@ def onboard_user(
             "existing": False,
 
             "railone_id":
-                railone_id,
+                identity["railone_id"],
+
+            "continuity_uid":
+                identity["continuity_uid"],
 
             "full_name":
                 name,
 
             "national_id":
-                national_id,
+                nid,
 
             "trust_tier":
-                "T2",
+                identity["trust_tier"],
 
             "corridor":
-                "EA"
+                identity["corridor"]
         }
 
     finally:

@@ -11,24 +11,22 @@ from datetime import datetime
 # ==========================================
 # PUBLIC RAILONE IDENTITY
 # ==========================================
-class RailOneIdentitySchema(BaseModel):
+class RailOneIDSchema(BaseModel):
+
+    # Example:
+    # R1-EA-T3-84F2A91-R2
 
     railone_id: str
 
+    protocol_namespace: str = "R1"
+
+    corridor: str
+
+    trust_tier: str
+
     continuity_uid: str
 
-    rig_id: str
-
-    rio_id: str
-
-    active_riv_id: str
-
-    corridor: str = "EA"
-
-    trust_tier: str = "T0"
-
-    revision: int = 1
-
+    revision: int
 
 # ==========================================
 # USER PROFILE
@@ -47,13 +45,21 @@ class UserProfileSchema(BaseModel):
 # ==========================================
 # FULL USER CONTINUITY OBJECT
 # ==========================================
-class UserContinuitySchema(
+class UserContinuitySchema(BaseModel):
 
-    RailOneIdentitySchema,
-    UserProfileSchema
-):
-    pass
+    full_name: Optional[str] = None
 
+    national_id: str
+
+    kyc_status: str = "PENDING"
+
+    railone_identity: RailOneIDSchema
+
+    rio: RIOSchema
+
+    active_riv: Optional[RIVSchema] = None
+
+    created_at: Optional[datetime] = None
 
 # ==========================================
 # RIG SCHEMA
@@ -77,7 +83,6 @@ class RIGSchema(BaseModel):
 
     created_at: Optional[datetime] = None
 
-
 # ==========================================
 # RIO SCHEMA
 # Canonical Identity Object
@@ -90,13 +95,19 @@ class RIOSchema(BaseModel):
 
     rig_id: str
 
-    current_riv_id: str
+    active_riv_id: str
+
+    current_railone_id: str
 
     trust_tier: str
 
     corridor: str
 
     identity_state: str = "ACTIVE"
+
+    replay_safe: bool = True
+
+    continuity_locked: bool = True
 
     created_at: Optional[datetime] = None
 
@@ -127,8 +138,9 @@ class RIVSchema(BaseModel):
 
     replay_generation: int = 0
 
-    created_at: Optional[datetime] = None
+    semantic_revision: bool = True
 
+    created_at: Optional[datetime] = None
 
 # ==========================================
 # IDENTITY ATTESTATION
@@ -287,7 +299,11 @@ class ContinuityReconstructionResponse(BaseModel):
 
     rio: Optional[RIOSchema] = None
 
-    current_riv: Optional[RIVSchema] = None
+    active_riv: Optional[RIVSchema] = None
+
+    riv_history: List[
+        RIVSchema
+    ] = Field(default_factory=list)
 
     attestations: List[
         IdentityAttestationSchema
@@ -296,5 +312,7 @@ class ContinuityReconstructionResponse(BaseModel):
     replay_events: List[
         IdentityReplayEventSchema
     ] = Field(default_factory=list)
+
+    replay_safe: bool = True
 
     reconstructed: bool = False

@@ -1,32 +1,127 @@
 # ==============================
-# replay_engine.py
+# identity/replay_engine.py
+# RailOne Replay-Safe Continuity Engine
 # ==============================
 
-import redis
 import json
 
-r = redis.Redis(host="localhost", port=6379, db=0)
-
-DEAD_LETTER = "railone:dead_letter"
-QUEUE_NAME = "railone:tx_queue"
+import redis
 
 
-def replay_failed(limit=10):
+# ==========================================
+# REDIS
+# ==========================================
+r = redis.Redis(
 
-    print("🔁 Replaying failed transactions...")
+    host="localhost",
+
+    port=6379,
+
+    db=0
+)
+
+
+# ==========================================
+# QUEUES
+# ==========================================
+DEAD_LETTER_QUEUE = (
+    "railone:dead_letter"
+)
+
+EXECUTION_QUEUE = (
+    "railone:tx_queue"
+)
+
+
+# ==========================================
+# REPLAY FAILED EXECUTIONS
+# ==========================================
+def replay_failed(
+
+    limit=10
+):
+
+    print(
+        "\\n🔁 RailOne Replay Engine "
+        "Starting..."
+    )
+
+    replayed = 0
 
     for _ in range(limit):
 
-        tx = r.rpop(DEAD_LETTER)
+        raw = r.rpop(
+            DEAD_LETTER_QUEUE
+        )
 
-        if not tx:
+        if not raw:
             break
 
-        tx = json.loads(tx)
+        tx = json.loads(raw)
 
-        if not tx.get("tx_id"):
+        # --------------------------------
+        # REQUIRE CANONICAL EXECUTION
+        # --------------------------------
+        utt = tx.get("utt")
+
+        if not utt:
+
+            print(
+                "⚠️ Missing UTT "
+                "- skipping"
+            )
+
             continue
 
-        print(f"Replaying TX: {tx['tx_id']}")
+        # --------------------------------
+        # REPLAY GENERATION
+        # --------------------------------
+        replay_generation = tx.get(
+            "replay_generation",
+            0
+        )
 
-        r.lpush(QUEUE_NAME, json.dumps(tx))
+        replay_generation += 1
+
+        tx[
+            "replay_generation"
+        ] = replay_generation
+
+        # --------------------------------
+        # REPLAY CONTINUITY
+        # --------------------------------
+        tx[
+            "replayed"
+        ] = True
+
+        tx[
+            "replay_safe"
+        ] = True
+
+        print(
+
+            f"🔁 Replaying "
+
+            f"UTT={utt} "
+
+            f"(generation "
+            f"{replay_generation})"
+        )
+
+        # --------------------------------
+        # RETURN TO EXECUTION QUEUE
+        # --------------------------------
+        r.lpush(
+
+            EXECUTION_QUEUE,
+
+            json.dumps(tx)
+        )
+
+        replayed += 1
+
+    print(
+
+        f"✅ Replay complete: "
+        f"{replayed} replayed"
+    )
