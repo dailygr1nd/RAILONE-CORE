@@ -1,5 +1,5 @@
 # ==============================
-# bootstrap.py
+# tables_bootstrap.py
 # ==============================
 
 from db import Base
@@ -7,7 +7,14 @@ from db import Base
 from ledger.db import engine
 
 
-print("🔧 Creating RailOne tables...")
+# --------------------------------
+# FORCE MODEL REGISTRATION
+# --------------------------------
+import identity.models
+import ledger.models
+
+
+print("\n🔧 Creating RailOne tables...")
 
 Base.metadata.create_all(bind=engine)
 

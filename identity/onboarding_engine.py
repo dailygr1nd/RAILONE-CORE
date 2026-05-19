@@ -38,6 +38,7 @@ def onboard_user(
 
         # --------------------------------
         # EXISTING USER
+        # Continuity must be idempotent
         # --------------------------------
         existing = (
 
@@ -53,8 +54,8 @@ def onboard_user(
         if existing:
 
             print(
-                f"⚠️ Existing identity "
-                f"found for {nid}"
+                f"⚠️ Existing continuity found "
+                f"for {nid}"
             )
 
             return {
@@ -99,7 +100,8 @@ def onboard_user(
         # --------------------------------
         rig = RIGObject(
 
-            rig_id=identity["rig"],
+            rig_id=
+                identity["rig"],
 
             continuity_uid=
                 continuity_uid,
@@ -122,19 +124,24 @@ def onboard_user(
         # --------------------------------
         riv = RIVObject(
 
-            riv_id=identity["riv"],
+            riv_id=
+                identity["riv"],
 
-            rio_id=identity["rio"],
+            rio_id=
+                identity["rio"],
 
             continuity_uid=
                 continuity_uid,
 
             revision=1,
 
-            trust_tier="T2",
+            trust_tier=
+                "T2",
 
             revision_reason=
-                "INITIAL_ONBOARDING"
+                "INITIAL_ONBOARDING",
+
+            replay_generation=0
         )
 
         session.add(riv)
@@ -145,21 +152,26 @@ def onboard_user(
         # --------------------------------
         rio = RIOObject(
 
-            rio_id=identity["rio"],
+            rio_id=
+                identity["rio"],
 
             continuity_uid=
                 continuity_uid,
 
-            rig_id=identity["rig"],
+            rig_id=
+                identity["rig"],
 
-            current_riv_id=
+            active_riv_id=
                 identity["riv"],
 
-            trust_tier="T2",
+            trust_tier=
+                "T2",
 
-            corridor=corridor,
+            corridor=
+                corridor,
 
-            identity_state="ACTIVE"
+            identity_state=
+                "ACTIVE"
         )
 
         session.add(rio)
@@ -193,15 +205,21 @@ def onboard_user(
 
             revision=1,
 
-            full_name=name,
+            full_name=
+                name,
 
-            national_id=nid,
+            national_id=
+                nid,
 
-            kyc_status="VERIFIED"
+            kyc_status=
+                "VERIFIED"
         )
 
         session.add(user)
 
+        # --------------------------------
+        # COMMIT ALL CONTINUITY OBJECTS
+        # --------------------------------
         session.commit()
 
         print(
@@ -228,6 +246,16 @@ def onboard_user(
             "riv":
                 identity["riv"]
         }
+
+    except Exception as e:
+
+        session.rollback()
+
+        print(
+            f"\n❌ ONBOARDING FAILURE: {e}"
+        )
+
+        raise
 
     finally:
 

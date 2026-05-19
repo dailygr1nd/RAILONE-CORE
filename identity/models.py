@@ -219,7 +219,7 @@ class RIOObject(Base):
         nullable=False
     )
 
-    current_riv_id = Column(
+    active_riv_id = Column(
         String,
         nullable=False
     )
