@@ -16,62 +16,55 @@ class Account(Base):
 
     __tablename__ = "accounts"
 
+    # --------------------------------
+    # EXECUTION ACCOUNT ID
+    # --------------------------------
     id = Column(
         String,
         primary_key=True
     )
 
     # --------------------------------
-    # CONTINUITY OWNER
+    # CONTINUITY CONTEXT
     # --------------------------------
-    owner_id = Column(
+    railone_id = Column(
         String,
-        nullable=True,
+        nullable=False,
         index=True
     )
 
-    # --------------------------------
-    # EXECUTION PROVIDER
-    # --------------------------------
-    provider = Column(
+    continuity_uid = Column(
         String,
         nullable=False,
         index=True
     )
 
     # --------------------------------
-    # CURRENCY DOMAIN
+    # INSTITUTION CONTEXT
     # --------------------------------
+    institution_id = Column(
+        String,
+        nullable=False
+    )
+
     currency = Column(
         String,
-        nullable=False,
-        index=True
+        nullable=False
     )
 
-    # --------------------------------
-    # ACCOUNT TYPE
-    # --------------------------------
     account_type = Column(
         String,
         nullable=False
     )
 
     # --------------------------------
-    # NON-CUSTODIAL MIRROR STATE
+    # EXECUTION STATE
     # --------------------------------
     mirrored_available_state = Column(
         Float,
         default=0.0
     )
 
-    locked_mirrored_available_state = Column(
-        Float,
-        default=0.0
-    )
-
-    # --------------------------------
-    # EXECUTION RESERVATION
-    # --------------------------------
     execution_reservation = Column(
         Float,
         default=0.0

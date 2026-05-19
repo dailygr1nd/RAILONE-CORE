@@ -280,7 +280,7 @@ def seed_users():
             "name": "Daniel Okello",
             "nid": "10000777",
             "corridor": "UG"
-        },
+        }
     ]
 
     created = []
@@ -288,14 +288,11 @@ def seed_users():
     for entry in users:
 
         print(
-            f\"\\n👤 Onboarding "
+            f"\n👤 Onboarding "
             f"{entry['name']} "
             f"({entry['corridor']})"
         )
 
-        # --------------------------------
-        # MOAT-COMPLIANT IDENTITY
-        # --------------------------------
         user = onboard_user(
 
             name=entry["name"],
@@ -309,37 +306,25 @@ def seed_users():
 
         continuity_uid = user["continuity_uid"]
 
-        # --------------------------------
-        # LINK INSTITUTIONS
-        # --------------------------------
         seed_user_links(railone_id)
 
-        # --------------------------------
-        # SEED ACCOUNTS
-        # --------------------------------
-        seed_user_accounts(railone_id)
+        seed_user_accounts(
+
+            railone_id,
+
+            continuity_uid
+        )
 
         created.append({
 
-            "name":
-                entry["name"],
+            "name": entry["name"],
 
-            "nid":
-                entry["nid"],
+            "railone_id": railone_id,
 
-            "corridor":
-                entry["corridor"],
+            "continuity_uid": continuity_uid,
 
-            "railone_id":
-                railone_id,
-
-            "continuity_uid":
-                continuity_uid
+            "corridor": entry["corridor"]
         })
-
-        print(
-            f"✅ {railone_id}"
-        )
 
     return created
 
@@ -410,24 +395,18 @@ def seed_all():
 
     for u in users:
 
+        print("\n================================")
+
+        print(f"👤 {u['name']}")
+
+        print(f"🆔 RailOne ID: {u['railone_id']}")
+
         print(
-
-            f"\\n• {u['name']}"
-
-            f"\\n  RailOne ID:"
-            f" {u['railone_id']}"
-
-            f"\\n  Continuity UID:"
-            f" {u['continuity_uid']}"
-
-            f"\\n  Corridor:"
-            f" {u['corridor']}"
-        )
-
-    print(
-        "\\n✅ RailOne Identity "
-        "Moat Network Ready"
+            f"🔗 Continuity UID: "
+            f"{u['continuity_uid']}"
     )
+
+    print(f"🌍 Corridor: {u['corridor']}")
 
 
 # ==========================================
