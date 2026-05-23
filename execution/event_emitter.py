@@ -9,8 +9,9 @@ from execution.event_store import ExecutionEvent
 
 
 def emit_event(
-    tx_id,
-    continuity_id,
+    utt_id,
+    continuity_uid,
+    rtt_id,
     event_type,
     previous_state=None,
     new_state=None,
@@ -25,9 +26,11 @@ def emit_event(
 
         event = ExecutionEvent(
 
-            tx_id=tx_id,
+            utt_id=utt_id,
 
-            continuity_id=continuity_id,
+            continuity_uid=continuity_uid,
+
+            rtt_id=rtt_id,
 
             event_type=event_type,
 

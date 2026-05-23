@@ -1,48 +1,70 @@
 # ==============================
-# state_machine.py
-# RailOne Deterministic Execution
-# Continuity State Machine
+# execution/state_machine.py
+# RailOne Execution Continuity
+# Deterministic Execution State Engine
 # ==============================
 
 from enum import Enum
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Dict, Any, Optional
 
-from event_emitter import emit_event
+from dataclasses import (
+    dataclass,
+    field
+)
+
+from datetime import (
+    datetime,
+    timezone
+)
+
+from typing import (
+    Dict,
+    Any,
+    Optional
+)
 
 from uuid import uuid4
 
+from execution.event_emitter import emit_event
 
 
 # ==========================================
-# STATES
+# EXECUTION STATES
 # ==========================================
-class TransactionState(str, Enum):
+class ExecutionState(str, Enum):
 
     # --------------------------------
-    # SESSION INITIALIZATION
+    # EXECUTION INITIALIZATION
     # --------------------------------
     INIT = "INIT"
 
     # --------------------------------
-    # IDENTITY + BILATERAL CONTINUITY
+    # IDENTITY + TRUST
     # --------------------------------
-    IDENTITY_VERIFIED = "IDENTITY_VERIFIED"
+    IDENTITY_VERIFIED = (
+        "IDENTITY_VERIFIED"
+    )
 
     # ETK-S
-    INTENT_LOCKED = "INTENT_LOCKED"
+    INTENT_LOCKED = (
+        "INTENT_LOCKED"
+    )
 
     # ETK-R
-    RECEIVER_CONFIRMED = "RECEIVER_CONFIRMED"
+    RECEIVER_CONFIRMED = (
+        "RECEIVER_CONFIRMED"
+    )
 
-    # RTT VERIFIED
-    HANDSHAKE_VERIFIED = "HANDSHAKE_VERIFIED"
+    # RTT validated
+    HANDSHAKE_VERIFIED = (
+        "HANDSHAKE_VERIFIED"
+    )
 
     # --------------------------------
-    # ROUTE + EXECUTION DECISION
+    # ROUTING + PRICING
     # --------------------------------
-    ROUTE_COMPUTED = "ROUTE_COMPUTED"
+    ROUTE_COMPUTED = (
+        "ROUTE_COMPUTED"
+    )
 
     PRICED = "PRICED"
 
@@ -55,11 +77,32 @@ class TransactionState(str, Enum):
 
     DISPATCHED = "DISPATCHED"
 
-    EXECUTION_STARTED = "EXECUTION_STARTED"
+    EXECUTION_STARTED = (
+        "EXECUTION_STARTED"
+    )
 
-    EXECUTION_CONFIRMED = "EXECUTION_CONFIRMED"
+    EXECUTION_CONFIRMED = (
+        "EXECUTION_CONFIRMED"
+    )
 
-    EXECUTION_FAILED = "EXECUTION_FAILED"
+    EXECUTION_FAILED = (
+        "EXECUTION_FAILED"
+    )
+
+    # --------------------------------
+    # REPLAY + RECOVERY
+    # --------------------------------
+    REPLAY_REQUIRED = (
+        "REPLAY_REQUIRED"
+    )
+
+    RECONCILIATION_PENDING = (
+        "RECONCILIATION_PENDING"
+    )
+
+    ROLLED_BACK = (
+        "ROLLED_BACK"
+    )
 
     # --------------------------------
     # FINALITY
@@ -68,221 +111,305 @@ class TransactionState(str, Enum):
 
     FINALIZED = "FINALIZED"
 
-    # --------------------------------
-    # FAILURE + REPLAY
-    # --------------------------------
     FAILED = "FAILED"
-
-    ROLLED_BACK = "ROLLED_BACK"
-
-    REPLAY_REQUIRED = "REPLAY_REQUIRED"
-
-    RECONCILIATION_PENDING = "RECONCILIATION_PENDING"
 
 
 # ==========================================
-# VALID TRANSITIONS
+# VALID EXECUTION TRANSITIONS
 # ==========================================
 VALID_TRANSITIONS = {
 
-    TransactionState.INIT: [
-        TransactionState.IDENTITY_VERIFIED,
-        TransactionState.FAILED
+    ExecutionState.INIT: [
+
+        ExecutionState.IDENTITY_VERIFIED,
+
+        ExecutionState.FAILED
     ],
 
-    TransactionState.IDENTITY_VERIFIED: [
-        TransactionState.INTENT_LOCKED,
-        TransactionState.FAILED
+    ExecutionState.IDENTITY_VERIFIED: [
+
+        ExecutionState.INTENT_LOCKED,
+
+        ExecutionState.FAILED
     ],
 
-    TransactionState.INTENT_LOCKED: [
-        TransactionState.RECEIVER_CONFIRMED,
-        TransactionState.FAILED
+    ExecutionState.INTENT_LOCKED: [
+
+        ExecutionState.RECEIVER_CONFIRMED,
+
+        ExecutionState.FAILED
     ],
 
-    TransactionState.RECEIVER_CONFIRMED: [
-        TransactionState.HANDSHAKE_VERIFIED,
-        TransactionState.FAILED
+    ExecutionState.RECEIVER_CONFIRMED: [
+
+        ExecutionState.HANDSHAKE_VERIFIED,
+
+        ExecutionState.FAILED
     ],
 
-    TransactionState.HANDSHAKE_VERIFIED: [
-        TransactionState.ROUTE_COMPUTED,
-        TransactionState.FAILED
+    ExecutionState.HANDSHAKE_VERIFIED: [
+
+        ExecutionState.ROUTE_COMPUTED,
+
+        ExecutionState.FAILED
     ],
 
-    TransactionState.ROUTE_COMPUTED: [
-        TransactionState.PRICED,
-        TransactionState.FAILED
+    ExecutionState.ROUTE_COMPUTED: [
+
+        ExecutionState.PRICED,
+
+        ExecutionState.FAILED
     ],
 
-    TransactionState.PRICED: [
-        TransactionState.VALIDATED,
-        TransactionState.FAILED
+    ExecutionState.PRICED: [
+
+        ExecutionState.VALIDATED,
+
+        ExecutionState.FAILED
     ],
 
-    TransactionState.VALIDATED: [
-        TransactionState.PENDING,
-        TransactionState.FAILED
+    ExecutionState.VALIDATED: [
+
+        ExecutionState.PENDING,
+
+        ExecutionState.FAILED
     ],
 
-    TransactionState.PENDING: [
-        TransactionState.DISPATCHED,
-        TransactionState.FAILED
+    ExecutionState.PENDING: [
+
+        ExecutionState.DISPATCHED,
+
+        ExecutionState.FAILED
     ],
 
-    TransactionState.DISPATCHED: [
-        TransactionState.EXECUTION_STARTED,
-        TransactionState.FAILED
+    ExecutionState.DISPATCHED: [
+
+        ExecutionState.EXECUTION_STARTED,
+
+        ExecutionState.FAILED
     ],
 
-    TransactionState.EXECUTION_STARTED: [
-        TransactionState.EXECUTION_CONFIRMED,
-        TransactionState.EXECUTION_FAILED
+    ExecutionState.EXECUTION_STARTED: [
+
+        ExecutionState.EXECUTION_CONFIRMED,
+
+        ExecutionState.EXECUTION_FAILED
     ],
 
-    TransactionState.EXECUTION_FAILED: [
-        TransactionState.REPLAY_REQUIRED,
-        TransactionState.ROLLED_BACK,
-        TransactionState.FAILED
+    ExecutionState.EXECUTION_FAILED: [
+
+        ExecutionState.REPLAY_REQUIRED,
+
+        ExecutionState.ROLLED_BACK,
+
+        ExecutionState.FAILED
     ],
 
-    TransactionState.REPLAY_REQUIRED: [
-        TransactionState.EXECUTION_STARTED,
-        TransactionState.RECONCILIATION_PENDING,
-        TransactionState.FAILED
+    ExecutionState.REPLAY_REQUIRED: [
+
+        ExecutionState.EXECUTION_STARTED,
+
+        ExecutionState.RECONCILIATION_PENDING,
+
+        ExecutionState.FAILED
     ],
 
-    TransactionState.RECONCILIATION_PENDING: [
-        TransactionState.SETTLED,
-        TransactionState.ROLLED_BACK,
-        TransactionState.FAILED
+    ExecutionState.RECONCILIATION_PENDING: [
+
+        ExecutionState.SETTLED,
+
+        ExecutionState.ROLLED_BACK,
+
+        ExecutionState.FAILED
     ],
 
-    TransactionState.EXECUTION_CONFIRMED: [
-        TransactionState.SETTLED
+    ExecutionState.EXECUTION_CONFIRMED: [
+
+        ExecutionState.SETTLED
     ],
 
-    TransactionState.SETTLED: [
-        TransactionState.FINALIZED
+    ExecutionState.SETTLED: [
+
+        ExecutionState.FINALIZED
     ],
 
-    TransactionState.FINALIZED: [],
+    ExecutionState.FINALIZED: [],
 
-    TransactionState.FAILED: [
-        TransactionState.ROLLED_BACK
+    ExecutionState.FAILED: [
+
+        ExecutionState.ROLLED_BACK
     ],
 
-    TransactionState.ROLLED_BACK: []
+    ExecutionState.ROLLED_BACK: []
 }
 
 
 # ==========================================
-# CONTEXT OBJECT
+# EXECUTION CONTEXT
+# Canonical execution continuity object
 # ==========================================
 @dataclass
-class TransactionContext:
+class ExecutionContext:
 
     # --------------------------------
-    # CORE CONTINUITY ATTRIBUTES
+    # CANONICAL EXECUTION CONTINUITY
     # --------------------------------
-    tx_id: str
+    utt_id: str
 
-    continuity_id=f"R1CONT-{uuid4().hex[:16].upper()}"
+    # --------------------------------
+    # ROUTE REALIZATION THREAD
+    # --------------------------------
+    rtt_id: str
 
-    amount: float
+    # --------------------------------
+    # IDENTITY CONTINUITY
+    # --------------------------------
+    continuity_uid: str
 
-    currency: str
-
+    # --------------------------------
+    # EXECUTION ACTORS
+    # --------------------------------
     sender_id: str
 
     receiver_id: str
 
     # --------------------------------
-    # CONTINUITY LINEAGE
+    # EXECUTION VALUE
     # --------------------------------
-    continuity_id: Optional[str] = None
+    amount: float
 
+    currency: str
+
+    # --------------------------------
+    # EXECUTION LINEAGE
+    # --------------------------------
     lineage_parent: Optional[str] = None
 
     replay_generation: int = 0
 
     # --------------------------------
-    # STATE
+    # EXECUTION STATE
     # --------------------------------
-    state: TransactionState = TransactionState.INIT
+    state: ExecutionState = (
+        ExecutionState.INIT
+    )
 
     updated_at: str = field(
-        default_factory=lambda: (
-            datetime.now(timezone.utc).isoformat()
-        )
+
+        default_factory=lambda:
+            datetime.now(
+                timezone.utc
+            ).isoformat()
     )
 
     # --------------------------------
     # EXECUTION METADATA
     # --------------------------------
     metadata: Dict[str, Any] = field(
+
         default_factory=dict
     )
 
     # ==========================================
-    # STATE TRANSITION
+    # TRANSITION EXECUTION STATE
     # ==========================================
     def transition(
+
         self,
-        new_state: TransactionState,
-        event_payload: Optional[Dict[str, Any]] = None
+
+        new_state: ExecutionState,
+
+        event_payload: Optional[
+            Dict[str, Any]
+        ] = None
     ):
 
         allowed = VALID_TRANSITIONS.get(
+
             self.state,
+
             []
         )
 
         if new_state not in allowed:
+
             raise ValueError(
+
                 f"Invalid transition: "
+
                 f"{self.state} -> {new_state}"
             )
 
         old_state = self.state
 
         # --------------------------------
-        # MUTATE CURRENT STATE
+        # MUTATE EXECUTION STATE
         # --------------------------------
         self.state = new_state
 
         self.updated_at = (
-            datetime.now(timezone.utc).isoformat()
+
+            datetime.now(
+                timezone.utc
+            ).isoformat()
         )
 
         # --------------------------------
-        # EMIT IMMUTABLE EVENT
+        # EMIT EXECUTION EVENT
         # --------------------------------
         emit_event(
-            tx_id=self.tx_id,
 
-            continuity_id=self.continuity_id,
+            utt_id=self.utt_id,
 
-            event_type="STATE_TRANSITION",
+            rtt_id=self.rtt_id,
 
-            previous_state=old_state.value,
+            continuity_uid=
+                self.continuity_uid,
 
-            new_state=new_state.value,
+            event_type=
+                "STATE_TRANSITION",
+
+            previous_state=
+                old_state.value,
+
+            new_state=
+                new_state.value,
 
             payload={
-                "tx_id": self.tx_id,
-                "continuity_id": self.continuity_id,
-                "amount": self.amount,
-                "currency": self.currency,
-                "sender_id": self.sender_id,
-                "receiver_id": self.receiver_id,
-                "metadata": self.metadata,
-                "event_payload": event_payload or {}
+
+                "utt_id":
+                    self.utt_id,
+
+                "rtt_id":
+                    self.rtt_id,
+
+                "continuity_uid":
+                    self.continuity_uid,
+
+                "amount":
+                    self.amount,
+
+                "currency":
+                    self.currency,
+
+                "sender_id":
+                    self.sender_id,
+
+                "receiver_id":
+                    self.receiver_id,
+
+                "metadata":
+                    self.metadata,
+
+                "event_payload":
+                    event_payload or {}
             },
 
-            lineage_parent=self.lineage_parent,
+            lineage_parent=
+                self.lineage_parent,
 
-            replay_generation=self.replay_generation
+            replay_generation=
+                self.replay_generation
         )
 
         return self
@@ -291,8 +418,11 @@ class TransactionContext:
     # ATTACH EXECUTION CONTEXT
     # ==========================================
     def attach(
+
         self,
+
         key: str,
+
         value: Any
     ):
 
@@ -316,25 +446,39 @@ class TransactionContext:
 
         return {
 
-            "tx_id": self.tx_id,
+            "utt_id":
+                self.utt_id,
 
-            "continuity_id": self.continuity_id,
+            "rtt_id":
+                self.rtt_id,
 
-            "lineage_parent": self.lineage_parent,
+            "continuity_uid":
+                self.continuity_uid,
 
-            "replay_generation": self.replay_generation,
+            "lineage_parent":
+                self.lineage_parent,
 
-            "amount": self.amount,
+            "replay_generation":
+                self.replay_generation,
 
-            "currency": self.currency,
+            "amount":
+                self.amount,
 
-            "sender_id": self.sender_id,
+            "currency":
+                self.currency,
 
-            "receiver_id": self.receiver_id,
+            "sender_id":
+                self.sender_id,
 
-            "state": self.state.value,
+            "receiver_id":
+                self.receiver_id,
 
-            "updated_at": self.updated_at,
+            "state":
+                self.state.value,
 
-            "metadata": self.metadata
+            "updated_at":
+                self.updated_at,
+
+            "metadata":
+                self.metadata
         }

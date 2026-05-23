@@ -27,7 +27,7 @@ def onboard_user(
 
     name,
 
-    nid,
+    national_id,
 
     corridor="EA"
 ):
@@ -45,7 +45,7 @@ def onboard_user(
             session.query(User)
 
             .filter_by(
-                national_id=nid
+                national_id=national_id
             )
 
             .first()
@@ -55,7 +55,7 @@ def onboard_user(
 
             print(
                 f"⚠️ Existing continuity found "
-                f"for {nid}"
+                f"for {national_id}"
             )
 
             return {
@@ -209,7 +209,7 @@ def onboard_user(
                 name,
 
             national_id=
-                nid,
+                national_id,
 
             kyc_status=
                 "VERIFIED"

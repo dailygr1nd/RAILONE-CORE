@@ -2,22 +2,29 @@
 # ledger/models.py
 # ==============================
 
-from sqlalchemy import Column, String, Float, DateTime
+
 from datetime import datetime
+
+from sqlalchemy import (
+    Column,
+    String,
+    Float,
+    DateTime,
+    Integer
+)
 
 from ledger.db import Base
 
 
-
-# --------------------------------
-# ACCOUNT MODEL
-# --------------------------------
+# =========================================
+# EXECUTION ACCOUNT
+# =========================================
 class Account(Base):
 
     __tablename__ = "accounts"
 
     # --------------------------------
-    # EXECUTION ACCOUNT ID
+    # ACCOUNT ID
     # --------------------------------
     id = Column(
         String,
@@ -44,9 +51,13 @@ class Account(Base):
     # --------------------------------
     institution_id = Column(
         String,
-        nullable=False
+        nullable=False,
+        index=True
     )
 
+    # --------------------------------
+    # ACCOUNT STATE
+    # --------------------------------
     currency = Column(
         String,
         nullable=False
@@ -57,9 +68,6 @@ class Account(Base):
         nullable=False
     )
 
-    # --------------------------------
-    # EXECUTION STATE
-    # --------------------------------
     mirrored_available_state = Column(
         Float,
         default=0.0
@@ -70,135 +78,350 @@ class Account(Base):
         default=0.0
     )
 
-    # --------------------------------
-    # TIMESTAMPS
-    # --------------------------------
     created_at = Column(
         DateTime,
         default=datetime.utcnow
     )
 
 
-# --------------------------------
-# JOURNAL ENTRY (LEDGER)
-# --------------------------------
-class JournalEntry(Base):
-    __tablename__ = "journal_entries"
+# =========================================
+# EXECUTION THREAD
+# Canonical execution continuity object
+# =========================================
+class ExecutionThread(Base):
 
-    id = Column(String, primary_key=True)
-
-    tx_id = Column(String)
-    account_id = Column(String)
-
-    amount = Column(Float)
-    entry_type = Column(String)  # DEBIT / CREDIT
-
-    currency = Column(String)
-
-    created_at = Column(DateTime, default=datetime.utcnow)
+    __tablename__ = "execution_threads"
 
     # --------------------------------
-# TRANSACTION MODEL
-# --------------------------------
-class Transaction(Base):
-    __tablename__ = "transactions"
+    # CANONICAL EXECUTION CONTINUITY
+    # --------------------------------
+    utt_id = Column(
+        String,
+        primary_key=True
+    )
 
-    tx_id = Column(String, primary_key=True)
+    # --------------------------------
+    # EXECUTION STATE
+    # --------------------------------
+    execution_state = Column(
+        String,
+        nullable=False,
+        default="INITIATED"
+    )
 
-    sender_account = Column(String)
-    receiver_account = Column(String)
+    settlement_state = Column(
+        String,
+        nullable=False,
+        default="PENDING"
+    )
 
-    amount = Column(Float)
-    net_amount = Column(Float)
+    replay_generation = Column(
+        Integer,
+        default=0
+    )
 
-    currency_from = Column(String)
-    currency_to = Column(String)
+    current_rtt_id = Column(
+        String,
+        nullable=True
+    )
 
-    status = Column(String)
-    reason = Column(String, nullable=True)
+    # --------------------------------
+    # EXECUTION PARTICIPANTS
+    # --------------------------------
+    sender_account_id = Column(
+        String,
+        nullable=False
+    )
 
-    fee = Column(Float, default=0.0)
-    profit = Column(Float, default=0.0)
+    receiver_account_id = Column(
+        String,
+        nullable=False
+    )
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    # --------------------------------
+    # VALUE CONTEXT
+    # --------------------------------
+    currency_from = Column(
+        String,
+        nullable=False
+    )
+
+    currency_to = Column(
+        String,
+        nullable=False
+    )
+
+    gross_amount = Column(
+        Float,
+        nullable=False
+    )
+
+    net_amount = Column(
+        Float,
+        nullable=False
+    )
+
+    fee_amount = Column(
+        Float,
+        default=0.0
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow
+    )
 
 
-    # ==============================
-# network_models.py
-# ==============================
+# =========================================
+# ROUTE EXECUTION THREAD
+# RTT realization layer
+# =========================================
+class RouteExecution(Base):
 
-from sqlalchemy import Column, String, DateTime, ForeignKey
-from datetime import datetime
-from uuid import uuid4
+    __tablename__ = "route_executions"
 
-from ledger.db import Base
+    rtt_id = Column(
+        String,
+        primary_key=True
+    )
+
+    utt_id = Column(
+        String,
+        nullable=False,
+        index=True
+    )
+
+    route_state = Column(
+        String,
+        nullable=False,
+        default="ROUTED"
+    )
+
+    route_generation = Column(
+        Integer,
+        default=1
+    )
+
+    institution_path = Column(
+        String,
+        nullable=True
+    )
+
+    execution_attestation = Column(
+        String,
+        nullable=True
+    )
+
+    route_attestation = Column(
+        String,
+        nullable=True
+    )
+
+    settlement_provenance = Column(
+        String,
+        nullable=True
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow
+    )
 
 
-# --------------------------------
-# INSTITUTIONS (NETWORK PARTICIPANTS)
-# --------------------------------
+# =========================================
+# JOURNAL ENTRIES
+# Accounting truth only
+# =========================================
+class JournalEntry(Base):
+
+    __tablename__ = "journal_entries"
+
+    id = Column(
+        String,
+        primary_key=True
+    )
+
+    # --------------------------------
+    # EXECUTION CONTINUITY
+    # --------------------------------
+    utt_id = Column(
+        String,
+        nullable=False,
+        index=True
+    )
+
+    rtt_id = Column(
+        String,
+        nullable=True,
+        index=True
+    )
+
+    # --------------------------------
+    # ACCOUNTING STATE
+    # --------------------------------
+    account_id = Column(
+        String,
+        nullable=False
+    )
+
+    amount = Column(
+        Float,
+        nullable=False
+    )
+
+    entry_type = Column(
+        String,
+        nullable=False
+    )
+
+    currency = Column(
+        String,
+        nullable=False
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow
+    )
+
+    # =========================================
+# INSTITUTION
+# =========================================
 class Institution(Base):
+
     __tablename__ = "institutions"
 
-    id = Column(String, primary_key=True)  # e.g. PSP_KE, BANK_TZ
-    name = Column(String)
+    institution_id = Column(
+        String,
+        primary_key=True
+    )
 
-    type = Column(String)      # PSP, BANK, WALLET
-    country = Column(String)   # KE, TZ, UG
+    institution_name = Column(
+        String,
+        nullable=False
+    )
 
-    status = Column(String, default="ACTIVE")  # ACTIVE / INACTIVE
+    institution_type = Column(
+        String,
+        nullable=False
+    )
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    corridor = Column(
+        String,
+        nullable=False
+    )
+
+    operational_status = Column(
+        String,
+        default="ACTIVE"
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow
+    )
 
 
-# --------------------------------
-# INSTITUTION KEYS (FOR ATTESTATIONS)
-# --------------------------------
+# =========================================
+# INSTITUTION KEYS
+# =========================================
 class InstitutionKey(Base):
+
     __tablename__ = "institution_keys"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    id = Column(
+        String,
+        primary_key=True
+    )
 
-    institution_id = Column(String, ForeignKey("institutions.id"))
+    institution_id = Column(
+        String,
+        nullable=False,
+        index=True
+    )
 
-    public_key = Column(String)     # used for signature verification
-    key_version = Column(String)    # allow rotation
+    public_key = Column(
+        String,
+        nullable=False
+    )
 
-    status = Column(String, default="ACTIVE")  # ACTIVE / REVOKED
+    private_key = Column(
+        String,
+        nullable=False
+    )
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    key_type = Column(
+        String,
+        default="ED25519"
+    )
 
+    status = Column(
+        String,
+        default="ACTIVE"
+    )
 
-# --------------------------------
-# USER ↔ INSTITUTION ACCOUNT LINK
-# --------------------------------
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow
+    )
+
+# =========================================
+# USER ACCOUNT LINK
+# Maps continuity identity
+# to institution execution surfaces
+# =========================================
 class UserAccountLink(Base):
+
     __tablename__ = "user_account_links"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    id = Column(
+        String,
+        primary_key=True
+    )
 
-    railone_id = Column(String)        # your internal user ID
-    institution_id = Column(String)    # PSP_KE, BANK_TZ
+    # --------------------------------
+    # USER CONTINUITY
+    # --------------------------------
+    railone_id = Column(
+        String,
+        nullable=False,
+        index=True
+    )
 
-    external_account_ref = Column(String)  # phone number / account number
-    currency = Column(String)
+    continuity_uid = Column(
+        String,
+        nullable=False,
+        index=True
+    )
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    # --------------------------------
+    # INSTITUTION CONTEXT
+    # --------------------------------
+    institution_id = Column(
+        String,
+        nullable=False,
+        index=True
+    )
 
+    # --------------------------------
+    # EXTERNAL EXECUTION SURFACE
+    # --------------------------------
+    external_account_ref = Column(
+        String,
+        nullable=False
+    )
 
-# --------------------------------
-# ATTESTATIONS (TRUST EVENTS)
-# --------------------------------
-class Attestation(Base):
-    __tablename__ = "attestations"
+    currency = Column(
+        String,
+        nullable=False
+    )
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    linkage_state = Column(
+        String,
+        default="ACTIVE"
+    )
 
-    tx_id = Column(String)                # transaction reference
-    institution_id = Column(String)       # who signed
-
-    attestation_type = Column(String)     # FUNDS_AVAILABLE, SETTLED, etc.
-    signature = Column(String)
-
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow
+    )

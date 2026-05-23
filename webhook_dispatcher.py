@@ -10,7 +10,7 @@ def dispatch_event(tx: dict, event_type: str):
 
     payload = {
         "event": event_type,
-        "tx_id": tx["tx_id"],
+        "utt_id": tx["utt_id"],
         "status": tx["status"],
         "amount": tx["amount"],
         "net_amount": tx.get("net_amount"),

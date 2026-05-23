@@ -5,8 +5,8 @@
 from fastapi import FastAPI, Request, HTTPException
 import json
 
-from transaction_engine import initiate_transaction
-from execution_queue import get_tx
+from execution.execution_initiator import initiate_transaction
+from execution.execution_queue import get_tx
 
 from idempotency_store import check_idempotency, store_idempotency
 
@@ -150,10 +150,10 @@ async def create_transfer(request: Request):
 # --------------------------------
 # STATUS
 # --------------------------------
-@app.get("/v1/transactions/{tx_id}")
-def get_transaction(tx_id: str):
+@app.get("/v1/transactions/{utt_id}")
+def get_transaction(utt_id: str):
 
-    tx = get_tx(tx_id)
+    tx = get_tx(utt_id)
 
     if not tx:
         raise HTTPException(404, "TX_NOT_FOUND")
@@ -164,10 +164,10 @@ def get_transaction(tx_id: str):
 # --------------------------------
 # ISO EXPORT
 # --------------------------------
-@app.get("/v1/iso/pacs008/{tx_id}")
-def get_iso(tx_id: str):
+@app.get("/v1/iso/pacs008/{utt_id}")
+def get_iso(utt_id: str):
 
-    tx = get_tx(tx_id)
+    tx = get_tx(utt_id)
 
     if not tx:
         raise HTTPException(404, "TX_NOT_FOUND")

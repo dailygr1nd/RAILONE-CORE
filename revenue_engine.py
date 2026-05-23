@@ -36,7 +36,7 @@ def extract_revenue(session, tx):
         # STORE REVENUE
         # --------------------------------
         record_revenue(
-            tx_id=tx["tx_id"],
+            utt_id=tx["utt_id"],
             gross_amount=gross_amount,
             fee_amount=fee_amount,
             fx_profit=fx_profit,

@@ -1,39 +1,91 @@
 from sqlalchemy.orm import Session
-from .models import Account
+
+from ledger.models import Account
 
 
-def lock_funds(session: Session, account_id: str, amount: float):
-    acc = session.query(Account).filter_by(id=account_id).with_for_update().first()
+# =========================================
+# RESERVE EXECUTION FUNDS
+# =========================================
+def reserve_execution_liquidity(
+    session: Session,
+    account_id: str,
+    amount: float
+):
 
-    if not acc:
+    account = (
+        session.query(Account)
+        .filter_by(id=account_id)
+        .with_for_update()
+        .first()
+    )
+
+    if not account:
         return False
 
-    available = acc.mirrored_available_state - acc.reserved
+    available = (
+        account.mirrored_available_state
+        - account.execution_reservation
+    )
 
     if available < amount:
         return False
 
-    acc.reserved += amount
+    account.execution_reservation += amount
+
     return True
 
 
-def release_funds(session: Session, account_id: str, amount: float):
-    acc = session.query(Account).filter_by(id=account_id).with_for_update().first()
+# =========================================
+# RELEASE EXECUTION RESERVATION
+# =========================================
+def release_execution_reservation(
+    session: Session,
+    account_id: str,
+    amount: float
+):
 
-    if not acc or acc.reserved < amount:
+    account = (
+        session.query(Account)
+        .filter_by(id=account_id)
+        .with_for_update()
+        .first()
+    )
+
+    if not account:
         return False
 
-    acc.reserved -= amount
+    if account.execution_reservation < amount:
+        return False
+
+    account.execution_reservation -= amount
+
     return True
 
 
-def settle_funds(session: Session, account_id: str, amount: float):
-    acc = session.query(Account).filter_by(id=account_id).with_for_update().first()
+# =========================================
+# FINALIZE EXECUTION SETTLEMENT
+# =========================================
+def finalize_execution_settlement(
+    session: Session,
+    account_id: str,
+    amount: float
+):
 
-    if not acc or acc.reserved < amount:
+    account = (
+        session.query(Account)
+        .filter_by(id=account_id)
+        .with_for_update()
+        .first()
+    )
+
+    if not account:
         return False
 
-    acc.reserved -= amount
-    acc.mirrored_available_state -= amount
+    if account.execution_reservation < amount:
+        return False
+
+    account.execution_reservation -= amount
+
+    account.mirrored_available_state -= amount
 
     return True

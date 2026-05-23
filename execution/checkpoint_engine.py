@@ -1,12 +1,13 @@
 # ==============================
 # execution/checkpoint_engine.py
-# RailOne Checkpoint Engine
+# RailOne Deterministic
+# Execution Snapshot Engine
 # ==============================
 
 import hashlib
 import json
 
-from db import SessionLocal
+from ledger.db import SessionLocal
 
 from execution.checkpoint_models import (
     ExecutionCheckpoint
@@ -14,32 +15,41 @@ from execution.checkpoint_models import (
 
 
 # ==========================================
-# HASH SNAPSHOT
+# HASH EXECUTION SNAPSHOT
 # ==========================================
 def hash_snapshot(snapshot):
 
     encoded = json.dumps(
+
         snapshot,
+
         sort_keys=True
+
     ).encode()
 
     return hashlib.sha256(
+
         encoded
+
     ).hexdigest()
 
 
 # ==========================================
-# CREATE CHECKPOINT
+# CREATE EXECUTION CHECKPOINT
 # ==========================================
 def create_checkpoint(
 
-    tx_id,
+    utt_id,
 
     checkpoint_state,
 
     snapshot,
 
-    continuity_id=None,
+    rtt_id=None,
+
+    continuity_uid=None,
+
+    lineage_parent=None,
 
     replay_generation=0
 ):
@@ -49,19 +59,26 @@ def create_checkpoint(
     try:
 
         integrity_hash = (
+
             hash_snapshot(snapshot)
         )
 
         checkpoint = (
+
             ExecutionCheckpoint(
 
-                tx_id=tx_id,
+                utt_id=utt_id,
 
-                continuity_id=
-                    continuity_id,
+                rtt_id=rtt_id,
+
+                continuity_uid=
+                    continuity_uid,
 
                 checkpoint_state=
                     checkpoint_state,
+
+                lineage_parent=
+                    lineage_parent,
 
                 replay_generation=
                     replay_generation,

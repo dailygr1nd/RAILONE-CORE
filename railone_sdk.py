@@ -137,10 +137,10 @@ class RailOneClient:
     # --------------------------------
     # STATUS
     # --------------------------------
-    def get_status(self, tx_id: str):
+    def get_status(self, utt_id: str):
         return self._request(
             "GET",
-            f"/v1/transactions/{tx_id}"
+            f"/v1/transactions/{utt_id}"
         )
 
     # --------------------------------

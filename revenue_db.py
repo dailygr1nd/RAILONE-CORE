@@ -14,7 +14,7 @@ def init():
     c.execute("""
     CREATE TABLE IF NOT EXISTS revenue (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        tx_id TEXT,
+        utt_id TEXT,
         gross_amount REAL,
         fee_amount REAL,
         fx_profit REAL,
@@ -30,7 +30,7 @@ def init():
 
 
 def record_revenue(
-    tx_id,
+    utt_id,
     gross_amount,
     fee_amount,
     fx_profit,
@@ -44,13 +44,13 @@ def record_revenue(
 
     c.execute("""
     INSERT INTO revenue (
-        tx_id, gross_amount, fee_amount,
+        utt_id, gross_amount, fee_amount,
         fx_profit, total_revenue,
         currency, route
     )
     VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (
-        tx_id,
+        utt_id,
         gross_amount,
         fee_amount,
         fx_profit,

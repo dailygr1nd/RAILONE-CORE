@@ -13,7 +13,7 @@ from ledger.ledger_service import apply_genesis
 
 from ledger.ledger_service import apply_genesis
 from rails_config import RAILS
-from settlement_capacity_signals import POOLS
+from settlement_capacity_signal import POOLS
 from ledger.db import SessionLocal
 
 

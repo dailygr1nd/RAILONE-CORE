@@ -19,7 +19,7 @@ def onboard_user(
 
     name,
 
-    nid,
+    national_id,
 
     corridor="EA"
 ):
@@ -36,7 +36,7 @@ def onboard_user(
             session.query(User)
 
             .filter_by(
-                national_id=nid
+                national_id=national_id
             )
 
             .first()
@@ -112,7 +112,7 @@ def onboard_user(
                 name,
 
             national_id=
-                nid,
+                national_id,
 
             kyc_status=
                 "VERIFIED"
@@ -136,7 +136,7 @@ def onboard_user(
                 name,
 
             "national_id":
-                nid,
+                national_id,
 
             "trust_tier":
                 identity["trust_tier"],

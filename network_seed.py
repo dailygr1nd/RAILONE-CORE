@@ -49,48 +49,56 @@ def seed_institutions():
 
         institutions = [
 
-            # --------------------------------
-            # CORE RAILONE
-            # --------------------------------
-            (
-                "R1CORE",
-                "RailOne Core",
-                "CORE",
-                "GLOBAL"
-            ),
+    (
+        "MPESA",
+        "Safaricom M-PESA",
+        "MOBILE_MONEY",
+        "KE"
+    ),
 
-            # --------------------------------
-            # EAST AFRICA CORRIDOR
-            # --------------------------------
-            (
-                "PSP_KE",
-                "Kenya Mobile Money",
-                "PSP",
-                "KE"
-            ),
+    (
+        "BANK_KE",
+        "Kenya Interbank Rail",
+        "BANK",
+        "KE"
+    ),
 
-            (
-                "BANK_TZ",
-                "Tanzania Bank",
-                "BANK",
-                "TZ"
-            ),
+    (
+        "BANK_UG",
+        "Uganda Settlement Rail",
+        "BANK",
+        "UG"
+    ),
 
-            (
-                "PSP_UG",
-                "Uganda Wallet",
-                "WALLET",
-                "UG"
-            ),
-        ]
+    (
+        "BANK_TZ",
+        "Tanzania Settlement Rail",
+        "BANK",
+        "TZ"
+    ),
 
-        for inst_id, name, inst_type, country in institutions:
+    (
+        "SMOVE",
+        "SMOVE Wallet",
+        "WALLET",
+        "EA"
+    ),
+
+    (
+        "R1CORE",
+        "RailOne Core Network",
+        "EXECUTION_CORE",
+        "GLOBAL"
+    )
+]
+
+        for inst_id, inst_name, inst_type, corridor in institutions:
 
             exists = (
 
                 session.query(Institution)
 
-                .filter_by(id=inst_id)
+                .filter_by(institution_id=inst_id)
 
                 .first()
             )
@@ -101,16 +109,11 @@ def seed_institutions():
             session.add(
 
                 Institution(
-
-                    id=inst_id,
-
-                    name=name,
-
-                    type=inst_type,
-
-                    country=country,
-
-                    status="ACTIVE"
+                    institution_id=inst_id,
+                    institution_name=inst_name,
+                    institution_type=inst_type,
+                    corridor=corridor,
+                    operational_status="ACTIVE"
                 )
             )
 
@@ -147,7 +150,7 @@ def seed_institution_keys():
 
                 .filter_by(
 
-                    institution_id=inst.id,
+                    institution_id=inst.institution_id,
 
                     status="ACTIVE"
                 )
@@ -164,11 +167,13 @@ def seed_institution_keys():
 
                     id=str(uuid4()),
 
-                    institution_id=inst.id,
+                    institution_id=inst.institution_id,
 
-                    public_key=f"pubkey_{inst.id}",
+                    public_key=f"pubkey_{inst.institution_id}",
 
-                    key_version="v1",
+                    private_key=f"privkey_{inst.institution_id}",
+
+                    key_type="RSA",
 
                     status="ACTIVE"
                 )
@@ -186,7 +191,7 @@ def seed_institution_keys():
 # ==========================================
 # LINK USER TO INSTITUTIONS
 # ==========================================
-def seed_user_links(railone_id):
+def seed_user_links( railone_id, continuity_uid):
 
     session = SessionLocal()
 
@@ -242,11 +247,15 @@ def seed_user_links(railone_id):
 
                     railone_id=railone_id,
 
+                    continuity_uid=continuity_uid,
+
                     institution_id=inst_id,
 
                     external_account_ref=account_ref,
 
-                    currency=currency
+                    currency=currency,
+
+                    linkage_state="ACTIVE"
                 )
             )
 
@@ -266,19 +275,19 @@ def seed_users():
 
         {
             "name": "Faith Wanjiku",
-            "nid": "10000891",
+            "national_id": "10000891",
             "corridor": "KE"
         },
 
         {
             "name": "Juma Nyerere",
-            "nid": "10000555",
+            "national_id": "10000555",
             "corridor": "TZ"
         },
 
         {
             "name": "Daniel Okello",
-            "nid": "10000777",
+            "national_id": "10000777",
             "corridor": "UG"
         }
     ]
@@ -297,7 +306,7 @@ def seed_users():
 
             name=entry["name"],
 
-            nid=entry["nid"],
+            national_id=entry["national_id"],
 
             corridor=entry["corridor"]
         )
@@ -306,7 +315,7 @@ def seed_users():
 
         continuity_uid = user["continuity_uid"]
 
-        seed_user_links(railone_id)
+        seed_user_links( railone_id, continuity_uid)
 
         seed_user_accounts(
 

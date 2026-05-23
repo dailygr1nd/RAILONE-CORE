@@ -1,9 +1,11 @@
 # ==============================
 # execution/checkpoint_models.py
-# RailOne Execution Checkpoints
+# RailOne Execution Continuity
+# Replay Checkpoints
 # ==============================
 
 from sqlalchemy import (
+
     Column,
     String,
     Integer,
@@ -15,57 +17,122 @@ from sqlalchemy import (
 from datetime import datetime
 from uuid import uuid4
 
-from db import Base
+from ledger.db import Base
 
 
 # ==========================================
-# EXECUTION CHECKPOINTS
+# EXECUTION CHECKPOINT
 # ==========================================
 class ExecutionCheckpoint(Base):
 
-    __tablename__ = "execution_checkpoints"
+    __tablename__ = (
+        "execution_checkpoints"
+    )
 
     id = Column(
+
         String,
+
         primary_key=True,
-        default=lambda: str(uuid4())
+
+        default=lambda:
+            str(uuid4())
     )
 
-    tx_id = Column(
+    # --------------------------------
+    # EXECUTION CONTINUITY
+    # --------------------------------
+    utt_id = Column(
+
         String,
+
         nullable=False,
+
         index=True
     )
 
-    continuity_id = Column(
+    # --------------------------------
+    # ROUTE REALIZATION
+    # --------------------------------
+    rtt_id = Column(
+
         String,
+
         nullable=True,
+
         index=True
     )
 
-    checkpoint_state = Column(
+    # --------------------------------
+    # IDENTITY CONTINUITY
+    # --------------------------------
+    continuity_uid = Column(
+
         String,
+
+        nullable=True,
+
+        index=True
+    )
+
+    # --------------------------------
+    # CHECKPOINT STATE
+    # --------------------------------
+    checkpoint_state = Column(
+
+        String,
+
         nullable=False
     )
 
+    # --------------------------------
+    # REPLAY LINEAGE
+    # --------------------------------
+    lineage_parent = Column(
+
+        String,
+
+        nullable=True,
+
+        index=True
+    )
+
     replay_generation = Column(
+
         Integer,
+
         default=0
     )
 
+    # --------------------------------
+    # SNAPSHOT STATE
+    # --------------------------------
     execution_snapshot = Column(
+
         JSON,
+
         nullable=True
     )
 
+    # --------------------------------
+    # SNAPSHOT INTEGRITY
+    # --------------------------------
     integrity_hash = Column(
+
         String,
+
         nullable=True
     )
 
+    # --------------------------------
+    # TIMESTAMP
+    # --------------------------------
     created_at = Column(
+
         DateTime,
+
         default=datetime.utcnow,
+
         index=True
     )
 
@@ -73,12 +140,24 @@ class ExecutionCheckpoint(Base):
 # ==========================================
 # INDEXES
 # ==========================================
+
 Index(
-    "idx_checkpoint_tx",
-    ExecutionCheckpoint.tx_id
+    "idx_checkpoint_utt",
+    ExecutionCheckpoint.utt_id
+)
+
+Index(
+    "idx_checkpoint_rtt",
+    ExecutionCheckpoint.rtt_id
 )
 
 Index(
     "idx_checkpoint_continuity",
-    ExecutionCheckpoint.continuity_id
+    ExecutionCheckpoint.continuity_uid
+)
+
+Index(
+    "idx_checkpoint_lineage",
+    ExecutionCheckpoint.lineage_parent,
+    ExecutionCheckpoint.replay_generation
 )

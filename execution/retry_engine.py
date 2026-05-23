@@ -1,85 +1,129 @@
 # ==============================
 # execution/retry_engine.py
-# RailOne Retry Orchestrator
+# RailOne Deterministic Replay
+# Route Mutation Orchestrator
 # ==============================
 
 from uuid import uuid4
 
 from routing import get_best_route
 
-from transaction_engine import (
+from execution.execution_initiator import (
     initiate_transaction
 )
 
-from execution.event_store import (
+from execution.event_emitter import (
     emit_event
 )
 
 
 # ==========================================
-# RETRY FAILED EXECUTION
+# RETRY EXECUTION
 # ==========================================
-def retry_transaction(tx):
+def retry_execution(execution):
 
-    if tx["status"] != "FAILED":
+    # --------------------------------
+    # VALIDATE FAILURE STATE
+    # --------------------------------
+    if execution["state"] != "FAILED":
 
         return {
+
             "error":
-                "ONLY_FAILED_TX_CAN_BE_RETRIED"
+                "ONLY_FAILED_EXECUTIONS_CAN_BE_REPLAYED"
         }
 
     print(
-        f"🔁 Retrying TX "
-        f"{tx['tx_id']}"
+        f"🔁 Replaying Execution "
+        f"{execution['utt_id']}"
     )
 
     # ==========================================
-    # RECOMPUTE EXECUTION ROUTE
+    # MUTATE ROUTE REALIZATION
+    # ==========================================
+    new_rtt_id = (
+
+        f"RTT-"
+        f"{uuid4().hex[:12].upper()}"
+    )
+
+    # ==========================================
+    # RECOMPUTE ROUTE
     # ==========================================
     new_route = get_best_route(
 
         sender_currency=
-            tx["currency_from"],
+            execution["currency_from"],
 
         receiver_currency=
-            tx["currency_to"],
+            execution["currency_to"],
 
         amount=
-            tx["amount"],
+            execution["amount"],
 
         sender_account=
-            tx["sender_account"],
+            execution["sender_account"],
 
         receiver_account=
-            tx["receiver_account"]
+            execution["receiver_account"]
     )
 
     print(
-        f"🛰️ New route: "
+        f"🛰️ New RTT: "
+        f"{new_rtt_id}"
+    )
+
+    print(
+        f"🛰️ New Route: "
         f"{new_route}"
     )
 
     # ==========================================
-    # EMIT RETRY EVENT
+    # EMIT REPLAY EVENT
     # ==========================================
     emit_event(
 
-        tx_id=tx["tx_id"],
+        utt_id=
+            execution["utt_id"],
 
-        continuity_id=tx.get(
-            "continuity_id"
-        ),
+        rtt_id=
+            new_rtt_id,
 
-        event_type="RETRY_INITIATED",
+        continuity_uid=
+            execution.get(
+                "continuity_uid"
+            ),
 
-        previous_state="FAILED",
+        event_type=
+            "REPLAY_INITIATED",
 
-        new_state="RETRYING",
+        previous_state=
+            "FAILED",
+
+        new_state=
+            "REPLAY_REQUIRED",
 
         payload={
+
             "new_route":
-                new_route
-        }
+                new_route,
+
+            "previous_rtt":
+                execution.get(
+                    "rtt_id"
+                )
+        },
+
+        lineage_parent=
+            execution.get(
+                "rtt_id"
+            ),
+
+        replay_generation=
+            execution.get(
+                "replay_generation",
+                0
+            ) + 1
     )
 
     # ==========================================
@@ -88,22 +132,34 @@ def retry_transaction(tx):
     return initiate_transaction(
 
         sender_account=
-            tx["sender_account"],
+            execution["sender_account"],
 
         receiver_account=
-            tx["receiver_account"],
+            execution["receiver_account"],
 
         amount=
-            tx["amount"],
+            execution["amount"],
 
         sender_currency=
-            tx["currency_from"],
+            execution["currency_from"],
 
         receiver_currency=
-            tx["currency_to"],
+            execution["currency_to"],
 
         idempotency_key=
             str(uuid4()),
 
-        retry=True
+        retry=True,
+
+        existing_utt=
+            execution["utt_id"],
+
+        rtt_id=
+            new_rtt_id,
+
+        replay_generation=
+            execution.get(
+                "replay_generation",
+                0
+            ) + 1
     )

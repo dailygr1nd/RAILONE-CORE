@@ -1,664 +1,354 @@
-# RailOne Protocol System (RPS)
+You covered a massive amount of architectural ground today. This is the kind of session where a protocol starts becoming internally coherent instead of a collection of modules.
 
-## Deterministic Non-Custodial Cross‑Rail Execution Continuity Infrastructure
-
-RailOne is a non-custodial bilateral execution coordination protocol designed to establish deterministic execution continuity across fragmented African financial rails.
-
-Rather than acting as:
-
-* a bank,
-* a custodial wallet,
-* a settlement network,
-* or a mirrored_available_state-holding platform,
-
-RailOne operates as:
-
-* an execution continuity infrastructure layer,
-* a bilateral orchestration protocol,
-* a replay-safe transaction coordination engine,
-* and a trust-oriented interoperability fabric.
-
-The protocol is specifically optimized for:
-
-* cross-border P2P transfers,
-* wallet-to-bank execution,
-* bank-to-wallet execution,
-* wallet-to-wallet interoperability,
-* and bank-to-bank coordination across heterogeneous African rails.
-
----
-
-# Core Philosophy
-
-## Continuity Over Isolated Execution
-
-Traditional payment systems optimize for:
-
-* routing,
-* switching,
-* settlement dispatch,
-* or payment initiation.
-
-RailOne instead optimizes for:
-
-> deterministic execution continuity.
-
-RailOne treats transactions not as isolated status records, but as:
-
-* evolving continuity objects,
-* replay-safe lineage systems,
-* bilateral execution sessions,
-* and canonical orchestration histories.
-
-The protocol assumes fragmented financial rails are:
-
-* asynchronous,
-* operationally inconsistent,
-* callback-fragmented,
-* and occasionally adversarial.
-
-Instead of assuming perfect execution, RailOne prioritizes:
-
-* graceful failure handling,
-* deterministic replay reconstruction,
-* attributable execution lineage,
-* canonical orchestration continuity,
-* and operational explainability.
-
----
-
-# Strategic Positioning
-
-## RailOne IS NOT
-
-RailOne is NOT:
-
-* a custodial wallet,
-* a ledger-centric fintech,
-* a liquidity holder,
-* a treasury institution,
-* a neobank,
-* or a traditional payment switch.
-
-RailOne does NOT:
-
-* custody user funds,
-* maintain customer mirrored_available_states,
-* replace settlement rails,
-* own institutional liquidity,
-* or perform omnibus custody.
-
-Underlying funds remain within participating:
-
-* banks,
-* mobile money operators,
-* PSPs,
-* and institutional settlement rails.
-
----
-
-# What RailOne Actually Is
-
-RailOne is:
-
-## A Deterministic Bilateral Execution Coordination Protocol
-
-The protocol coordinates:
-
-* bilateral execution participation,
-* deterministic orchestration,
-* replay-safe transaction continuity,
-* execution provenance,
-* institutional interoperability semantics,
-* and cross-rail execution trust continuity.
-
-RailOne sits:
-
-* above fragmented rails,
-* outside custody,
-* and alongside institutions.
-
-The protocol coordinates execution continuity without taking custody of value.
-
----
-
-# High-Level Architecture
+Here’s a solid README draft you can drop into:
 
 ```text
-+---------------------------------------------------+
-|                RailOne Client Apps                |
-+---------------------------------------------------+
-                         ↓
-+---------------------------------------------------+
-|            Bilateral Session Layer                |
-|     Consent • Participation • Attribution         |
-+---------------------------------------------------+
-                         ↓
-+---------------------------------------------------+
-|         Execution Coordination Engine             |
-|  Replay Safety • Orchestration • Continuity       |
-+---------------------------------------------------+
-                         ↓
-+---------------------------------------------------+
-|       Institutional Integration Adapters          |
-| Banks • Mobile Money • PSPs • Corridors           |
-+---------------------------------------------------+
-                         ↓
-+---------------------------------------------------+
-|              Settlement Infrastructure            |
-+---------------------------------------------------+
+README_EXECUTION_REFACTOR.md
 ```
 
 ---
 
-# Current Protocol Architecture
+# RailOne Execution Continuity Refactor — Progress Log
 
-## 1. Identity Continuity Layer
+## Overview
 
-RailOne identity architecture is designed around:
+Today marked a major architectural migration of RailOne from traditional transaction semantics into deterministic execution continuity semantics.
 
-> immutable continuity with bounded evolution.
+The system was significantly refactored to align with RailOne’s evolving protocol model centered around:
 
-### Components
+* UTT (Universal Transaction Thread)
+* RTT (Route Realization Thread)
+* ETK-S / ETK-R execution attestations
+* execution continuity
+* replay lineage
+* deterministic retries
+* route mutation
+* replay reconstruction
+* checkpoint orchestration
 
-| Component   | Purpose                                             |
-| ----------- | --------------------------------------------------- |
-| RIG         | Immutable identity genesis anchor                   |
-| RIO         | Persistent institutional identity continuity object |
-| RIV         | Bounded identity evolution state                    |
-| Trust Tiers | Institution-readable trust classification           |
-| ZK-SD       | Selective disclosure verification layer             |
+This migration establishes the foundation for:
 
-### Canonical Identity Example
+* dead-letter replay
+* execution graph reconstruction
+* partial settlement recovery
+* deterministic replay generations
+* institutional execution orchestration
+* replay-safe distributed execution
+
+---
+
+# Major Refactors Completed
+
+## 1. Semantic Migration
+
+The protocol ontology was migrated from:
 
 ```text
-R1-EA-T3-84F2A91
+transaction → execution
+tx_id → utt_id
+TransactionState → ExecutionState
+TransactionContext → ExecutionContext
 ```
 
-| Segment | Meaning               |
-| ------- | --------------------- |
-| R1      | RailOne namespace     |
-| EA      | Corridor region       |
-| T3      | Trust tier            |
-| 84F2A91 | Continuity identifier |
+This was a major architectural transition away from conventional fintech transaction processing into execution continuity orchestration.
 
-### Current Prototype Status
+---
 
-Current implementation includes:
+# 2. Execution State Machine Rewritten
 
-* identity generation,
-* continuity identifiers,
-* trust-oriented identity semantics,
-* and attestation-aware identity progression.
+The execution state engine was rebuilt to support:
 
-Current prototype file:
+* deterministic state transitions
+* replay lineage tracking
+* RTT-aware execution flow
+* checkpoint reconstruction
+* event emission
+* future replay orchestration
+
+New execution states introduced include:
+
+* HANDSHAKE_VERIFIED
+* EXECUTION_STARTED
+* EXECUTION_CONFIRMED
+* REPLAY_REQUIRED
+* RECONCILIATION_PENDING
+* FINALIZED
+* ROLLED_BACK
+
+---
+
+# 3. Replay Architecture Introduced
+
+Replay infrastructure was redesigned around:
+
+## Canonical Objects
+
+| Object            | Responsibility              |
+| ----------------- | --------------------------- |
+| UTT               | Global execution continuity |
+| RTT               | Route realization lineage   |
+| replay_generation | Execution mutation lineage  |
+
+Replay functionality now supports:
+
+* execution replay
+* lineage reconstruction
+* route mutation
+* replay generations
+* dead-letter recovery foundations
+
+---
+
+# 4. Execution Event Infrastructure
+
+Execution event architecture was rebuilt to support:
+
+* immutable execution history
+* replay reconstruction
+* deterministic state auditing
+* lineage-aware orchestration
+
+Execution events now include:
+
+* utt_id
+* rtt_id
+* continuity_uid
+* replay_generation
+* lineage_parent
+
+---
+
+# 5. Checkpointing System Introduced
+
+Execution checkpointing was implemented for:
+
+* replay reconstruction
+* execution recovery
+* deterministic replay continuity
+* integrity verification
+
+Checkpoint integrity hashes are now generated using SHA-256 snapshot hashing.
+
+---
+
+# 6. Handshake Engine Rewritten
+
+The handshake system was fully migrated into execution semantics.
+
+Current handshake flow:
 
 ```text
-identity_engine.py
+IDENTITY_VERIFIED
+→ ETK-S intent lock
+→ ETK-R receiver confirmation
+→ HANDSHAKE_VERIFIED
 ```
 
-Example:
+The handshake now establishes:
 
-```python
-return "R1-" + uuid.uuid4().hex[:10].upper()
-```
-
-Future architecture evolution includes:
-
-* full RIG/RIO/RIV lineage,
-* institutional attestation portability,
-* replay-safe identity reconstruction,
-* and privacy-preserving verification semantics.
+* execution continuity
+* RTT initialization
+* ETK attestation linkage
+* replay-aware execution state
 
 ---
 
-# 2. Bilateral Execution Session Layer
+# 7. Execution Queue Refactor
 
-RailOne introduces:
+Execution queue semantics were rewritten from transaction processing into:
 
-> bilateral execution participation.
+* execution orchestration
+* replay-aware queueing
+* dead-letter continuity support
+* execution lineage persistence
 
-Unlike traditional push-based systems where:
+Redis queue architecture now supports:
+
+* execution_queue
+* dead_letter_queue
+
+---
+
+# 8. Execution Verification Engine
+
+Verification logic was redesigned around:
+
+* execution continuity validation
+* RTT verification
+* route binding verification
+* ETK attestation verification
+* replay lineage integrity
+
+Verification now validates:
+
+* UTT continuity
+* RTT integrity
+* route hashes
+* execution actors
+* execution value semantics
+* replay lineage
+
+---
+
+# 9. Execution Initiation Engine
+
+The former transaction engine was rebuilt into:
 
 ```text
-Sender → Receiver
+execution_initiator.py
 ```
 
-RailOne establishes:
+This now orchestrates:
+
+* handshake initialization
+* quote validation
+* route binding
+* RTT generation
+* execution checkpointing
+* execution queueing
+* deterministic execution continuity
+
+---
+
+# 10. Continuity Reconstruction Engine
+
+A replay reconstruction engine was introduced to support:
+
+* execution continuity reconstruction
+* execution lineage analysis
+* replay generation tracing
+* execution graph auditing
+
+This lays the foundation for:
+
+* institutional replay tooling
+* execution auditability
+* forensic settlement reconstruction
+
+---
+
+# 11. Identity Continuity Stabilization
+
+RailOneID continuity behavior was stabilized across:
+
+* onboarding
+* network seeding
+* simulation environment
+* execution continuity
+
+The simulator and seeding systems now produce matching:
+
+* RailOne IDs
+* continuity UIDs
+* execution account mappings
+
+---
+
+# 12. Institutional Cryptographic Bootstrapping
+
+Institution onboarding and cryptographic persistence now support:
+
+* persistent RSA key storage
+* institution trust registration
+* automatic bootstrap recovery
+* trust registry synchronization
+
+---
+
+# 13. Simulation Environment Refactored
+
+The simulator was upgraded to support:
+
+* execution semantics
+* continuity reconstruction
+* replay execution
+* execution history
+* multi-account execution routing
+
+The simulation environment now behaves closer to a real execution orchestration network.
+
+---
+
+# Architectural Direction Established
+
+RailOne is no longer behaving like a traditional fintech transaction processor.
+
+The architecture is now evolving toward:
+
+# Deterministic Execution Continuity Infrastructure
+
+Core emerging primitives include:
+
+| Primitive         | Responsibility                  |
+| ----------------- | ------------------------------- |
+| RailOneID         | Identity continuity             |
+| continuity_uid    | Identity lineage                |
+| UTT               | Canonical execution continuity  |
+| RTT               | Route realization continuity    |
+| ETK-S             | Sender execution intent         |
+| ETK-R             | Receiver execution confirmation |
+| replay_generation | Execution mutation lineage      |
+
+---
+
+# Current Protocol Capabilities
+
+RailOne now has foundational support for:
+
+* deterministic execution continuity
+* replay-safe orchestration
+* route mutation
+* execution lineage
+* checkpoint recovery
+* execution reconstruction
+* execution attestations
+* execution event replay
+* replay-aware state transitions
+
+---
+
+# Remaining Work
+
+## Near-Term
+
+* stabilize remaining semantic migrations
+* finish transaction → execution terminology cleanup
+* stabilize replay orchestration
+* improve quote engine realism
+* implement minimum execution thresholds
+* introduce liquidity-aware pricing
+* finalize checkpoint recovery flows
+
+## Medium-Term
+
+* dead-letter replay
+* partial settlement recovery
+* deterministic route mutation
+* institutional execution rails
+* execution graph visualization
+* replay-safe compensating events
+
+## Long-Term
+
+* institutional settlement orchestration
+* CBDC execution compatibility
+* distributed execution mesh
+* liquidity federation
+* institutional bulk execution continuity
+
+---
+
+# Key Outcome
+
+Today’s work transformed RailOne from:
 
 ```text
-Sender ↔ Session ↔ Receiver
+a transaction-processing prototype
 ```
 
-This creates:
+into:
 
-* mutual participant awareness,
-* deterministic consent lineage,
-* execution attribution,
-* and replay-safe orchestration context.
-
-## Session Lifecycle
-
-```text
-SESSION_INITIATED
-↓
-PARTICIPANT_DISCOVERED
-↓
-RECEIVER_ATTESTED
-↓
-EXECUTION_INTENT_CREATED
-↓
-ETK-S_GENERATED
-↓
-ETK-R_DERIVED
-↓
-RTT_GENERATED
-↓
-ROUTE_COMPUTED
-↓
-EXECUTION_LOCKED
-↓
-EXECUTION_STARTED
-↓
-SETTLEMENT_CONFIRMED
-↓
-UTT_ISSUED
-↓
-FINALIZED
-```
-
----
-
-# 3. Execution Trust Architecture
-
-RailOne introduces bounded execution authority using:
-
-## Execution Trust Keys (ETKs)
-
-### ETK-S
-
-Sender execution authority.
-
-### ETK-R
-
-Receiver execution authority derived from:
-
-* bilateral continuity,
-* session lineage,
-* and sender trust establishment.
-
-These keys preserve:
-
-* attributable execution,
-* deterministic participation lineage,
-* replay-safe ancestry,
-* and bounded execution authority.
-
----
-
-# 4. Route Trust Token (RTT)
-
-The RTT is NOT merely a transaction reference.
-
-The RTT represents:
-
-> a canonical orchestration continuity object.
-
-The RTT tracks:
-
-* route continuity,
-* execution progression,
-* orchestration lineage,
-* retry ancestry,
-* replay reconstruction references,
-* and corridor execution continuity.
-
-Current prototype implementation includes:
-
-* RTT verification,
-* signature validation,
-* and execution verification.
-
-Example from current implementation:
-
-```python
-if not TokenFactory.verify(
-    payload,
-    signature,
-    "R1CORE"
-):
-    raise Exception(
-        "RTT_VERIFICATION_FAILED"
-    )
-```
-
----
-
-# 5. Unified Transaction Token (UTT)
-
-The UTT represents:
-
-> canonical execution continuity proof.
-
-The UTT persists across:
-
-* retries,
-* replay reconstruction,
-* settlement coordination,
-* compensating events,
-* and execution recovery.
-
-The UTT does NOT represent custody.
-
-It represents:
-
-* execution continuity,
-* orchestration proof,
-* settlement lineage,
-* and replay-safe historical attribution.
-
-Current implementation includes:
-
-```python
-utt = TokenFactory.generate_utt(
-    "R1CORE"
-)
-```
-
----
-
-# 6. Deterministic Execution Engine
-
-The execution engine is responsible for:
-
-* execution verification,
-* continuity enforcement,
-* attestation validation,
-* replay-safe orchestration,
-* and settlement progression.
-
-Current prototype implementation includes:
-
-* RTT verification,
-* transaction verification,
-* settlement finalization,
-* event dispatching,
-* and execution logging.
-
-Prototype files:
-
-```text
-execution_engine.py
-settlement_engine.py
-execution_worker.py
-execution_queue.py
-failure_handler.py
-```
-
----
-
-# 7. Replay & Provenance Infrastructure
-
-Replay reconstruction is foundational to RailOne.
-
-The replay architecture attempts to preserve:
-
-* canonical event continuity,
-* settlement lineage integrity,
-* deterministic historical reconstruction,
-* and replay-safe execution ancestry.
-
-## Canonical Replay Example
-
-```text
-Sender Debited
-↓
-Settlement Callback Missing
-↓
-Replay Checkpoints Loaded
-↓
-Canonical Lineage Validated
-↓
-Execution Continuity Reconstructed
-↓
-Authoritative State Determined
-```
-
-This architecture is one of RailOne’s primary strategic moats.
-
-The long-term goal is to establish:
-
-* authoritative replay continuity,
-* deterministic interoperability semantics,
-* and trusted execution provenance infrastructure.
-
----
-
-# 8. Failure Semantics
-
-RailOne assumes:
-
-> fragmented execution environments are inherently asynchronous and imperfect.
-
-The protocol explicitly models:
-
-* delayed settlement,
-* callback inconsistency,
-* retry events,
-* route degradation,
-* settlement divergence,
-* and reconciliation ambiguity.
-
-## Canonical Failure States
-
-```text
-FAILED
-REPLAY_REQUIRED
-SETTLEMENT_DIVERGENCE
-ROUTE_DEGRADED
-EXECUTION_TIMEOUT
-FRAUD_ESCALATION
-RECONCILIATION_PENDING
-```
-
-RailOne prioritizes:
-
-* graceful recovery,
-* deterministic reconstruction,
-* and attributable operational truth.
-
----
-
-# Institutional Participation Model
-
-RailOne is designed to coexist with institutions rather than replace them.
-
-Participating institutions remain responsible for:
-
-* custody,
-* settlement,
-* liquidity ownership,
-* compliance,
-* and account management.
-
-RailOne coordinates:
-
-* orchestration continuity,
-* bilateral trust establishment,
-* execution lineage,
-* replay-safe reconstruction,
-* and interoperability semantics.
-
-## Institutional Benefits
-
-RailOne attempts to reduce:
-
-* reconciliation overhead,
-* interoperability fragmentation,
-* callback inconsistency,
-* execution ambiguity,
-* and operational uncertainty.
-
-The architecture is intended to strengthen:
-
-* execution confidence,
-* transaction observability,
-* deterministic replayability,
-* and attributable settlement continuity.
-
----
-
-# Current Prototype Components
-
-## Current Modules
-
-The prototype currently contains infrastructure modules for:
-
-### Core Execution
-
-* execution_engine.py
-* execution_worker.py
-* execution_queue.py
-* settlement_engine.py
-* failure_handler.py
-
-### Identity & Trust
-
-* identity_engine.py
-* attestation_engine.py
-* auth_engine.py
-* auth_registry.py
-
-### Routing & Corridor Infrastructure
-
-* routing_engine.py
-* corridor_fx_model.py
-* corridor_pricing_engine.py
-* fx_engine.py
-
-### Institutional Integration
-
-* bank_ke.py
-* bank_tz.py
-* bank_ug.py
-* mpesa.py
-* webhook_dispatcher.py
-
-### Security & Compliance
-
-* fraud_engine.py
-* compliance.py
-* audit.py
-* tx_verifier.py
-
-### Ledger Migration Note
-
-Some prototype modules still contain legacy ledger-oriented implementation logic.
-
-This is transitional.
-
-RailOne architecture is actively evolving away from:
-
-* custodial semantics,
-* mirrored_available_state-centric infrastructure,
-* and ledger-first execution design.
-
-The long-term architecture direction prioritizes:
-
-* orchestration continuity,
-* bilateral execution sessions,
-* provenance infrastructure,
-* replay-safe coordination,
-* and non-custodial institutional interoperability.
-
----
-
-# African Interoperability Focus
-
-RailOne is specifically optimized for fragmented African financial ecosystems where execution environments may involve:
-
-* mobile money rails,
-* bank APIs,
-* PSP corridors,
-* FX intermediaries,
-* regional switches,
-* payout systems,
-* and heterogeneous settlement infrastructure.
-
-The protocol intentionally prioritizes:
-
-* rail coexistence,
-* institutional compatibility,
-* asynchronous execution resilience,
-* and corridor-level adaptability.
-
----
-
-# Security Priorities
-
-RailOne assumes adversarial distributed execution environments.
-
-Security priorities include:
-
-* deterministic replay validation,
-* immutable lineage,
-* attributable execution continuity,
-* revocation propagation,
-* bounded authority,
-* and canonical historical reconstruction.
-
-Potential threat categories include:
-
-* replay attacks,
-* execution spoofing,
-* route manipulation,
-* duplicate execution,
-* settlement divergence,
-* and attestation compromise.
-
----
-
-# Long-Term Vision
-
-RailOne is evolving toward:
-
-> a deterministic non-custodial cross‑rail execution continuity protocol for Africa.
-
-The architecture combines:
-
-* bilateral execution sessions,
-* replay-safe transaction continuity,
-* canonical execution provenance,
-* attestation-driven orchestration,
-* institutional trust portability,
-* and deterministic interoperability semantics.
-
-The long-term objective is to establish:
-
-* institution-compatible interoperability,
-* replay-safe execution continuity,
-* deterministic orchestration infrastructure,
-* and trusted cross-rail coordination across fragmented African financial ecosystems.
-
----
-
-# Development Status
-
-Current Status:
-
-```text
-Architecture Prototype / Infrastructure Draft
-```
-
-Current implementation is focused on:
-
-* protocol semantics,
-* execution continuity primitives,
-* orchestration infrastructure,
-* replay-safe lifecycle modeling,
-* and institutional interoperability coordination.
-
-The architecture is actively evolving.
+# an emerging deterministic execution continuity protocol.
 
 ---
 

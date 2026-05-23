@@ -12,7 +12,7 @@ import uuid
 
 from typing import Dict, Any, List, Optional
 
-from execution.state_machine import TransactionState
+from execution.state_machine import ExecutionState
 
 
 # ==========================================
@@ -26,7 +26,7 @@ class ContinuityEnvelope:
     def __init__(
         self,
         payload: Dict[str, Any],
-        continuity_id: Optional[str] = None,
+        continuity_uid: Optional[str] = None,
         lineage_parent: Optional[str] = None,
         replay_generation: int = 0
     ):
@@ -34,17 +34,21 @@ class ContinuityEnvelope:
         # --------------------------------
         # EXECUTION ATTEMPT ID
         # --------------------------------
-        self.tx_id = (
+        self.utt_id = (
             f"R1EXEC-{uuid.uuid4().hex[:12].upper()}"
         )
 
         # --------------------------------
         # CONTINUITY LINEAGE ID
         # --------------------------------
-        self.continuity_id = (
-            continuity_id or
-            f"R1CONT-{uuid.uuid4().hex[:16].upper()}"
-        )
+        if not continuity_uid:
+
+           raise ValueError(
+               "continuity_uid required"
+            )
+
+        self.continuity_uid = (
+            continuity_uid)
 
         # --------------------------------
         # LINEAGE ANCESTRY
@@ -72,7 +76,7 @@ class ContinuityEnvelope:
         # --------------------------------
         # EXECUTION STATE
         # --------------------------------
-        self.state = TransactionState.INIT.value
+        self.state = ExecutionState.INIT.value
 
         # --------------------------------
         # BILATERAL ATTESTATIONS
@@ -120,7 +124,7 @@ class ContinuityEnvelope:
         # --------------------------------
         # RTT + ETK REFERENCES
         # --------------------------------
-        self.rtt = None
+        self.rtt_id = None
 
         self.etk_s = None
 
@@ -132,8 +136,8 @@ class ContinuityEnvelope:
         self._record_event(
             event_type="CONTINUITY_CREATED",
             payload={
-                "tx_id": self.tx_id,
-                "continuity_id": self.continuity_id
+                "utt_id": self.utt_id,
+                "continuity_uid": self.continuity_uid
             }
         )
 
@@ -171,9 +175,9 @@ class ContinuityEnvelope:
 
             "event_type": event_type,
 
-            "tx_id": self.tx_id,
+            "utt_id": self.utt_id,
 
-            "continuity_id": self.continuity_id,
+            "continuity_uid": self.continuity_uid,
 
             "lineage_parent": self.lineage_parent,
 
@@ -306,9 +310,9 @@ class ContinuityEnvelope:
 
             "checkpoint_type": checkpoint_type,
 
-            "tx_id": self.tx_id,
+            "utt_id": self.utt_id,
 
-            "continuity_id": self.continuity_id,
+            "continuity_uid": self.continuity_uid,
 
             "timestamp": time.time(),
 
@@ -421,7 +425,7 @@ class ContinuityEnvelope:
         etk_r: str
     ):
 
-        self.rtt = rtt
+        self.rtt_id = rtt
 
         self.etk_s = etk_s
 
@@ -445,10 +449,10 @@ class ContinuityEnvelope:
 
         return {
 
-            "tx_id": self.tx_id,
+            "utt_id": self.utt_id,
 
-            "continuity_id":
-                self.continuity_id,
+            "continuity_uid":
+                self.continuity_uid,
 
             "lineage_parent":
                 self.lineage_parent,
@@ -484,10 +488,10 @@ class ContinuityEnvelope:
 
         return {
 
-            "tx_id": self.tx_id,
+            "utt_id": self.utt_id,
 
-            "continuity_id":
-                self.continuity_id,
+            "continuity_uid":
+                self.continuity_uid,
 
             "lineage_parent":
                 self.lineage_parent,
@@ -544,7 +548,7 @@ class ContinuityEnvelope:
                 self.execution_reference,
 
             "rtt":
-                self.rtt,
+                self.rtt_id,
 
             "etk_s":
                 self.etk_s,

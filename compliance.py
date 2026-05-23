@@ -28,16 +28,16 @@ class ComplianceEngine:
     # -------------------------
     # SANCTIONS / BLACKLIST
     # -------------------------
-    def check_blacklist(self, nid):
-        if nid in BLACKLISTED_IDS:
+    def check_blacklist(self, national_id):
+        if national_id in BLACKLISTED_IDS:
             return False, "SANCTIONS_BLOCK"
         return True, None
 
     # -------------------------
     # PEP CHECK
     # -------------------------
-    def check_pep(self, nid):
-        if nid in PEP_IDS:
+    def check_pep(self, national_id):
+        if national_id in PEP_IDS:
             return True, "PEP_REVIEW_REQUIRED"
         return True, None
 
@@ -102,12 +102,12 @@ class ComplianceEngine:
 _engine = ComplianceEngine()
 
 
-def check_blacklist(nid):
-    return _engine.check_blacklist(nid)
+def check_blacklist(national_id):
+    return _engine.check_blacklist(national_id)
 
 
-def check_pep(nid):
-    return _engine.check_pep(nid)
+def check_pep(national_id):
+    return _engine.check_pep(national_id)
 
 
 def check_tier(sender, amount):

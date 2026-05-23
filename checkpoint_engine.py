@@ -15,9 +15,11 @@ from execution.event_store import ExecutionEvent
 # ==========================================
 def create_checkpoint(
 
-    continuity_id,
+    continuity_uid,
 
-    tx_id,
+    utt_id,
+
+    rtt_id,
 
     checkpoint_type,
 
@@ -34,9 +36,11 @@ def create_checkpoint(
 
         checkpoint_event = ExecutionEvent(
 
-            tx_id=tx_id,
+            utt_id=utt_id,
 
-            continuity_id=continuity_id,
+            continuity_uid=continuity_uid,
+
+            rtt_id=rtt_id,
 
             event_type="CHECKPOINT",
 
@@ -98,7 +102,7 @@ def create_checkpoint(
 # LOAD LAST CHECKPOINT
 # ==========================================
 def load_latest_checkpoint(
-    continuity_id
+    continuity_uid
 ):
 
     session = SessionLocal()
@@ -110,8 +114,8 @@ def load_latest_checkpoint(
             session.query(ExecutionEvent)
 
             .filter(
-                ExecutionEvent.continuity_id
-                == continuity_id
+                ExecutionEvent.continuity_uid
+                == continuity_uid
             )
 
             .filter(
@@ -141,11 +145,14 @@ def load_latest_checkpoint(
 
             "checkpoint": {
 
-                "tx_id":
-                    checkpoint.tx_id,
+                "utt_id":
+                    checkpoint.utt_id,
 
-                "continuity_id":
-                    checkpoint.continuity_id,
+                "rtt_id":
+                    checkpoint.rtt_id,
+
+                "continuity_uid":
+                    checkpoint.continuity_uid,
 
                 "payload":
                     checkpoint.payload,
@@ -173,11 +180,11 @@ def load_latest_checkpoint(
 # CHECKPOINT SUMMARY
 # ==========================================
 def summarize_checkpoint(
-    continuity_id
+    continuity_uid
 ):
 
     result = load_latest_checkpoint(
-        continuity_id
+        continuity_uid
     )
 
     if not result["success"]:
@@ -196,12 +203,16 @@ def summarize_checkpoint(
 
     print(
         f"Continuity ID: "
-        f"{checkpoint['continuity_id']}"
+        f"{checkpoint['continuity_uid']}"
     )
 
     print(
-        f"TX ID: "
-        f"{checkpoint['tx_id']}"
+        f"UTT ID: "
+        f"{checkpoint['utt_id']}"
+    )
+    print(
+        f"RTT ID: "
+        f"{checkpoint['rtt_id']}"
     )
 
     print(

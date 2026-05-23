@@ -103,7 +103,7 @@ class TokenFactory:
     def generate_rtt_with_quote(
         etk_s,
         etk_r,
-        tx_id,
+        utt_id,
         pricing: dict,
         quote_id: str,
         institution_id: str
@@ -114,7 +114,7 @@ class TokenFactory:
      pricing_str = json.dumps(pricing, sort_keys=True)
      pricing_hash = hashlib.sha256(pricing_str.encode()).hexdigest()[:32]
 
-     payload = f"RTT|{etk_s}|{etk_r}|{tx_id}|{pricing_hash}|{quote_id}"
+     payload = f"RTT|{etk_s}|{etk_r}|{utt_id}|{pricing_hash}|{quote_id}"
 
      token = TokenFactory._hash(payload)
      signature = TokenFactory.sign(payload, institution_id)

@@ -38,7 +38,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_accounts_provider'), 'accounts', ['provider'], unique=False)
     op.create_table('attestations',
     sa.Column('id', sa.String(), nullable=False),
-    sa.Column('tx_id', sa.String(), nullable=True),
+    sa.Column('utt_id', sa.String(), nullable=True),
     sa.Column('institution_id', sa.String(), nullable=True),
     sa.Column('attestation_type', sa.String(), nullable=True),
     sa.Column('signature', sa.String(), nullable=True),
@@ -47,8 +47,8 @@ def upgrade() -> None:
     )
     op.create_table('execution_checkpoints',
     sa.Column('id', sa.String(), nullable=False),
-    sa.Column('tx_id', sa.String(), nullable=False),
-    sa.Column('continuity_id', sa.String(), nullable=True),
+    sa.Column('utt_id', sa.String(), nullable=False),
+    sa.Column('continuity_uid', sa.String(), nullable=True),
     sa.Column('checkpoint_state', sa.String(), nullable=False),
     sa.Column('replay_generation', sa.Integer(), nullable=True),
     sa.Column('execution_snapshot', sa.JSON(), nullable=True),
@@ -56,15 +56,15 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index('idx_checkpoint_continuity', 'execution_checkpoints', ['continuity_id'], unique=False)
-    op.create_index('idx_checkpoint_tx', 'execution_checkpoints', ['tx_id'], unique=False)
-    op.create_index(op.f('ix_execution_checkpoints_continuity_id'), 'execution_checkpoints', ['continuity_id'], unique=False)
+    op.create_index('idx_checkpoint_continuity', 'execution_checkpoints', ['continuity_uid'], unique=False)
+    op.create_index('idx_checkpoint_tx', 'execution_checkpoints', ['utt_id'], unique=False)
+    op.create_index(op.f('ix_execution_checkpoints_continuity_id'), 'execution_checkpoints', ['continuity_uid'], unique=False)
     op.create_index(op.f('ix_execution_checkpoints_created_at'), 'execution_checkpoints', ['created_at'], unique=False)
-    op.create_index(op.f('ix_execution_checkpoints_tx_id'), 'execution_checkpoints', ['tx_id'], unique=False)
+    op.create_index(op.f('ix_execution_checkpoints_tx_id'), 'execution_checkpoints', ['utt_id'], unique=False)
     op.create_table('execution_events',
     sa.Column('id', sa.String(), nullable=False),
-    sa.Column('tx_id', sa.String(), nullable=False),
-    sa.Column('continuity_id', sa.String(), nullable=True),
+    sa.Column('utt_id', sa.String(), nullable=False),
+    sa.Column('continuity_uid', sa.String(), nullable=True),
     sa.Column('event_type', sa.String(), nullable=False),
     sa.Column('previous_state', sa.String(), nullable=True),
     sa.Column('new_state', sa.String(), nullable=True),
@@ -73,11 +73,11 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index('idx_execution_continuity', 'execution_events', ['continuity_id'], unique=False)
-    op.create_index('idx_execution_tx_state', 'execution_events', ['tx_id', 'new_state'], unique=False)
-    op.create_index(op.f('ix_execution_events_continuity_id'), 'execution_events', ['continuity_id'], unique=False)
+    op.create_index('idx_execution_continuity', 'execution_events', ['continuity_uid'], unique=False)
+    op.create_index('idx_execution_tx_state', 'execution_events', ['utt_id', 'new_state'], unique=False)
+    op.create_index(op.f('ix_execution_events_continuity_id'), 'execution_events', ['continuity_uid'], unique=False)
     op.create_index(op.f('ix_execution_events_created_at'), 'execution_events', ['created_at'], unique=False)
-    op.create_index(op.f('ix_execution_events_tx_id'), 'execution_events', ['tx_id'], unique=False)
+    op.create_index(op.f('ix_execution_events_tx_id'), 'execution_events', ['utt_id'], unique=False)
     op.create_table('identity_attestations',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('continuity_uid', sa.String(), nullable=True),
@@ -115,7 +115,7 @@ def upgrade() -> None:
     )
     op.create_table('journal_entries',
     sa.Column('id', sa.String(), nullable=False),
-    sa.Column('tx_id', sa.String(), nullable=True),
+    sa.Column('utt_id', sa.String(), nullable=True),
     sa.Column('account_id', sa.String(), nullable=True),
     sa.Column('amount', sa.Float(), nullable=True),
     sa.Column('entry_type', sa.String(), nullable=True),
@@ -164,7 +164,7 @@ def upgrade() -> None:
     op.create_index('idx_riv_continuity_uid', 'riv_objects', ['continuity_uid'], unique=False)
     op.create_index('idx_riv_revision', 'riv_objects', ['revision'], unique=False)
     op.create_table('transactions',
-    sa.Column('tx_id', sa.String(), nullable=False),
+    sa.Column('utt_id', sa.String(), nullable=False),
     sa.Column('sender_account', sa.String(), nullable=True),
     sa.Column('receiver_account', sa.String(), nullable=True),
     sa.Column('amount', sa.Float(), nullable=True),
@@ -177,7 +177,7 @@ def upgrade() -> None:
     sa.Column('profit', sa.Float(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
-    sa.PrimaryKeyConstraint('tx_id')
+    sa.PrimaryKeyConstraint('utt_id')
     )
     op.create_table('user_account_links',
     sa.Column('id', sa.String(), nullable=False),

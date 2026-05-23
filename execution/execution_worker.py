@@ -9,13 +9,13 @@ import redis
 
 from uuid import uuid4
 
-from execution_queue import (
+from execution.execution_queue import (
     dequeue_tx,
     send_to_dead_letter,
     update_tx
 )
 
-from execution_engine import (
+from execution.execution_engine import (
     process_execution
 )
 
@@ -32,7 +32,7 @@ from revenue_engine import (
     extract_revenue
 )
 
-from tx_verifier import (
+from execution.execution_verifier import (
     verify_transaction
 )
 
@@ -49,7 +49,7 @@ from execution.state_machine import (
     TransactionState
 )
 
-from continuity_reconstructor import (
+from execution.continuity_reconstructor import (
     reconstruct_continuity
 )
 
@@ -69,18 +69,18 @@ r = redis.Redis(
 # ==========================================
 # REPLAY PROTECTION
 # ==========================================
-def already_processed(tx_id):
+def already_processed(utt_id):
 
     return (
-        r.get(f"processed:{tx_id}")
+        r.get(f"processed:{utt_id}")
         is not None
     )
 
 
-def mark_processed(tx_id):
+def mark_processed(utt_id):
 
     r.setex(
-        f"processed:{tx_id}",
+        f"processed:{utt_id}",
         3600,
         "1"
     )
@@ -91,26 +91,26 @@ def mark_processed(tx_id):
 # ==========================================
 def build_context(tx):
 
-    continuity_id = tx.get(
-        "continuity_id"
+    continuity_uid = tx.get(
+        "continuity_uid"
     )
 
-    if not continuity_id:
+    if not continuity_uid:
 
-        continuity_id = (
+        continuity_uid = (
             f"R1CONT-"
             f"{uuid4().hex[:16].upper()}"
         )
 
-        tx["continuity_id"] = (
-            continuity_id
+        tx["continuity_uid"] = (
+            continuity_uid
         )
 
     return TransactionContext(
 
-        tx_id=tx["tx_id"],
+        utt_id=tx["utt_id"],
 
-        continuity_id=continuity_id,
+        continuity_uid=continuity_uid,
 
         amount=tx["amount"],
 
@@ -133,7 +133,7 @@ def pre_verify_or_reject(tx):
 
         print(
             f"🚫 VERIFICATION FAILED: "
-            f"{tx['tx_id']}"
+            f"{tx['utt_id']}"
         )
 
         for check in result.get(
@@ -199,12 +199,12 @@ def run_rebalancing():
 # ==========================================
 def safe_execute(tx):
 
-    tx_id = tx["tx_id"]
+    utt_id = tx["utt_id"]
 
-    if already_processed(tx_id):
+    if already_processed(utt_id):
 
         print(
-            f"⚠️ Replay blocked: {tx_id}"
+            f"⚠️ Replay blocked: {utt_id}"
         )
 
         return True
@@ -235,7 +235,7 @@ def safe_execute(tx):
     try:
 
         print(
-            f"⚙️ Executing TX {tx_id}"
+            f"⚙️ Executing TX {utt_id}"
         )
 
         # --------------------------------
@@ -320,11 +320,11 @@ def safe_execute(tx):
         # --------------------------------
         create_checkpoint(
 
-            continuity_id=(
-                context.continuity_id
+            continuity_uid=(
+                context.continuity_uid
             ),
 
-            tx_id=context.tx_id,
+            utt_id=context.utt_id,
 
             checkpoint_type=(
                 "EXECUTION_STARTED"
@@ -389,11 +389,11 @@ def safe_execute(tx):
         # --------------------------------
         create_checkpoint(
 
-            continuity_id=(
-                context.continuity_id
+            continuity_uid=(
+                context.continuity_uid
             ),
 
-            tx_id=context.tx_id,
+            utt_id=context.utt_id,
 
             checkpoint_type=(
                 "SETTLED"
@@ -443,22 +443,22 @@ def safe_execute(tx):
         # --------------------------------
         # MARK PROCESSED
         # --------------------------------
-        mark_processed(tx_id)
+        mark_processed(utt_id)
 
         # --------------------------------
         # UPDATE TX
         # --------------------------------
         update_tx(
 
-            tx_id,
+            utt_id,
 
             {
 
                 "status":
                     "SETTLED",
 
-                "continuity_id":
-                    context.continuity_id
+                "continuity_uid":
+                    context.continuity_uid
             }
         )
 
@@ -475,12 +475,12 @@ def safe_execute(tx):
         session.commit()
 
         print(
-            f"✅ TX {tx_id} SETTLED"
+            f"✅ TX {utt_id} SETTLED"
         )
 
         print(
             f"🔁 Continuity: "
-            f"{context.continuity_id}"
+            f"{context.continuity_uid}"
         )
 
         return True
@@ -569,10 +569,10 @@ def start_worker():
 
                 continue
 
-            tx_id = tx["tx_id"]
+            utt_id = tx["utt_id"]
 
             print(
-                f"\n📥 Picked TX {tx_id}"
+                f"\n📥 Picked TX {utt_id}"
             )
 
             success = safe_execute(tx)
@@ -581,7 +581,7 @@ def start_worker():
 
                 update_tx(
 
-                    tx_id,
+                    utt_id,
 
                     {
 

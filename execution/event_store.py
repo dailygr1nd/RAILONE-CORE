@@ -15,7 +15,7 @@ from execution.event_models import (
 # ==========================================
 def emit_event(
 
-    tx_id,
+    utt_id,
 
     event_type,
 
@@ -23,7 +23,9 @@ def emit_event(
 
     new_state=None,
 
-    continuity_id=None,
+    continuity_uid=None,
+
+    rtt_id=None,
 
     payload=None
 ):
@@ -34,10 +36,12 @@ def emit_event(
 
         event = ExecutionEvent(
 
-            tx_id=tx_id,
+            utt_id=utt_id,
 
-            continuity_id=
-                continuity_id,
+            continuity_uid=
+                continuity_uid,
+
+            rtt_id= rtt_id,    
 
             event_type=
                 event_type,

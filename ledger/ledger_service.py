@@ -1,21 +1,29 @@
-# ==============================
-# ledger_service.py (NON-CUSTODIAL)
-# ==============================
-
 from datetime import datetime
 from uuid import uuid4
 
-from ledger.models import JournalEntry
+from ledger.models import (
+    JournalEntry,
+    ExecutionThread
+)
 
 
-# --------------------------------
-# INTERNAL: POST ENTRY
-# --------------------------------
-def _post(session, tx_id, account_id, amount, entry_type, currency):
+# =========================================
+# INTERNAL JOURNAL POST
+# =========================================
+def _post(
+    session,
+    utt_id,
+    rtt_id,
+    account_id,
+    amount,
+    entry_type,
+    currency
+):
 
     entry = JournalEntry(
         id=str(uuid4()),
-        tx_id=tx_id,
+        utt_id=utt_id,
+        rtt_id=rtt_id,
         account_id=account_id,
         amount=float(amount),
         entry_type=entry_type,
@@ -25,193 +33,97 @@ def _post(session, tx_id, account_id, amount, entry_type, currency):
 
     session.add(entry)
 
-# --------------------------------
-# APPLY TRANSACTION
-# --------------------------------
-def apply_transaction(session, tx):
 
-    tx_id = tx["tx_id"]
+# =========================================
+# APPLY EXECUTION THREAD
+# =========================================
+def apply_execution(session, execution):
 
-    sender = tx["sender_account"]
-    receiver = tx["receiver_account"]
+    utt_id = execution["utt_id"]
 
-    sender_ccy = tx["currency_from"]
-    receiver_ccy = tx["currency_to"]
+    rtt_id = execution.get("rtt_id")
 
-    gross = float(tx["gross_amount"])
-    net = float(tx["net_amount"])
+    sender = execution["sender_account"]
+    receiver = execution["receiver_account"]
 
-    fee = float(tx.get("fee", 0))
+    sender_ccy = execution["currency_from"]
+    receiver_ccy = execution["currency_to"]
 
-    # --------------------------------
-    # SAME CURRENCY
-    # --------------------------------
-    if sender_ccy == receiver_ccy:
+    gross = float(execution["gross_amount"])
+    net = float(execution["net_amount"])
 
-        _post(
-            session,
-            tx_id,
-            sender,
-            gross,
-            "DEBIT",
-            sender_ccy
-        )
-
-        _post(
-            session,
-            tx_id,
-            receiver,
-            net,
-            "CREDIT",
-            receiver_ccy
-        )
+    fee = float(execution.get("fee_amount", 0))
 
     # --------------------------------
-    # CROSS BORDER / FX
+    # DEBIT SENDER
     # --------------------------------
-    else:
-
-        sender_settlement_reference = (
-        f"RAILONE_settlement_reference_{sender_ccy}"
-    )
-
-        receiver_settlement_reference = (
-        f"RAILONE_settlement_reference_{receiver_ccy}"
-    )
-
-        source_settlement = float(
-        tx["net_source_amount"]
-    )
-
-        destination_settlement = float(
-        tx["net_amount"]
-    )
-
-    # --------------------------------
-    # SOURCE SIDE
-    # --------------------------------
-
-    # Sender loses full source amount
     _post(
         session,
-        tx_id,
+        utt_id,
+        rtt_id,
         sender,
-        gross,
+        -gross,
         "DEBIT",
         sender_ccy
     )
 
-    # settlement_reference receives source settlement
+    # --------------------------------
+    # CREDIT RECEIVER
+    # --------------------------------
     _post(
         session,
-        tx_id,
-        sender_settlement_reference,
-        source_settlement,
+        utt_id,
+        rtt_id,
+        receiver,
+        net,
         "CREDIT",
-        sender_ccy
+        receiver_ccy
     )
 
-    # Revenue receives fee
+    # --------------------------------
+    # NETWORK FEE
+    # --------------------------------
     if fee > 0:
 
-        revenue_account = (
-            f"RAILONE_REVENUE-{sender_ccy}"
-        )
-
         _post(
             session,
-            tx_id,
-            revenue_account,
+            utt_id,
+            rtt_id,
+            "RAILONE-TREASURY",
             fee,
-            "CREDIT",
+            "FEE",
             sender_ccy
         )
 
-    # --------------------------------
-    # DESTINATION SIDE
-    # --------------------------------
 
-    # settlement_reference releases destination currency
-    _post(
-        session,
-        tx_id,
-        receiver_settlement_reference,
-        destination_settlement,
-        "DEBIT",
-        receiver_ccy
+# =========================================
+# CREATE EXECUTION THREAD
+# =========================================
+def create_execution_thread(
+    session,
+    utt_id,
+    sender_account,
+    receiver_account,
+    currency_from,
+    currency_to,
+    gross_amount,
+    net_amount,
+    fee_amount=0.0
+):
+
+    thread = ExecutionThread(
+        utt_id=utt_id,
+        sender_account_id=sender_account,
+        receiver_account_id=receiver_account,
+        currency_from=currency_from,
+        currency_to=currency_to,
+        gross_amount=gross_amount,
+        net_amount=net_amount,
+        fee_amount=fee_amount,
+        execution_state="INITIATED",
+        settlement_state="PENDING"
     )
 
-    # Receiver gets destination funds
-    _post(
-        session,
-        tx_id,
-        receiver,
-        destination_settlement,
-        "CREDIT",
-        receiver_ccy
-    )
-    # --------------------------------
-    # VALIDATE
-    # --------------------------------
-    _validate_transaction(
-        session,
-        tx_id
-    )
+    session.add(thread)
 
-
-# --------------------------------
-# ATTESTATION / EVENT LOGGING
-# --------------------------------
-def record_event(session, tx_id, event_type, metadata=None):
-
-    metadata = metadata or {}
-
-    entry = JournalEntry(
-        id=str(uuid4()),
-        tx_id=tx_id,
-        account_id="SYSTEM_EVENT",
-        amount=0,
-        entry_type=event_type,  # e.g. VERIFIED, SETTLED
-        currency="N/A",
-        created_at=datetime.utcnow()
-    )
-
-    session.add(entry)
-
-
-# --------------------------------
-# INTEGRITY CHECK
-# --------------------------------
-def _validate_transaction(session, tx_id):
-
-    entries = session.query(JournalEntry).filter_by(tx_id=tx_id).all()
-
-    currency_map = {}
-
-    for e in entries:
-
-        if e.currency == "N/A":
-            continue  # skip system events
-
-        if e.currency not in currency_map:
-            currency_map[e.currency] = 0
-
-        if e.entry_type == "DEBIT":
-            currency_map[e.currency] -= e.amount
-        else:
-            currency_map[e.currency] += e.amount
-
-    for ccy, total in currency_map.items():
-        if round(total, 2) != 0:
-            raise Exception(f"LEDGER_IMmirrored_available_state: {ccy} → {total}")
-
-
-# --------------------------------
-# GENESIS (OPTIONAL, SAFE)
-# --------------------------------
-def apply_genesis(session, account_id, amount):
-
-    currency = account_id.split("-")[-1]
-
-    # Only log genesis, do NOT mutate mirrored_available_state
-    _post(session, "GENESIS", account_id, amount, "CREDIT", currency)
+    return thread

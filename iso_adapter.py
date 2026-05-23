@@ -23,7 +23,7 @@ def build_pacs008(tx: dict) -> str:
 
     # Group Header
     grp = SubElement(cdt, "GrpHdr")
-    SubElement(grp, "MsgId").text = tx["tx_id"]
+    SubElement(grp, "MsgId").text = tx["utt_id"]
     SubElement(grp, "CreDtTm").text = _iso_ts()
     SubElement(grp, "NbOfTxs").text = "1"
 
@@ -32,7 +32,7 @@ def build_pacs008(tx: dict) -> str:
 
     # Payment Identification
     pmtid = SubElement(txinf, "PmtId")
-    SubElement(pmtid, "EndToEndId").text = tx["tx_id"]
+    SubElement(pmtid, "EndToEndId").text = tx["utt_id"]
 
     # Amount
     amt = SubElement(txinf, "IntrBkSttlmAmt", Ccy=tx["currency_to"])
@@ -72,11 +72,11 @@ def build_pacs002(tx: dict) -> str:
     rpt = SubElement(doc, "FIToFIPmtStsRpt")
 
     grp = SubElement(rpt, "GrpHdr")
-    SubElement(grp, "MsgId").text = f"STS-{tx['tx_id']}"
+    SubElement(grp, "MsgId").text = f"STS-{tx['utt_id']}"
     SubElement(grp, "CreDtTm").text = _iso_ts()
 
     txinf = SubElement(rpt, "TxInfAndSts")
-    SubElement(txinf, "OrgnlEndToEndId").text = tx["tx_id"]
+    SubElement(txinf, "OrgnlEndToEndId").text = tx["utt_id"]
 
     SubElement(txinf, "TxSts").text = status_map.get(tx["status"], "PDNG")
 
