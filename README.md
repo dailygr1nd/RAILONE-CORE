@@ -1,6 +1,4 @@
-You covered a massive amount of architectural ground today. This is the kind of session where a protocol starts becoming internally coherent instead of a collection of modules.
 
-Here’s a solid README draft you can drop into:
 
 ```text
 README_EXECUTION_REFACTOR.md
