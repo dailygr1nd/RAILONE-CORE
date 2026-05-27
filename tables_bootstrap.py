@@ -13,6 +13,23 @@ from ledger.db import engine
 import identity.models
 import ledger.models
 
+# ==========================================
+# EXECUTION EVENT MODELS
+# ==========================================
+
+from execution.event_models import (
+    ExecutionEvent
+)
+
+from execution.checkpoint_models import (
+    ExecutionCheckpoint
+)
+from execution.replay_models import *
+
+from execution.replay_models import (
+    ExecutionReplay
+)
+
 
 print("\n🔧 Creating RailOne tables...")
 

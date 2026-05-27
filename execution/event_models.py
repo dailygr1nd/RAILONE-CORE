@@ -181,3 +181,27 @@ Index(
     ExecutionEvent.lineage_parent,
     ExecutionEvent.replay_generation
 )
+
+provider = Column(
+    String,
+    nullable=True,
+    index=True
+)
+
+provider_reference = Column(
+    String,
+    nullable=True,
+    index=True
+)
+
+canonical_state = Column(
+    String,
+    nullable=True,
+    index=True
+)
+
+replay_safe_hash = Column(
+    String,
+    nullable=True,
+    index=True
+)

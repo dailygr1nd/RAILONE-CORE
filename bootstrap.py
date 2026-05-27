@@ -1,15 +1,44 @@
-# ==============================
+# ==========================================
 # bootstrap.py
-# ==============================
+# RailOne System Bootstrap
+# ==========================================
 
-from key_manager import bootstrap_institutions
-from core_registry import register_core
+from ledger.bootstrap import (bootstrap_institutions)
+
+from institutions.core_registry import (register_core)
+
+from crypto.key_manager import (KeyManager)
+
+from institutions.auth_registry import (INSTITUTION_REGISTRY)
 
 
 def bootstrap():
 
-    # external rails
+    print(
+        "🔧 Bootstrapping RailOne..."
+    )
+
+    # ======================================
+    # INSTITUTION REGISTRATION
+    # ======================================
     bootstrap_institutions()
 
-    # core protocol authority
+    # ======================================
+    # CRYPTOGRAPHIC TRUST LAYER
+    # ======================================
+    for institution_id in (
+        INSTITUTION_REGISTRY.keys()
+    ):
+
+        KeyManager.ensure_institution_keys(
+            institution_id
+        )
+
+    # ======================================
+    # CORE REGISTRATION
+    # ======================================
     register_core()
+
+    print(
+        "✅ RailOne bootstrap complete"
+    )

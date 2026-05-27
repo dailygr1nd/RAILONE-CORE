@@ -10,12 +10,12 @@ from execution.execution_queue import get_tx
 
 from idempotency_store import check_idempotency, store_idempotency
 
-from auth_registry import get_institution_by_key, get_rate_limit
-from auth_engine import verify_request
+from institutions.auth_registry import get_institution_by_key, get_rate_limit
+from crypto.auth_engine import verify_request
 from rate_limiter import check_rate_limit
 
 from request_logger import log_request
-from iso_adapter import build_pacs008
+from institutions.iso_adapter import build_pacs008
 
 app = FastAPI()
 

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 
-from key_manager import KeyManager
+from crypto.key_manager import KeyManager
 from trust_registry import TrustRegistry
 
 

@@ -1,129 +1,376 @@
+# ==========================================
+# ledger/ledger_service.py
+# RailOne Ledger Coordination Service
+# ==========================================
+
+import uuid
+
 from datetime import datetime
-from uuid import uuid4
+
+from ledger.db import SessionLocal
 
 from ledger.models import (
+    Account,
     JournalEntry,
     ExecutionThread
 )
 
-
-# =========================================
-# INTERNAL JOURNAL POST
-# =========================================
-def _post(
-    session,
-    utt_id,
-    rtt_id,
-    account_id,
-    amount,
-    entry_type,
-    currency
-):
-
-    entry = JournalEntry(
-        id=str(uuid4()),
-        utt_id=utt_id,
-        rtt_id=rtt_id,
-        account_id=account_id,
-        amount=float(amount),
-        entry_type=entry_type,
-        currency=currency,
-        created_at=datetime.utcnow()
-    )
-
-    session.add(entry)
+from execution.event_store import (
+    emit_event
+)
 
 
-# =========================================
-# APPLY EXECUTION THREAD
-# =========================================
-def apply_execution(session, execution):
+class LedgerService:
 
-    utt_id = execution["utt_id"]
+    # ======================================
+    # RESERVE EXECUTION CAPACITY
+    # ======================================
+    @staticmethod
+    def reserve_execution_capacity(
 
-    rtt_id = execution.get("rtt_id")
+        account_id,
 
-    sender = execution["sender_account"]
-    receiver = execution["receiver_account"]
+        amount,
 
-    sender_ccy = execution["currency_from"]
-    receiver_ccy = execution["currency_to"]
-
-    gross = float(execution["gross_amount"])
-    net = float(execution["net_amount"])
-
-    fee = float(execution.get("fee_amount", 0))
-
-    # --------------------------------
-    # DEBIT SENDER
-    # --------------------------------
-    _post(
-        session,
         utt_id,
-        rtt_id,
-        sender,
-        -gross,
-        "DEBIT",
-        sender_ccy
-    )
 
-    # --------------------------------
-    # CREDIT RECEIVER
-    # --------------------------------
-    _post(
-        session,
+        rtt_id=None
+    ):
+
+        session = SessionLocal()
+
+        try:
+
+            account = (
+
+                session.query(Account)
+
+                .filter(
+                    Account.id == account_id
+                )
+
+                .first()
+            )
+
+            if not account:
+
+                raise Exception(
+                    "ACCOUNT_NOT_FOUND"
+                )
+
+            available_capacity = (
+
+                account
+                .mirrored_available_state
+
+                -
+
+                account
+                .execution_reservation
+            )
+
+            if available_capacity < amount:
+
+                raise Exception(
+                    "INSUFFICIENT_"
+                    "EXECUTION_CAPACITY"
+                )
+
+            account.execution_reservation += (
+                amount
+            )
+
+            session.commit()
+
+            emit_event(
+
+                utt_id=utt_id,
+
+                rtt_id=rtt_id,
+
+                continuity_uid=(
+                    account.continuity_uid
+                ),
+
+                event_type=(
+                    "EXECUTION_CAPACITY_RESERVED"
+                ),
+
+                payload={
+
+                    "account_id":
+                        account_id,
+
+                    "amount":
+                        amount
+                }
+            )
+
+            return {
+
+                "success": True,
+
+                "reserved_amount":
+                    amount
+            }
+
+        finally:
+
+            session.close()
+
+    # ======================================
+    # RELEASE EXECUTION CAPACITY
+    # ======================================
+    @staticmethod
+    def release_execution_capacity(
+
+        account_id,
+
+        amount,
+
         utt_id,
-        rtt_id,
-        receiver,
-        net,
-        "CREDIT",
-        receiver_ccy
-    )
 
-    # --------------------------------
-    # NETWORK FEE
-    # --------------------------------
-    if fee > 0:
+        rtt_id=None
+    ):
 
-        _post(
-            session,
-            utt_id,
-            rtt_id,
-            "RAILONE-TREASURY",
-            fee,
-            "FEE",
-            sender_ccy
-        )
+        session = SessionLocal()
 
+        try:
 
-# =========================================
-# CREATE EXECUTION THREAD
-# =========================================
-def create_execution_thread(
-    session,
-    utt_id,
-    sender_account,
-    receiver_account,
-    currency_from,
-    currency_to,
-    gross_amount,
-    net_amount,
-    fee_amount=0.0
-):
+            account = (
 
-    thread = ExecutionThread(
-        utt_id=utt_id,
-        sender_account_id=sender_account,
-        receiver_account_id=receiver_account,
-        currency_from=currency_from,
-        currency_to=currency_to,
-        gross_amount=gross_amount,
-        net_amount=net_amount,
-        fee_amount=fee_amount,
-        execution_state="INITIATED",
-        settlement_state="PENDING"
-    )
+                session.query(Account)
 
-    session.add(thread)
+                .filter(
+                    Account.id == account_id
+                )
 
-    return thread
+                .first()
+            )
+
+            if not account:
+
+                raise Exception(
+                    "ACCOUNT_NOT_FOUND"
+                )
+
+            account.execution_reservation -= (
+                amount
+            )
+
+            if (
+                account.execution_reservation
+                < 0
+            ):
+
+                account.execution_reservation = 0
+
+            session.commit()
+
+            emit_event(
+
+                utt_id=utt_id,
+
+                rtt_id=rtt_id,
+
+                continuity_uid=(
+                    account.continuity_uid
+                ),
+
+                event_type=(
+                    "EXECUTION_CAPACITY_RELEASED"
+                ),
+
+                payload={
+
+                    "account_id":
+                        account_id,
+
+                    "amount":
+                        amount
+                }
+            )
+
+            return {
+
+                "success": True
+            }
+
+        finally:
+
+            session.close()
+
+    # ======================================
+    # FINALIZE EXECUTION
+    # ======================================
+    @staticmethod
+    def finalize_execution(
+
+        sender_account_id,
+
+        receiver_account_id,
+
+        amount,
+
+        currency,
+
+        utt_id,
+
+        rtt_id=None,
+
+        provider=None
+    ):
+
+        session = SessionLocal()
+
+        try:
+
+            sender = (
+
+                session.query(Account)
+
+                .filter(
+                    Account.id
+                    == sender_account_id
+                )
+
+                .first()
+            )
+
+            receiver = (
+
+                session.query(Account)
+
+                .filter(
+                    Account.id
+                    == receiver_account_id
+                )
+
+                .first()
+            )
+
+            if not sender or not receiver:
+
+                raise Exception(
+                    "ACCOUNT_NOT_FOUND"
+                )
+
+            # ===============================
+            # UPDATE EXECUTION SURFACES
+            # ===============================
+            sender.execution_reservation -= (
+                amount
+            )
+
+            sender.mirrored_available_state -= (
+                amount
+            )
+
+            receiver.mirrored_available_state += (
+                amount
+            )
+
+            # ===============================
+            # JOURNAL ENTRIES
+            # ===============================
+            debit_entry = JournalEntry(
+
+                id=str(uuid.uuid4()),
+
+                continuity_uid=(
+                    sender.continuity_uid
+                ),
+
+                utt_id=utt_id,
+
+                rtt_id=rtt_id,
+
+                account_id=(
+                    sender_account_id
+                ),
+
+                institution_id=(
+                    sender.institution_id
+                ),
+
+                provider=provider,
+
+                amount=-amount,
+
+                currency=currency,
+
+                entry_type="DEBIT",
+
+                canonical_execution_state=(
+                    "execution_settled"
+                )
+            )
+
+            credit_entry = JournalEntry(
+
+                id=str(uuid.uuid4()),
+
+                continuity_uid=(
+                    receiver.continuity_uid
+                ),
+
+                utt_id=utt_id,
+
+                rtt_id=rtt_id,
+
+                account_id=(
+                    receiver_account_id
+                ),
+
+                institution_id=(
+                    receiver.institution_id
+                ),
+
+                provider=provider,
+
+                amount=amount,
+
+                currency=currency,
+
+                entry_type="CREDIT",
+
+                canonical_execution_state=(
+                    "execution_settled"
+                )
+            )
+
+            session.add(debit_entry)
+
+            session.add(credit_entry)
+
+            session.commit()
+
+            emit_event(
+
+                utt_id=utt_id,
+
+                rtt_id=rtt_id,
+
+                continuity_uid=(
+                    sender.continuity_uid
+                ),
+
+                event_type=(
+                    "EXECUTION_FINALIZED"
+                ),
+
+                provider=provider,
+
+                canonical_state=(
+                    "execution_settled"
+                )
+            )
+
+            return {
+
+                "success": True
+            }
+
+        finally:
+
+            session.close()

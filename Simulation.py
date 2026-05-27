@@ -44,7 +44,7 @@ from bootstrap import (
     bootstrap
 )
 
-from core_registry import (
+from institutions.core_registry import (
     register_core
 )
 

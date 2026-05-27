@@ -1,7 +1,9 @@
-# ==============================
+# ==========================================
 # ledger/models.py
-# ==============================
+# RailOne Canonical Ledger Models
+# ==========================================
 
+import uuid
 
 from datetime import datetime
 
@@ -9,31 +11,32 @@ from sqlalchemy import (
     Column,
     String,
     Float,
+    Integer,
+    Boolean,
     DateTime,
-    Integer
+    JSON,
+    Text
 )
 
 from ledger.db import Base
 
 
-# =========================================
+# ==========================================
 # EXECUTION ACCOUNT
-# =========================================
+# Non-custodial mirrored execution surface
+# ==========================================
 class Account(Base):
 
     __tablename__ = "accounts"
 
-    # --------------------------------
-    # ACCOUNT ID
-    # --------------------------------
     id = Column(
         String,
         primary_key=True
     )
 
-    # --------------------------------
-    # CONTINUITY CONTEXT
-    # --------------------------------
+    # ======================================
+    # CONTINUITY IDENTITY
+    # ======================================
     railone_id = Column(
         String,
         nullable=False,
@@ -46,18 +49,24 @@ class Account(Base):
         index=True
     )
 
-    # --------------------------------
+    # ======================================
     # INSTITUTION CONTEXT
-    # --------------------------------
+    # ======================================
     institution_id = Column(
         String,
         nullable=False,
         index=True
     )
 
-    # --------------------------------
-    # ACCOUNT STATE
-    # --------------------------------
+    adapter_type = Column(
+        String,
+        nullable=True,
+        index=True
+    )
+
+    # ======================================
+    # EXECUTION CAPACITY
+    # ======================================
     currency = Column(
         String,
         nullable=False
@@ -78,41 +87,50 @@ class Account(Base):
         default=0.0
     )
 
+    execution_capacity = Column(
+        Float,
+        default=0.0
+    )
+
+    # ======================================
+    # PROVIDER CONTEXT
+    # ======================================
+    external_account_reference = Column(
+        String,
+        nullable=True
+    )
+
+    provider_metadata = Column(
+        JSON,
+        nullable=True
+    )
+
     created_at = Column(
         DateTime,
         default=datetime.utcnow
     )
 
 
-# =========================================
+# ==========================================
 # EXECUTION THREAD
-# Canonical execution continuity object
-# =========================================
+# Canonical continuity object
+# ==========================================
 class ExecutionThread(Base):
 
     __tablename__ = "execution_threads"
 
-    # --------------------------------
-    # CANONICAL EXECUTION CONTINUITY
-    # --------------------------------
     utt_id = Column(
         String,
         primary_key=True
     )
 
-    # --------------------------------
-    # EXECUTION STATE
-    # --------------------------------
-    execution_state = Column(
+    # ======================================
+    # CONTINUITY CONTEXT
+    # ======================================
+    continuity_uid = Column(
         String,
         nullable=False,
-        default="INITIATED"
-    )
-
-    settlement_state = Column(
-        String,
-        nullable=False,
-        default="PENDING"
+        index=True
     )
 
     replay_generation = Column(
@@ -120,14 +138,81 @@ class ExecutionThread(Base):
         default=0
     )
 
+    lineage_parent = Column(
+        String,
+        nullable=True,
+        index=True
+    )
+
+    # ======================================
+    # EXECUTION STATE
+    # ======================================
+    execution_state = Column(
+        String,
+        default="INITIATED"
+    )
+
+    canonical_execution_state = Column(
+        String,
+        nullable=True
+    )
+
+    settlement_state = Column(
+        String,
+        default="PENDING"
+    )
+
+    divergence_detected = Column(
+        Boolean,
+        default=False
+    )
+
+    divergence_type = Column(
+        String,
+        nullable=True
+    )
+
+    replay_integrity_verified = Column(
+        Boolean,
+        default=False
+    )
+
+    # ======================================
+    # ROUTE CONTEXT
+    # ======================================
     current_rtt_id = Column(
         String,
         nullable=True
     )
 
-    # --------------------------------
-    # EXECUTION PARTICIPANTS
-    # --------------------------------
+    route_generation = Column(
+        Integer,
+        default=1
+    )
+
+    # ======================================
+    # PROVIDER CONTEXT
+    # ======================================
+    provider = Column(
+        String,
+        nullable=True,
+        index=True
+    )
+
+    provider_reference = Column(
+        String,
+        nullable=True,
+        index=True
+    )
+
+    adapter_type = Column(
+        String,
+        nullable=True
+    )
+
+    # ======================================
+    # PARTICIPANTS
+    # ======================================
     sender_account_id = Column(
         String,
         nullable=False
@@ -138,9 +223,9 @@ class ExecutionThread(Base):
         nullable=False
     )
 
-    # --------------------------------
+    # ======================================
     # VALUE CONTEXT
-    # --------------------------------
+    # ======================================
     currency_from = Column(
         String,
         nullable=False
@@ -166,16 +251,24 @@ class ExecutionThread(Base):
         default=0.0
     )
 
+    # ======================================
+    # EXECUTION METADATA
+    # ======================================
+    execution_metadata = Column(
+        JSON,
+        nullable=True
+    )
+
     created_at = Column(
         DateTime,
         default=datetime.utcnow
     )
 
 
-# =========================================
-# ROUTE EXECUTION THREAD
-# RTT realization layer
-# =========================================
+# ==========================================
+# ROUTE EXECUTION
+# Realized execution path
+# ==========================================
 class RouteExecution(Base):
 
     __tablename__ = "route_executions"
@@ -191,9 +284,17 @@ class RouteExecution(Base):
         index=True
     )
 
-    route_state = Column(
+    continuity_uid = Column(
         String,
         nullable=False,
+        index=True
+    )
+
+    # ======================================
+    # ROUTE CONTEXT
+    # ======================================
+    route_state = Column(
+        String,
         default="ROUTED"
     )
 
@@ -203,22 +304,71 @@ class RouteExecution(Base):
     )
 
     institution_path = Column(
+        JSON,
+        nullable=True
+    )
+
+    adapter_path = Column(
+        JSON,
+        nullable=True
+    )
+
+    # ======================================
+    # PROVIDER REALIZATION
+    # ======================================
+    provider = Column(
         String,
         nullable=True
     )
 
-    execution_attestation = Column(
+    provider_reference = Column(
         String,
+        nullable=True
+    )
+
+    canonical_execution_state = Column(
+        String,
+        nullable=True
+    )
+
+    # ======================================
+    # CONTINUITY ASSURANCE
+    # ======================================
+    replay_safe_hash = Column(
+        String,
+        nullable=True
+    )
+
+    replay_integrity_verified = Column(
+        Boolean,
+        default=False
+    )
+
+    divergence_detected = Column(
+        Boolean,
+        default=False
+    )
+
+    divergence_type = Column(
+        String,
+        nullable=True
+    )
+
+    # ======================================
+    # EXECUTION ATTESTATIONS
+    # ======================================
+    execution_attestation = Column(
+        Text,
         nullable=True
     )
 
     route_attestation = Column(
-        String,
+        Text,
         nullable=True
     )
 
     settlement_provenance = Column(
-        String,
+        Text,
         nullable=True
     )
 
@@ -228,22 +378,29 @@ class RouteExecution(Base):
     )
 
 
-# =========================================
+# ==========================================
 # JOURNAL ENTRIES
 # Accounting truth only
-# =========================================
+# ==========================================
 class JournalEntry(Base):
 
     __tablename__ = "journal_entries"
 
     id = Column(
         String,
-        primary_key=True
+        primary_key=True,
+        default=lambda: str(uuid.uuid4())
     )
 
-    # --------------------------------
-    # EXECUTION CONTINUITY
-    # --------------------------------
+    # ======================================
+    # CONTINUITY CONTEXT
+    # ======================================
+    continuity_uid = Column(
+        String,
+        nullable=False,
+        index=True
+    )
+
     utt_id = Column(
         String,
         nullable=False,
@@ -256,21 +413,29 @@ class JournalEntry(Base):
         index=True
     )
 
-    # --------------------------------
-    # ACCOUNTING STATE
-    # --------------------------------
+    # ======================================
+    # ACCOUNTING CONTEXT
+    # ======================================
     account_id = Column(
         String,
         nullable=False
     )
 
-    amount = Column(
-        Float,
-        nullable=False
+    institution_id = Column(
+        String,
+        nullable=True
     )
 
-    entry_type = Column(
+    provider = Column(
         String,
+        nullable=True
+    )
+
+    # ======================================
+    # VALUE CONTEXT
+    # ======================================
+    amount = Column(
+        Float,
         nullable=False
     )
 
@@ -279,14 +444,34 @@ class JournalEntry(Base):
         nullable=False
     )
 
+    entry_type = Column(
+        String,
+        nullable=False
+    )
+
+    canonical_execution_state = Column(
+        String,
+        nullable=True
+    )
+
+    # ======================================
+    # ASSURANCE CONTEXT
+    # ======================================
+    replay_safe_hash = Column(
+        String,
+        nullable=True
+    )
+
     created_at = Column(
         DateTime,
         default=datetime.utcnow
     )
 
-    # =========================================
+
+# ==========================================
 # INSTITUTION
-# =========================================
+# Capability + trust domain
+# ==========================================
 class Institution(Base):
 
     __tablename__ = "institutions"
@@ -306,7 +491,7 @@ class Institution(Base):
         nullable=False
     )
 
-    corridor = Column(
+    country = Column(
         String,
         nullable=False
     )
@@ -316,48 +501,32 @@ class Institution(Base):
         default="ACTIVE"
     )
 
-    created_at = Column(
-        DateTime,
-        default=datetime.utcnow
+    # ======================================
+    # EXECUTION CAPABILITIES
+    # ======================================
+    supported_adapters = Column(
+        JSON,
+        nullable=True
     )
 
-
-# =========================================
-# INSTITUTION KEYS
-# =========================================
-class InstitutionKey(Base):
-
-    __tablename__ = "institution_keys"
-
-    id = Column(
-        String,
-        primary_key=True
+    supported_currencies = Column(
+        JSON,
+        nullable=True
     )
 
-    institution_id = Column(
-        String,
-        nullable=False,
-        index=True
+    replay_policy = Column(
+        JSON,
+        nullable=True
     )
 
-    public_key = Column(
-        String,
-        nullable=False
+    execution_policy = Column(
+        JSON,
+        nullable=True
     )
 
-    private_key = Column(
-        String,
-        nullable=False
-    )
-
-    key_type = Column(
-        String,
-        default="ED25519"
-    )
-
-    status = Column(
-        String,
-        default="ACTIVE"
+    attestation_capable = Column(
+        Boolean,
+        default=False
     )
 
     created_at = Column(
@@ -365,11 +534,11 @@ class InstitutionKey(Base):
         default=datetime.utcnow
     )
 
-# =========================================
+
+# ==========================================
 # USER ACCOUNT LINK
-# Maps continuity identity
-# to institution execution surfaces
-# =========================================
+# External execution linkage
+# ==========================================
 class UserAccountLink(Base):
 
     __tablename__ = "user_account_links"
@@ -379,9 +548,6 @@ class UserAccountLink(Base):
         primary_key=True
     )
 
-    # --------------------------------
-    # USER CONTINUITY
-    # --------------------------------
     railone_id = Column(
         String,
         nullable=False,
@@ -394,18 +560,17 @@ class UserAccountLink(Base):
         index=True
     )
 
-    # --------------------------------
-    # INSTITUTION CONTEXT
-    # --------------------------------
     institution_id = Column(
         String,
         nullable=False,
         index=True
     )
 
-    # --------------------------------
-    # EXTERNAL EXECUTION SURFACE
-    # --------------------------------
+    adapter_type = Column(
+        String,
+        nullable=True
+    )
+
     external_account_ref = Column(
         String,
         nullable=False
@@ -419,6 +584,11 @@ class UserAccountLink(Base):
     linkage_state = Column(
         String,
         default="ACTIVE"
+    )
+
+    attestation_reference = Column(
+        String,
+        nullable=True
     )
 
     created_at = Column(

@@ -1,7 +1,7 @@
 from psp_ke import PSPKenya
 from bank_tz import BankTanzania
 from psp_ug import WalletUganda
-from institution_router import InstitutionRouter
+from institutions.institution_router import InstitutionRouter
 
 # Instantiate institutions
 psp_ke = PSPKenya("PSP_KE", "key_ke")

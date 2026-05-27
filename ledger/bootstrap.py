@@ -1,105 +1,120 @@
-import random
-from ledger.db import SessionLocal
-from ledger.ledger_service import apply_genesis
-
-
-
-# ==============================
-# bootstrap.py
-# ==============================
+# ==========================================
+# ledger/bootstrap.py
+# RailOne Execution Bootstrap
+# ==========================================
 
 from ledger.db import SessionLocal
-from ledger.ledger_service import apply_genesis
 
-from ledger.ledger_service import apply_genesis
-from rails_config import RAILS
-from settlement_capacity_signal import POOLS
-from ledger.db import SessionLocal
+from ledger.models import (
+    Institution
+)
 
 
-def bootstrap_settlement_accounts():
+def bootstrap_institutions():
 
     session = SessionLocal()
 
-    # Settlement accounts
-    for rail in RAILS.values():
-        acc = rail["settlement_account"]
-        apply_genesis(session, acc, 1_000_000)
+    try:
 
-    # Liquidity pools
-    for pool in POOLS.values():
-        apply_genesis(session, pool, 5_000_000)
+        institutions = [
 
-    session.commit()
-    session.close()
+            Institution(
 
-    print("✅ Settlement + Liquidity bootstrapped")
+                institution_id="MPESA",
 
+                institution_name="M-PESA",
 
-def bootstrap_fx_pools():
+                institution_type=(
+                    "MOBILE_MONEY"
+                ),
 
-    session = SessionLocal()
+                country="KE",
 
-    pools = [
-        "FX_POOL-KES",
-        "FX_POOL-TZS",
-        "FX_POOL-UGX"
-    ]
+                supported_adapters=[
+                    "mpesa"
+                ],
 
-    for p in pools:
-        apply_genesis(session, p, 1_000_000)
+                supported_currencies=[
+                    "KES"
+                ],
 
-    session.commit()
-    session.close()
+                replay_policy={
 
-    print("✅ FX Pools bootstrapped")
+                    "max_retries": 3,
 
-import random
+                    "requires_reconciliation":
+                        True
+                },
 
-def bootstrap_user_accounts(railone_id, country="KE"):
+                execution_policy={
 
-    session = SessionLocal()
-    accounts = []
+                    "settlement_model":
+                        "ASYNC"
+                },
 
-    # -----------------------------
-    # LOCAL RAILS (REALISTIC)
-    # -----------------------------
-    if country == "KE":
-        accounts += [
-            f"MPESA-{railone_id}-KES",
-            f"AIRTEL-{railone_id}-KES",
-            f"BANK_KE-{railone_id}-KES",
+                attestation_capable=False
+            ),
+
+            Institution(
+
+                institution_id="BANK_KE",
+
+                institution_name=(
+                    "Kenyan Bank Node"
+                ),
+
+                institution_type="BANK",
+
+                country="KE",
+
+                supported_adapters=[
+                    "flutterwave",
+                    "paystack"
+                ],
+
+                supported_currencies=[
+                    "KES"
+                ],
+
+                replay_policy={
+
+                    "max_retries": 2
+                },
+
+                execution_policy={
+
+                    "settlement_model":
+                        "SYNC"
+                },
+
+                attestation_capable=True
+            )
         ]
 
-    elif country == "TZ":
-        accounts += [
-            f"MPESA-{railone_id}-TZS",
-            f"AIRTEL-{railone_id}-TZS",
-            f"BANK_TZ-{railone_id}-TZS",
-        ]
+        for institution in institutions:
 
-    elif country == "UG":
-        accounts += [
-            f"AIRTEL-{railone_id}-UGX",
-            f"BANK_UG-{railone_id}-UGX",
-        ]
+            existing = (
 
-    # -----------------------------
-    # SMOVE MULTI-CURRENCY WALLET
-    # -----------------------------
-    smove_currencies = ["USD", "GBP", "NGN", "ZAR", "EGP"]
-    selected = random.sample(smove_currencies, 2)
+                session.query(Institution)
 
-    for ccy in selected:
-        accounts.append(f"SMOVE-{railone_id}-{ccy}")
+                .filter(
+                    Institution.institution_id
+                    == institution.institution_id
+                )
 
-    # -----------------------------
-    # FUND
-    # -----------------------------
-    for acc in accounts:
-        apply_genesis(session, acc, 100000.0)
+                .first()
+            )
 
-    session.commit()
-    session.close()
+            if not existing:
 
-    return accounts
+                session.add(institution)
+
+        session.commit()
+
+        print(
+            "✅ Institutions bootstrapped"
+        )
+
+    finally:
+
+        session.close()

@@ -96,6 +96,18 @@ def reconstruct_continuity(
 
             "lineage": [],
 
+            "provider": None,
+
+            "provider_reference": None,
+
+            "canonical_execution_state": None,
+
+            "replay_integrity_verified": False,
+
+            "divergence_detected": False,
+
+            "divergence_type": None,
+
             # --------------------------------
             # EXECUTION CONTEXT
             # --------------------------------
@@ -191,6 +203,18 @@ def reconstruct_continuity(
 
                 "rtt_id":
                     event.rtt_id,
+                
+                "provider":
+                    event.provider,
+
+                "provider_reference":
+                    event.provider_reference,
+
+                "canonical_state":
+                    event.canonical_state,
+
+                "replay_safe_hash":
+                    event.replay_safe_hash,
 
                 "lineage_parent":
                     event.lineage_parent,

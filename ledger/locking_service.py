@@ -1,91 +1,50 @@
-from sqlalchemy.orm import Session
+# ==========================================
+# ledger/locking.py
+# RailOne Continuity Locking
+# ==========================================
 
-from ledger.models import Account
-
-
-# =========================================
-# RESERVE EXECUTION FUNDS
-# =========================================
-def reserve_execution_liquidity(
-    session: Session,
-    account_id: str,
-    amount: float
-):
-
-    account = (
-        session.query(Account)
-        .filter_by(id=account_id)
-        .with_for_update()
-        .first()
-    )
-
-    if not account:
-        return False
-
-    available = (
-        account.mirrored_available_state
-        - account.execution_reservation
-    )
-
-    if available < amount:
-        return False
-
-    account.execution_reservation += amount
-
-    return True
+from threading import Lock
 
 
-# =========================================
-# RELEASE EXECUTION RESERVATION
-# =========================================
-def release_execution_reservation(
-    session: Session,
-    account_id: str,
-    amount: float
-):
+class ContinuityLockManager:
 
-    account = (
-        session.query(Account)
-        .filter_by(id=account_id)
-        .with_for_update()
-        .first()
-    )
+    def __init__(self):
 
-    if not account:
-        return False
+        self.execution_locks = {}
 
-    if account.execution_reservation < amount:
-        return False
+    def acquire_lock(
+        self,
+        continuity_uid
+    ):
 
-    account.execution_reservation -= amount
+        if (
+            continuity_uid
+            not in self.execution_locks
+        ):
 
-    return True
+            self.execution_locks[
+                continuity_uid
+            ] = Lock()
+
+        self.execution_locks[
+            continuity_uid
+        ].acquire()
+
+    def release_lock(
+        self,
+        continuity_uid
+    ):
+
+        if (
+            continuity_uid
+            in self.execution_locks
+        ):
+
+            self.execution_locks[
+                continuity_uid
+            ].release()
 
 
-# =========================================
-# FINALIZE EXECUTION SETTLEMENT
-# =========================================
-def finalize_execution_settlement(
-    session: Session,
-    account_id: str,
-    amount: float
-):
-
-    account = (
-        session.query(Account)
-        .filter_by(id=account_id)
-        .with_for_update()
-        .first()
-    )
-
-    if not account:
-        return False
-
-    if account.execution_reservation < amount:
-        return False
-
-    account.execution_reservation -= amount
-
-    account.mirrored_available_state -= amount
-
-    return True
+continuity_lock_manager = (
+    ContinuityLockManager()
+)

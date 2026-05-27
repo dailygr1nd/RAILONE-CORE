@@ -32,7 +32,7 @@ class TrustRegistry:
             return
 
         try:
-            from key_manager import KeyManager
+            from crypto.key_manager import KeyManager
 
             private_key = KeyManager.get_private_key(institution_id)
             public_key = private_key.public_key()

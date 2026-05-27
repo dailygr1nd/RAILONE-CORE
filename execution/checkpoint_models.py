@@ -114,6 +114,16 @@ class ExecutionCheckpoint(Base):
         nullable=True
     )
 
+    provider = Column(
+    String,
+    nullable=True
+    )
+
+    provider_reference = Column(
+    String,
+    nullable=True
+    )
+
     # --------------------------------
     # SNAPSHOT INTEGRITY
     # --------------------------------

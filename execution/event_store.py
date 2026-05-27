@@ -19,6 +19,14 @@ def emit_event(
 
     event_type,
 
+    provider=None,
+
+    provider_reference=None,
+
+    canonical_state=None,
+
+    replay_safe_hash=None,
+
     previous_state=None,
 
     new_state=None,
@@ -27,9 +35,9 @@ def emit_event(
 
     rtt_id=None,
 
-    payload=None
+    payload=None,
 ):
-
+    
     session = SessionLocal()
 
     try:

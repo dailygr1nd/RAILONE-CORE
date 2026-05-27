@@ -1,0 +1,14 @@
+{
+    "institution_id": "BANK_KE",
+    "private_key": "9beba200eea0bf0986aabf949b96d0323828ef58ce2835e5a88c44254e4d1c41",
+    "public_key": "cf5a702ac4115df92e9671ab5003dc2691399e9bb108fc64d2386cf697ad3666",
+    "metadata": {
+        "institution_type": "BANK",
+        "supported_adapters": [
+            "flutterwave",
+            "paystack"
+        ],
+        "attestation_capable": true,
+        "key_purpose": "EXECUTION_SIGNING"
+    }
+}

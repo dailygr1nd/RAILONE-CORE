@@ -1,17 +1,9 @@
-# ==============================
+# ==========================================
 # network_seed.py
-# RailOne Identity Moat Network Seed
-# ==============================
+# RailOne Execution Continuity Seed
+# ==========================================
 
 from uuid import uuid4
-
-from identity.account_seed import (
-    seed_user_accounts
-)
-
-from identity.user_service import (
-    onboard_user
-)
 
 from ledger.db import (
     SessionLocal,
@@ -19,27 +11,49 @@ from ledger.db import (
 )
 
 from ledger.models import (
-
     Institution,
-    InstitutionKey,
     UserAccountLink
+)
+
+from ledger.account_service import (
+    ensure_execution_account_exists
+)
+
+from institutions.auth_registry import (
+    INSTITUTION_REGISTRY
+)
+
+from crypto.key_manager import (
+    KeyManager
+)
+
+from identity.user_service import (
+    onboard_user
+)
+
+from identity.account_seed import (
+    seed_user_accounts
 )
 
 from identity.models import User
 
 from db import Base
 
-from core_registry import register_core
+from institutions.core_registry import (
+    register_core
+)
 
 
 # ==========================================
 # CREATE TABLES
 # ==========================================
-Base.metadata.create_all(bind=engine)
+Base.metadata.create_all(
+    bind=engine
+)
 
 
 # ==========================================
-# INSTITUTIONS
+# SEED INSTITUTIONS
 # ==========================================
 def seed_institutions():
 
@@ -47,58 +61,18 @@ def seed_institutions():
 
     try:
 
-        institutions = [
-
-    (
-        "MPESA",
-        "Safaricom M-PESA",
-        "MOBILE_MONEY",
-        "KE"
-    ),
-
-    (
-        "BANK_KE",
-        "Kenya Interbank Rail",
-        "BANK",
-        "KE"
-    ),
-
-    (
-        "BANK_UG",
-        "Uganda Settlement Rail",
-        "BANK",
-        "UG"
-    ),
-
-    (
-        "BANK_TZ",
-        "Tanzania Settlement Rail",
-        "BANK",
-        "TZ"
-    ),
-
-    (
-        "SMOVE",
-        "SMOVE Wallet",
-        "WALLET",
-        "EA"
-    ),
-
-    (
-        "R1CORE",
-        "RailOne Core Network",
-        "EXECUTION_CORE",
-        "GLOBAL"
-    )
-]
-
-        for inst_id, inst_name, inst_type, corridor in institutions:
+        for (
+            institution_id,
+            config
+        ) in INSTITUTION_REGISTRY.items():
 
             exists = (
 
                 session.query(Institution)
 
-                .filter_by(institution_id=inst_id)
+                .filter_by(
+                    institution_id=institution_id
+                )
 
                 .first()
             )
@@ -106,92 +80,115 @@ def seed_institutions():
             if exists:
                 continue
 
-            session.add(
+            institution = Institution(
 
-                Institution(
-                    institution_id=inst_id,
-                    institution_name=inst_name,
-                    institution_type=inst_type,
-                    corridor=corridor,
-                    operational_status="ACTIVE"
+                institution_id=(
+                    institution_id
+                ),
+
+                institution_name=(
+                    institution_id
+                ),
+
+                institution_type=(
+                    config.get(
+                        "institution_type"
+                    )
+                ),
+
+                country=(
+                    config.get(
+                        "country"
+                    )
+                ),
+
+                operational_status=(
+                    "ACTIVE"
+                ),
+
+                supported_adapters=(
+                    config.get(
+                        "supported_adapters",
+                        []
+                    )
+                ),
+
+                supported_currencies=(
+                    config.get(
+                        "supported_currencies",
+                        []
+                    )
+                ),
+
+                replay_policy=(
+                    config.get(
+                        "replay_policy",
+                        {}
+                    )
+                ),
+
+                execution_policy=(
+                    config.get(
+                        "execution_policy",
+                        {}
+                    )
+                ),
+
+                attestation_capable=(
+                    config.get(
+                        "attestation_capable",
+                        False
+                    )
                 )
+            )
+
+            session.add(
+                institution
             )
 
         session.commit()
 
-        print("✅ Institutions seeded")
-
-    finally:
-
-        session.close()
-
-
-# ==========================================
-# INSTITUTION KEYS
-# ==========================================
-def seed_institution_keys():
-
-    session = SessionLocal()
-
-    try:
-
-        institutions = (
-
-            session.query(Institution)
-
-            .all()
+        print(
+            "✅ Institutions seeded"
         )
 
-        for inst in institutions:
-
-            exists = (
-
-                session.query(InstitutionKey)
-
-                .filter_by(
-
-                    institution_id=inst.institution_id,
-
-                    status="ACTIVE"
-                )
-
-                .first()
-            )
-
-            if exists:
-                continue
-
-            session.add(
-
-                InstitutionKey(
-
-                    id=str(uuid4()),
-
-                    institution_id=inst.institution_id,
-
-                    public_key=f"pubkey_{inst.institution_id}",
-
-                    private_key=f"privkey_{inst.institution_id}",
-
-                    key_type="RSA",
-
-                    status="ACTIVE"
-                )
-            )
-
-        session.commit()
-
-        print("✅ Institution keys seeded")
-
     finally:
 
         session.close()
 
 
 # ==========================================
-# LINK USER TO INSTITUTIONS
+# CRYPTOGRAPHIC TRUST LAYER
 # ==========================================
-def seed_user_links( railone_id, continuity_uid):
+def seed_cryptographic_layer():
+
+    print(
+        "\n🔐 Initializing "
+        "execution trust layer..."
+    )
+
+    for institution_id in (
+        INSTITUTION_REGISTRY.keys()
+    ):
+
+        KeyManager.ensure_institution_keys(
+            institution_id
+        )
+
+    print(
+        "✅ Cryptographic layer ready"
+    )
+
+
+# ==========================================
+# USER ACCOUNT LINKS
+# ==========================================
+def seed_user_links(
+
+    railone_id,
+
+    continuity_uid
+):
 
     session = SessionLocal()
 
@@ -200,35 +197,47 @@ def seed_user_links( railone_id, continuity_uid):
         links = [
 
             (
-                "PSP_KE",
-                f"{railone_id}_KE_MPESA",
-                "KES"
+                "MPESA",
+                f"{railone_id}_MPESA",
+                "KES",
+                "mpesa"
             ),
 
             (
-                "BANK_TZ",
-                f"{railone_id}_TZ_BANK",
-                "TZS"
-            ),
-
-            (
-                "PSP_UG",
-                f"{railone_id}_UG_WALLET",
-                "UGX"
-            ),
+                "BANK_KE",
+                f"{railone_id}_BANK_KE",
+                "KES",
+                "flutterwave"
+            )
         ]
 
-        for inst_id, account_ref, currency in links:
+        for (
+
+            institution_id,
+
+            external_ref,
+
+            currency,
+
+            adapter_type
+
+        ) in links:
 
             exists = (
 
-                session.query(UserAccountLink)
+                session.query(
+                    UserAccountLink
+                )
 
                 .filter_by(
 
-                    railone_id=railone_id,
+                    railone_id=(
+                        railone_id
+                    ),
 
-                    institution_id=inst_id,
+                    institution_id=(
+                        institution_id
+                    ),
 
                     currency=currency
                 )
@@ -239,27 +248,44 @@ def seed_user_links( railone_id, continuity_uid):
             if exists:
                 continue
 
-            session.add(
+            link = UserAccountLink(
 
-                UserAccountLink(
+                id=str(uuid4()),
 
-                    id=str(uuid4()),
+                railone_id=(
+                    railone_id
+                ),
 
-                    railone_id=railone_id,
+                continuity_uid=(
+                    continuity_uid
+                ),
 
-                    continuity_uid=continuity_uid,
+                institution_id=(
+                    institution_id
+                ),
 
-                    institution_id=inst_id,
+                adapter_type=(
+                    adapter_type
+                ),
 
-                    external_account_ref=account_ref,
+                external_account_ref=(
+                    external_ref
+                ),
 
-                    currency=currency,
+                currency=currency,
 
-                    linkage_state="ACTIVE"
-                )
+                linkage_state="ACTIVE"
             )
 
+            session.add(link)
+
         session.commit()
+
+        print(
+            f"🔗 Linked execution "
+            f"surfaces for "
+            f"{railone_id}"
+        )
 
     finally:
 
@@ -267,28 +293,106 @@ def seed_user_links( railone_id, continuity_uid):
 
 
 # ==========================================
-# EAST AFRICA CORRIDOR USERS
+# EXECUTION SURFACES
+# ==========================================
+def seed_execution_surfaces(
+
+    railone_id,
+
+    continuity_uid
+):
+
+    ensure_execution_account_exists(
+
+        account_id=(
+            f"{railone_id}_KES_MPESA"
+        ),
+
+        railone_id=railone_id,
+
+        continuity_uid=(
+            continuity_uid
+        ),
+
+        institution_id="MPESA",
+
+        adapter_type="mpesa",
+
+        currency="KES",
+
+        mirrored_available_state=(
+            250000.0
+        )
+    )
+
+    ensure_execution_account_exists(
+
+        account_id=(
+            f"{railone_id}_BANK_KE"
+        ),
+
+        railone_id=railone_id,
+
+        continuity_uid=(
+            continuity_uid
+        ),
+
+        institution_id="BANK_KE",
+
+        adapter_type="flutterwave",
+
+        currency="KES",
+
+        mirrored_available_state=(
+            500000.0
+        )
+    )
+
+    print(
+        f"💧 Execution surfaces "
+        f"seeded for "
+        f"{railone_id}"
+    )
+
+
+# ==========================================
+# SEED USERS
 # ==========================================
 def seed_users():
 
     users = [
 
         {
-            "name": "Faith Wanjiku",
-            "national_id": "10000891",
-            "corridor": "KE"
+            "name":
+                "Faith Wanjiku",
+
+            "national_id":
+                "10000891",
+
+            "corridor":
+                "KE"
         },
 
         {
-            "name": "Juma Nyerere",
-            "national_id": "10000555",
-            "corridor": "TZ"
+            "name":
+                "Juma Nyerere",
+
+            "national_id":
+                "10000555",
+
+            "corridor":
+                "TZ"
         },
 
         {
-            "name": "Daniel Okello",
-            "national_id": "10000777",
-            "corridor": "UG"
+            "name":
+                "Daniel Okello",
+
+            "national_id":
+                "10000777",
+
+            "corridor":
+                "UG"
         }
     ]
 
@@ -297,6 +401,7 @@ def seed_users():
     for entry in users:
 
         print(
+
             f"\n👤 Onboarding "
             f"{entry['name']} "
             f"({entry['corridor']})"
@@ -306,17 +411,46 @@ def seed_users():
 
             name=entry["name"],
 
-            national_id=entry["national_id"],
+            national_id=(
+                entry["national_id"]
+            ),
 
-            corridor=entry["corridor"]
+            corridor=(
+                entry["corridor"]
+            )
         )
 
-        railone_id = user["railone_id"]
+        railone_id = (
+            user["railone_id"]
+        )
 
-        continuity_uid = user["continuity_uid"]
+        continuity_uid = (
+            user["continuity_uid"]
+        )
 
-        seed_user_links( railone_id, continuity_uid)
+        # ==============================
+        # LINKAGES
+        # ==============================
+        seed_user_links(
 
+            railone_id,
+
+            continuity_uid
+        )
+
+        # ==============================
+        # EXECUTION SURFACES
+        # ==============================
+        seed_execution_surfaces(
+
+            railone_id,
+
+            continuity_uid
+        )
+
+        # ==============================
+        # IDENTITY ACCOUNTS
+        # ==============================
         seed_user_accounts(
 
             railone_id,
@@ -326,13 +460,17 @@ def seed_users():
 
         created.append({
 
-            "name": entry["name"],
+            "name":
+                entry["name"],
 
-            "railone_id": railone_id,
+            "railone_id":
+                railone_id,
 
-            "continuity_uid": continuity_uid,
+            "continuity_uid":
+                continuity_uid,
 
-            "corridor": entry["corridor"]
+            "corridor":
+                entry["corridor"]
         })
 
     return created
@@ -376,46 +514,61 @@ def get_railone_id_by_national_id(
 def seed_all():
 
     print(
-        "\\n🌐 Initializing RailOne "
-        "Identity Moat Network..."
+        "\n🌐 Initializing "
+        "RailOne Execution Network..."
     )
 
-    # --------------------------------
-    # CORE REGISTRY
-    # --------------------------------
+    # ======================================
+    # CORE TRUST DOMAIN
+    # ======================================
     register_core()
 
-    # --------------------------------
+    # ======================================
     # INSTITUTIONS
-    # --------------------------------
+    # ======================================
     seed_institutions()
 
-    # --------------------------------
-    # KEYS
-    # --------------------------------
-    seed_institution_keys()
+    # ======================================
+    # CRYPTOGRAPHIC TRUST
+    # ======================================
+    seed_cryptographic_layer()
 
-    # --------------------------------
+    # ======================================
     # USERS
-    # --------------------------------
+    # ======================================
     users = seed_users()
 
-    print("\\n👥 USERS CREATED:")
+    print("\n👥 USERS CREATED:")
 
     for u in users:
 
-        print("\n================================")
+        print(
+            "\n================================"
+        )
 
-        print(f"👤 {u['name']}")
+        print(
+            f"👤 {u['name']}"
+        )
 
-        print(f"🆔 RailOne ID: {u['railone_id']}")
+        print(
+            f"🆔 RailOne ID: "
+            f"{u['railone_id']}"
+        )
 
         print(
             f"🔗 Continuity UID: "
             f"{u['continuity_uid']}"
-    )
+        )
 
-    print(f"🌍 Corridor: {u['corridor']}")
+        print(
+            f"🌍 Corridor: "
+            f"{u['corridor']}"
+        )
+
+    print(
+        "\n✅ RailOne network "
+        "seed complete"
+    )
 
 
 # ==========================================
