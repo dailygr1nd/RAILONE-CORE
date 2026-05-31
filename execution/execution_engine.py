@@ -10,7 +10,7 @@ from ledger.ledger_service import (
     apply_execution
 )
 
-from token_factory import (
+from crypto.token_factory import (
     TokenFactory
 )
 

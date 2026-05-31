@@ -2,7 +2,6 @@ from ledger.db import SessionLocal
 
 from ledger.models import Account
 
-from execution.event_store import emit_event
 
 
 # =========================================
@@ -89,32 +88,7 @@ def ensure_execution_account_exists(
 
         session.commit()
 
-        emit_event(
-
-            continuity_uid=(
-                continuity_uid
-            ),
-
-            event_type=(
-                "EXECUTION_SURFACE_CREATED"
-            ),
-
-            payload={
-
-                "account_id":
-                    account_id,
-
-                "institution_id":
-                    institution_id,
-
-                "currency":
-                    currency,
-
-                "adapter_type":
-                    adapter_type
-            }
-        )
-
+        
         return account
 
     finally:

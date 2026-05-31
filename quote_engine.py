@@ -10,7 +10,6 @@ from ledger.db import SessionLocal
 
 from routing import get_best_rail
 from pricing_engine import compute_total_pricing
-from token_factory import TokenFactory
 
 from fx_engine import convert
 from corridor_fx_model import get_market_rate
@@ -170,10 +169,9 @@ def generate_quote(
         # --------------------------------
         # SIGN
         # --------------------------------
-        signature = TokenFactory.sign(
-            payload_str,
-            "R1CORE"
-        ).hex()
+        from crypto.signer import sign_payload
+
+        signature = sign_payload("R1CORE",payload)
 
         return {
 

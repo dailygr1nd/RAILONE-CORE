@@ -7,7 +7,7 @@
 import json
 import hashlib
 
-from token_factory import (
+from crypto.token_factory import (
     TokenFactory
 )
 

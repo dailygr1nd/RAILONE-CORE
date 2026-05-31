@@ -40,9 +40,7 @@ from webhook_dispatcher import (
     dispatch_event
 )
 
-from checkpoint_engine import (
-    create_checkpoint
-)
+from execution.checkpoint_engine import create_checkpoint
 
 from execution.state_machine import (
     TransactionContext,

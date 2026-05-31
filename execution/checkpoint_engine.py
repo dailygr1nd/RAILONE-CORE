@@ -51,7 +51,11 @@ def create_checkpoint(
 
     lineage_parent=None,
 
-    replay_generation=0
+    replay_generation=0,
+
+    provider=None,
+
+    provider_reference=None
 ):
 
     session = SessionLocal()
@@ -67,28 +71,34 @@ def create_checkpoint(
 
             ExecutionCheckpoint(
 
-                utt_id=utt_id,
+    utt_id=utt_id,
 
-                rtt_id=rtt_id,
+    rtt_id=rtt_id,
 
-                continuity_uid=
-                    continuity_uid,
+    continuity_uid=
+        continuity_uid,
 
-                checkpoint_state=
-                    checkpoint_state,
+    checkpoint_state=
+        checkpoint_state,
 
-                lineage_parent=
-                    lineage_parent,
+    lineage_parent=
+        lineage_parent,
 
-                replay_generation=
-                    replay_generation,
+    replay_generation=
+        replay_generation,
 
-                execution_snapshot=
-                    snapshot,
+    execution_snapshot=
+        snapshot,
 
-                integrity_hash=
-                    integrity_hash
-            )
+    provider=
+        provider,
+
+    provider_reference=
+        provider_reference,
+
+    integrity_hash=
+        integrity_hash
+    )
         )
 
         session.add(checkpoint)

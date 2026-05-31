@@ -8,7 +8,7 @@ import json
 from execution.execution_initiator import initiate_transaction
 from execution.execution_queue import get_tx
 
-from idempotency_store import check_idempotency, store_idempotency
+from execution.idempotency_store import check_idempotency, store_idempotency
 
 from institutions.auth_registry import get_institution_by_key, get_rate_limit
 from crypto.auth_engine import verify_request

@@ -1,497 +1,377 @@
 # ==============================
-# continuity_envelope.py
-# RailOne Continuity Envelope
-# Deterministic Execution
-# Continuity Object
+# execution/continuity_envelope.py
+# RailOne Execution Continuity Envelope
 # ==============================
 
 import hashlib
 import json
 import time
-import uuid
 
-from typing import Dict, Any, List, Optional
+from typing import (
+    Dict,
+    Any,
+    Optional,
+    List
+)
 
-from execution.state_machine import ExecutionState
 
-
-# ==========================================
-# CONTINUITY ENVELOPE
-# ==========================================
 class ContinuityEnvelope:
 
-    # ==========================================
+    # ======================================
     # INIT
-    # ==========================================
+    # ======================================
     def __init__(
+
         self,
-        payload: Dict[str, Any],
-        continuity_uid: Optional[str] = None,
-        lineage_parent: Optional[str] = None,
-        replay_generation: int = 0
+
+        utt_id,
+
+        continuity_uid,
+
+        sender_id,
+
+        receiver_id,
+
+        amount,
+
+        currency,
+
+        rtt_id=None,
+
+        etk_s=None,
+
+        etk_r=None,
+
+        lineage_parent=None,
+
+        replay_generation=0
     ):
 
-        # --------------------------------
-        # EXECUTION ATTEMPT ID
-        # --------------------------------
-        self.utt_id = (
-            f"R1EXEC-{uuid.uuid4().hex[:12].upper()}"
-        )
-
-        # --------------------------------
-        # CONTINUITY LINEAGE ID
-        # --------------------------------
-        if not continuity_uid:
-
-           raise ValueError(
-               "continuity_uid required"
-            )
+        self.utt_id = utt_id
 
         self.continuity_uid = (
-            continuity_uid)
-
-        # --------------------------------
-        # LINEAGE ANCESTRY
-        # --------------------------------
-        self.lineage_parent = lineage_parent
-
-        self.replay_generation = replay_generation
-
-        # --------------------------------
-        # TIMESTAMPS
-        # --------------------------------
-        self.created_at = time.time()
-
-        self.updated_at = self.created_at
-
-        # --------------------------------
-        # PAYLOAD
-        # --------------------------------
-        self.payload = payload
-
-        self.payload_hash = (
-            self._hash_payload(payload)
+            continuity_uid
         )
 
-        # --------------------------------
-        # EXECUTION STATE
-        # --------------------------------
-        self.state = ExecutionState.INIT.value
+        self.sender_id = sender_id
 
-        # --------------------------------
-        # BILATERAL ATTESTATIONS
-        # --------------------------------
-        self.attestations: List[Dict[str, Any]] = []
+        self.receiver_id = receiver_id
 
-        # --------------------------------
-        # CANONICAL CONTINUITY HISTORY
-        # --------------------------------
-        self.history: List[Dict[str, Any]] = []
+        self.amount = amount
 
-        # --------------------------------
-        # REPLAY CHECKPOINTS
-        # --------------------------------
-        self.replay_checkpoints: List[Dict[str, Any]] = []
+        self.currency = currency
 
-        # --------------------------------
-        # EXECUTION EVENTS
-        # --------------------------------
-        self.events: List[Dict[str, Any]] = []
+        self.rtt_id = rtt_id
 
-        # --------------------------------
-        # EXECUTION METADATA
-        # --------------------------------
-        self.metadata: Dict[str, Any] = {}
+        self.etk_s = etk_s
 
-        # --------------------------------
-        # ROUTE CONTEXT
-        # --------------------------------
-        self.route_reference = None
+        self.etk_r = etk_r
 
-        self.corridor = None
+        self.lineage_parent = (
+            lineage_parent
+        )
 
-        self.execution_profile = None
+        self.replay_generation = (
+            replay_generation
+        )
 
-        self.route_confidence = None
+        self.created_at = (
+            time.time()
+        )
 
-        # --------------------------------
-        # SETTLEMENT REFERENCES
-        # --------------------------------
+        self.updated_at = (
+            self.created_at
+        )
+
+        self.metadata = {}
+
+        self.attestations = []
+
+        self.quote = None
+
+        self.route = None
+
+        self.provider = None
+
+        self.provider_reference = None
+
         self.settlement_reference = None
 
-        self.execution_reference = None
+    # ======================================
+    # ENVELOPE HASH
+    # ======================================
+    def envelope_hash(self):
 
-        # --------------------------------
-        # RTT + ETK REFERENCES
-        # --------------------------------
-        self.rtt_id = None
+        payload = {
 
-        self.etk_s = None
+            "utt_id":
+                self.utt_id,
 
-        self.etk_r = None
+            "rtt_id":
+                self.rtt_id,
 
-        # --------------------------------
-        # INITIAL EVENT
-        # --------------------------------
-        self._record_event(
-            event_type="CONTINUITY_CREATED",
-            payload={
-                "utt_id": self.utt_id,
-                "continuity_uid": self.continuity_uid
-            }
-        )
+            "etk_s":
+                self.etk_s,
 
-    # ==========================================
-    # HASH PAYLOAD
-    # ==========================================
-    def _hash_payload(
-        self,
-        payload: Dict[str, Any]
-    ) -> str:
+            "etk_r":
+                self.etk_r,
 
-        encoded = json.dumps(
-            payload,
-            sort_keys=True
-        ).encode()
+            "continuity_uid":
+                self.continuity_uid,
+
+            "sender_id":
+                self.sender_id,
+
+            "receiver_id":
+                self.receiver_id,
+
+            "amount":
+                self.amount,
+
+            "currency":
+                self.currency
+        }
 
         return hashlib.sha256(
-            encoded
+
+            json.dumps(
+                payload,
+                sort_keys=True
+            ).encode()
+
         ).hexdigest()
 
-    # ==========================================
-    # RECORD EVENT
-    # ==========================================
-    def _record_event(
+    # ======================================
+    # ATTACH QUOTE
+    # ======================================
+    def attach_quote(
+
         self,
-        event_type: str,
-        payload: Optional[Dict[str, Any]] = None
+
+        quote
     ):
 
-        event = {
+        self.quote = quote
 
-            "event_id": (
-                f"EV-{uuid.uuid4().hex[:12].upper()}"
-            ),
+        self.updated_at = (
+            time.time()
+        )
 
-            "event_type": event_type,
+    # ======================================
+    # ATTACH ROUTE
+    # ======================================
+    def attach_route(
 
-            "utt_id": self.utt_id,
-
-            "continuity_uid": self.continuity_uid,
-
-            "lineage_parent": self.lineage_parent,
-
-            "replay_generation": self.replay_generation,
-
-            "timestamp": time.time(),
-
-            "payload": payload or {}
-        }
-
-        self.events.append(event)
-
-        self.updated_at = time.time()
-
-    # ==========================================
-    # STATE TRANSITION
-    # ==========================================
-    def set_state(
         self,
-        new_state: str,
-        reason: Optional[str] = None
+
+        route
     ):
 
-        previous_state = self.state
+        self.route = route
 
-        self.history.append({
-
-            "from": previous_state,
-
-            "to": new_state,
-
-            "timestamp": time.time(),
-
-            "reason": reason
-        })
-
-        self.state = new_state
-
-        self.updated_at = time.time()
-
-        self._record_event(
-            event_type="STATE_TRANSITION",
-            payload={
-                "previous_state": previous_state,
-                "new_state": new_state,
-                "reason": reason
-            }
+        self.updated_at = (
+            time.time()
         )
 
-    # ==========================================
-    # ATTACH METADATA
-    # ==========================================
-    def attach(
+    # ======================================
+    # ATTACH PROVIDER
+    # ======================================
+    def attach_provider(
+
         self,
-        key: str,
-        value: Any
+
+        provider,
+
+        provider_reference=None
     ):
 
-        self.metadata[key] = value
+        self.provider = provider
 
-        self.updated_at = time.time()
-
-        self._record_event(
-            event_type="METADATA_ATTACHED",
-            payload={
-                "key": key,
-                "value": value
-            }
+        self.provider_reference = (
+            provider_reference
         )
 
-    # ==========================================
-    # ADD ATTESTATION
-    # ==========================================
-    def add_attestation(
-        self,
-        party: str,
-        attestation_type: str,
-        signature: str
-    ):
-
-        attestation = {
-
-            "party": party,
-
-            "type": attestation_type,
-
-            "signature": signature,
-
-            "timestamp": time.time()
-        }
-
-        self.attestations.append(
-            attestation
+        self.updated_at = (
+            time.time()
         )
 
-        self.updated_at = time.time()
-
-        self._record_event(
-            event_type="ATTESTATION_ADDED",
-            payload=attestation
-        )
-
-    # ==========================================
-    # CHECK ATTESTATION
-    # ==========================================
-    def has_attestation(
-        self,
-        attestation_type: str
-    ) -> bool:
-
-        return any(
-            a["type"] == attestation_type
-            for a in self.attestations
-        )
-
-    # ==========================================
-    # CREATE REPLAY CHECKPOINT
-    # ==========================================
-    def create_replay_checkpoint(
-        self,
-        checkpoint_type: str,
-        payload: Optional[Dict[str, Any]] = None
-    ):
-
-        checkpoint = {
-
-            "checkpoint_id": (
-                f"CHK-{uuid.uuid4().hex[:12].upper()}"
-            ),
-
-            "checkpoint_type": checkpoint_type,
-
-            "utt_id": self.utt_id,
-
-            "continuity_uid": self.continuity_uid,
-
-            "timestamp": time.time(),
-
-            "state": self.state,
-
-            "payload": payload or {}
-        }
-
-        self.replay_checkpoints.append(
-            checkpoint
-        )
-
-        self.updated_at = time.time()
-
-        self._record_event(
-            event_type="REPLAY_CHECKPOINT_CREATED",
-            payload=checkpoint
-        )
-
-    # ==========================================
-    # REPLAY GENERATION BUMP
-    # ==========================================
-    def increment_replay_generation(self):
-
-        self.replay_generation += 1
-
-        self.updated_at = time.time()
-
-        self._record_event(
-            event_type="REPLAY_GENERATION_INCREMENTED",
-            payload={
-                "replay_generation": (
-                    self.replay_generation
-                )
-            }
-        )
-
-    # ==========================================
-    # ROUTE CONTEXT
-    # ==========================================
-    def attach_route_context(
-        self,
-        route_reference: str,
-        corridor: str,
-        execution_profile: str,
-        route_confidence: float
-    ):
-
-        self.route_reference = route_reference
-
-        self.corridor = corridor
-
-        self.execution_profile = (
-            execution_profile
-        )
-
-        self.route_confidence = (
-            route_confidence
-        )
-
-        self.updated_at = time.time()
-
-        self._record_event(
-            event_type="ROUTE_CONTEXT_ATTACHED",
-            payload={
-                "route_reference": route_reference,
-                "corridor": corridor,
-                "execution_profile": execution_profile,
-                "route_confidence": route_confidence
-            }
-        )
-
-    # ==========================================
-    # SETTLEMENT REFERENCES
-    # ==========================================
+    # ======================================
+    # ATTACH SETTLEMENT
+    # ======================================
     def attach_settlement_reference(
+
         self,
-        settlement_reference: str,
-        execution_reference: str
+
+        settlement_reference
     ):
 
         self.settlement_reference = (
             settlement_reference
         )
 
-        self.execution_reference = (
-            execution_reference
+        self.updated_at = (
+            time.time()
         )
 
-        self.updated_at = time.time()
+    # ======================================
+    # ATTACH METADATA
+    # ======================================
+    def attach(
 
-        self._record_event(
-            event_type="SETTLEMENT_REFERENCE_ATTACHED",
-            payload={
-                "settlement_reference":
-                    settlement_reference,
-
-                "execution_reference":
-                    execution_reference
-            }
-        )
-
-    # ==========================================
-    # RTT + ETK REFERENCES
-    # ==========================================
-    def attach_execution_attestations(
         self,
-        rtt: str,
-        etk_s: str,
-        etk_r: str
+
+        key,
+
+        value
     ):
 
-        self.rtt_id = rtt
+        self.metadata[key] = value
 
-        self.etk_s = etk_s
-
-        self.etk_r = etk_r
-
-        self.updated_at = time.time()
-
-        self._record_event(
-            event_type="EXECUTION_ATTESTATIONS_ATTACHED",
-            payload={
-                "rtt": rtt,
-                "etk_s": etk_s,
-                "etk_r": etk_r
-            }
+        self.updated_at = (
+            time.time()
         )
 
-    # ==========================================
+    # ======================================
+    # ADD ATTESTATION
+    # ======================================
+    def add_attestation(
+
+        self,
+
+        institution_id,
+
+        signature,
+
+        attestation_type
+    ):
+
+        self.attestations.append({
+
+            "institution_id":
+                institution_id,
+
+            "attestation_type":
+                attestation_type,
+
+            "signature":
+                signature,
+
+            "timestamp":
+                time.time()
+        })
+
+        self.updated_at = (
+            time.time()
+        )
+
+    # ======================================
+    # REPLAY CLONE
+    # ======================================
+    def create_replay_child(self):
+
+        return ContinuityEnvelope(
+
+            utt_id=self.utt_id,
+
+            continuity_uid=
+                self.continuity_uid,
+
+            sender_id=
+                self.sender_id,
+
+            receiver_id=
+                self.receiver_id,
+
+            amount=
+                self.amount,
+
+            currency=
+                self.currency,
+
+            rtt_id=
+                self.rtt_id,
+
+            etk_s=
+                self.etk_s,
+
+            etk_r=
+                self.etk_r,
+
+            lineage_parent=
+                self.utt_id,
+
+            replay_generation=
+                self.replay_generation + 1
+        )
+
+    # ======================================
     # SUMMARY
-    # ==========================================
-    def get_summary(self):
+    # ======================================
+    def summary(self):
 
         return {
 
-            "utt_id": self.utt_id,
+            "utt_id":
+                self.utt_id,
+
+            "rtt_id":
+                self.rtt_id,
 
             "continuity_uid":
                 self.continuity_uid,
 
-            "lineage_parent":
-                self.lineage_parent,
+            "amount":
+                self.amount,
+
+            "currency":
+                self.currency,
+
+            "provider":
+                self.provider,
+
+            "attestations":
+                len(self.attestations),
 
             "replay_generation":
                 self.replay_generation,
 
-            "state": self.state,
-
-            "payload_hash":
-                self.payload_hash,
-
-            "attestation_count":
-                len(self.attestations),
-
-            "event_count":
-                len(self.events),
-
-            "checkpoint_count":
-                len(self.replay_checkpoints),
-
-            "created_at":
-                self.created_at,
-
-            "updated_at":
-                self.updated_at
+            "hash":
+                self.envelope_hash()
         }
 
-    # ==========================================
-    # SERIALIZATION
-    # ==========================================
+    # ======================================
+    # SERIALIZE
+    # ======================================
     def to_dict(self):
 
         return {
 
-            "utt_id": self.utt_id,
+            "utt_id":
+                self.utt_id,
+
+            "rtt_id":
+                self.rtt_id,
 
             "continuity_uid":
                 self.continuity_uid,
+
+            "sender_id":
+                self.sender_id,
+
+            "receiver_id":
+                self.receiver_id,
+
+            "amount":
+                self.amount,
+
+            "currency":
+                self.currency,
+
+            "etk_s":
+                self.etk_s,
+
+            "etk_r":
+                self.etk_r,
 
             "lineage_parent":
                 self.lineage_parent,
@@ -499,20 +379,20 @@ class ContinuityEnvelope:
             "replay_generation":
                 self.replay_generation,
 
-            "created_at":
-                self.created_at,
+            "provider":
+                self.provider,
 
-            "updated_at":
-                self.updated_at,
+            "provider_reference":
+                self.provider_reference,
 
-            "state":
-                self.state,
+            "settlement_reference":
+                self.settlement_reference,
 
-            "payload":
-                self.payload,
+            "quote":
+                self.quote,
 
-            "payload_hash":
-                self.payload_hash,
+            "route":
+                self.route,
 
             "metadata":
                 self.metadata,
@@ -520,39 +400,12 @@ class ContinuityEnvelope:
             "attestations":
                 self.attestations,
 
-            "history":
-                self.history,
+            "created_at":
+                self.created_at,
 
-            "events":
-                self.events,
+            "updated_at":
+                self.updated_at,
 
-            "replay_checkpoints":
-                self.replay_checkpoints,
-
-            "route_reference":
-                self.route_reference,
-
-            "corridor":
-                self.corridor,
-
-            "execution_profile":
-                self.execution_profile,
-
-            "route_confidence":
-                self.route_confidence,
-
-            "settlement_reference":
-                self.settlement_reference,
-
-            "execution_reference":
-                self.execution_reference,
-
-            "rtt":
-                self.rtt_id,
-
-            "etk_s":
-                self.etk_s,
-
-            "etk_r":
-                self.etk_r
+            "envelope_hash":
+                self.envelope_hash()
         }

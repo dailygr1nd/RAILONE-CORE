@@ -9,14 +9,31 @@ from execution.event_store import ExecutionEvent
 
 
 def emit_event(
+
     utt_id,
-    continuity_uid,
-    rtt_id,
+
     event_type,
+
+    provider=None,
+
+    provider_reference=None,
+
+    canonical_state=None,
+
+    replay_safe_hash=None,
+
     previous_state=None,
+
     new_state=None,
+
+    continuity_uid=None,
+
+    rtt_id=None,
+
     payload=None,
+
     lineage_parent=None,
+
     replay_generation=0
 ):
 
@@ -26,24 +43,43 @@ def emit_event(
 
         event = ExecutionEvent(
 
-            utt_id=utt_id,
+    utt_id=utt_id,
 
-            continuity_uid=continuity_uid,
+    rtt_id=rtt_id,
 
-            rtt_id=rtt_id,
+    continuity_uid=
+        continuity_uid,
 
-            event_type=event_type,
+    event_type=
+        event_type,
 
-            previous_state=previous_state,
+    provider=
+        provider,
 
-            new_state=new_state,
+    provider_reference=
+        provider_reference,
 
-            payload=payload or {},
+    canonical_state=
+        canonical_state,
 
-            lineage_parent=lineage_parent,
+    replay_safe_hash=
+        replay_safe_hash,
 
-            replay_generation=replay_generation
-        )
+    previous_state=
+        previous_state,
+
+    new_state=
+        new_state,
+
+    payload=
+        payload or {},
+
+    lineage_parent=
+        lineage_parent,
+
+    replay_generation=
+        replay_generation
+)
 
         session.add(event)
 

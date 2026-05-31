@@ -1,7 +1,7 @@
 # ==============================
 # execution/state_machine.py
 # RailOne Execution Continuity
-# Deterministic Execution State Engine
+# Deterministic State Engine
 # ==============================
 
 from enum import Enum
@@ -22,9 +22,11 @@ from typing import (
     Optional
 )
 
-from uuid import uuid4
+from execution.event_store import emit_event
 
-from execution.event_emitter import emit_event
+from execution.checkpoint_engine import (
+    create_checkpoint
+)
 
 
 # ==========================================
@@ -32,81 +34,40 @@ from execution.event_emitter import emit_event
 # ==========================================
 class ExecutionState(str, Enum):
 
-    # --------------------------------
-    # EXECUTION INITIALIZATION
-    # --------------------------------
     INIT = "INIT"
 
-    # --------------------------------
-    # IDENTITY + TRUST
-    # --------------------------------
-    IDENTITY_VERIFIED = (
-        "IDENTITY_VERIFIED"
-    )
+    IDENTITY_VERIFIED = "IDENTITY_VERIFIED"
 
-    # ETK-S
-    INTENT_LOCKED = (
-        "INTENT_LOCKED"
-    )
+    INTENT_LOCKED = "INTENT_LOCKED"
 
-    # ETK-R
-    RECEIVER_CONFIRMED = (
-        "RECEIVER_CONFIRMED"
-    )
+    RECEIVER_CONFIRMED = "RECEIVER_CONFIRMED"
 
-    # RTT validated
-    HANDSHAKE_VERIFIED = (
-        "HANDSHAKE_VERIFIED"
-    )
+    HANDSHAKE_VERIFIED = "HANDSHAKE_VERIFIED"
 
-    # --------------------------------
-    # ROUTING + PRICING
-    # --------------------------------
-    ROUTE_COMPUTED = (
-        "ROUTE_COMPUTED"
-    )
+    ROUTE_COMPUTED = "ROUTE_COMPUTED"
 
     PRICED = "PRICED"
 
     VALIDATED = "VALIDATED"
 
-    # --------------------------------
-    # EXECUTION PIPELINE
-    # --------------------------------
     PENDING = "PENDING"
 
     DISPATCHED = "DISPATCHED"
 
-    EXECUTION_STARTED = (
-        "EXECUTION_STARTED"
-    )
+    EXECUTION_STARTED = "EXECUTION_STARTED"
 
-    EXECUTION_CONFIRMED = (
-        "EXECUTION_CONFIRMED"
-    )
+    EXECUTION_CONFIRMED = "EXECUTION_CONFIRMED"
 
-    EXECUTION_FAILED = (
-        "EXECUTION_FAILED"
-    )
+    EXECUTION_FAILED = "EXECUTION_FAILED"
 
-    # --------------------------------
-    # REPLAY + RECOVERY
-    # --------------------------------
-    REPLAY_REQUIRED = (
-        "REPLAY_REQUIRED"
-    )
+    REPLAY_REQUIRED = "REPLAY_REQUIRED"
 
     RECONCILIATION_PENDING = (
         "RECONCILIATION_PENDING"
     )
 
-    ROLLED_BACK = (
-        "ROLLED_BACK"
-    )
+    ROLLED_BACK = "ROLLED_BACK"
 
-    # --------------------------------
-    # FINALITY
-    # --------------------------------
     SETTLED = "SETTLED"
 
     FINALIZED = "FINALIZED"
@@ -115,128 +76,104 @@ class ExecutionState(str, Enum):
 
 
 # ==========================================
-# VALID EXECUTION TRANSITIONS
+# PUBLISHED STATES ONLY
+# ==========================================
+PUBLISHABLE_STATES = {
+
+    ExecutionState.PENDING,
+
+    ExecutionState.EXECUTION_STARTED,
+
+    ExecutionState.EXECUTION_CONFIRMED,
+
+    ExecutionState.EXECUTION_FAILED,
+
+    ExecutionState.REPLAY_REQUIRED,
+
+    ExecutionState.SETTLED,
+
+    ExecutionState.FINALIZED
+}
+
+
+# ==========================================
+# VALID TRANSITIONS
 # ==========================================
 VALID_TRANSITIONS = {
 
     ExecutionState.INIT: [
-
         ExecutionState.IDENTITY_VERIFIED,
-
         ExecutionState.FAILED
     ],
 
     ExecutionState.IDENTITY_VERIFIED: [
-
-        ExecutionState.INTENT_LOCKED,
-
-        ExecutionState.FAILED
+        ExecutionState.INTENT_LOCKED
     ],
 
     ExecutionState.INTENT_LOCKED: [
-
-        ExecutionState.RECEIVER_CONFIRMED,
-
-        ExecutionState.FAILED
+        ExecutionState.RECEIVER_CONFIRMED
     ],
 
     ExecutionState.RECEIVER_CONFIRMED: [
-
-        ExecutionState.HANDSHAKE_VERIFIED,
-
-        ExecutionState.FAILED
+        ExecutionState.HANDSHAKE_VERIFIED
     ],
 
     ExecutionState.HANDSHAKE_VERIFIED: [
-
-        ExecutionState.ROUTE_COMPUTED,
-
-        ExecutionState.FAILED
+        ExecutionState.ROUTE_COMPUTED
     ],
 
     ExecutionState.ROUTE_COMPUTED: [
-
-        ExecutionState.PRICED,
-
-        ExecutionState.FAILED
+        ExecutionState.PRICED
     ],
 
     ExecutionState.PRICED: [
-
-        ExecutionState.VALIDATED,
-
-        ExecutionState.FAILED
+        ExecutionState.VALIDATED
     ],
 
     ExecutionState.VALIDATED: [
-
-        ExecutionState.PENDING,
-
-        ExecutionState.FAILED
+        ExecutionState.PENDING
     ],
 
     ExecutionState.PENDING: [
-
         ExecutionState.DISPATCHED,
-
         ExecutionState.FAILED
     ],
 
     ExecutionState.DISPATCHED: [
-
-        ExecutionState.EXECUTION_STARTED,
-
-        ExecutionState.FAILED
+        ExecutionState.EXECUTION_STARTED
     ],
 
     ExecutionState.EXECUTION_STARTED: [
-
         ExecutionState.EXECUTION_CONFIRMED,
-
         ExecutionState.EXECUTION_FAILED
     ],
 
     ExecutionState.EXECUTION_FAILED: [
-
         ExecutionState.REPLAY_REQUIRED,
-
-        ExecutionState.ROLLED_BACK,
-
-        ExecutionState.FAILED
+        ExecutionState.ROLLED_BACK
     ],
 
     ExecutionState.REPLAY_REQUIRED: [
-
         ExecutionState.EXECUTION_STARTED,
-
-        ExecutionState.RECONCILIATION_PENDING,
-
-        ExecutionState.FAILED
+        ExecutionState.RECONCILIATION_PENDING
     ],
 
     ExecutionState.RECONCILIATION_PENDING: [
-
         ExecutionState.SETTLED,
-
-        ExecutionState.ROLLED_BACK,
-
-        ExecutionState.FAILED
+        ExecutionState.ROLLED_BACK
     ],
 
     ExecutionState.EXECUTION_CONFIRMED: [
-
         ExecutionState.SETTLED
     ],
 
     ExecutionState.SETTLED: [
-
         ExecutionState.FINALIZED
     ],
 
     ExecutionState.FINALIZED: [],
 
     ExecutionState.FAILED: [
-
         ExecutionState.ROLLED_BACK
     ],
 
@@ -246,88 +183,57 @@ VALID_TRANSITIONS = {
 
 # ==========================================
 # EXECUTION CONTEXT
-# Canonical execution continuity object
 # ==========================================
 @dataclass
 class ExecutionContext:
 
-    # --------------------------------
-    # CANONICAL EXECUTION CONTINUITY
-    # --------------------------------
     utt_id: str
 
-    # --------------------------------
-    # ROUTE REALIZATION THREAD
-    # --------------------------------
     rtt_id: str
 
-    # --------------------------------
-    # IDENTITY CONTINUITY
-    # --------------------------------
     continuity_uid: str
 
-    # --------------------------------
-    # EXECUTION ACTORS
-    # --------------------------------
     sender_id: str
 
     receiver_id: str
 
-    # --------------------------------
-    # EXECUTION VALUE
-    # --------------------------------
     amount: float
 
     currency: str
 
-    # --------------------------------
-    # EXECUTION LINEAGE
-    # --------------------------------
     lineage_parent: Optional[str] = None
 
     replay_generation: int = 0
 
-    # --------------------------------
-    # EXECUTION STATE
-    # --------------------------------
     state: ExecutionState = (
         ExecutionState.INIT
     )
 
     updated_at: str = field(
-
         default_factory=lambda:
-            datetime.now(
-                timezone.utc
-            ).isoformat()
+        datetime.now(
+            timezone.utc
+        ).isoformat()
     )
 
-    # --------------------------------
-    # EXECUTION METADATA
-    # --------------------------------
     metadata: Dict[str, Any] = field(
-
         default_factory=dict
     )
 
-    # ==========================================
-    # TRANSITION EXECUTION STATE
-    # ==========================================
+    # ======================================
+    # TRANSITION
+    # ======================================
     def transition(
 
         self,
 
-        new_state: ExecutionState,
+        new_state,
 
-        event_payload: Optional[
-            Dict[str, Any]
-        ] = None
+        event_payload=None
     ):
 
         allowed = VALID_TRANSITIONS.get(
-
             self.state,
-
             []
         )
 
@@ -335,28 +241,101 @@ class ExecutionContext:
 
             raise ValueError(
 
-                f"Invalid transition: "
+                f"Invalid transition "
 
-                f"{self.state} -> {new_state}"
+                f"{self.state.value}"
+
+                f" -> "
+
+                f"{new_state.value}"
             )
 
-        old_state = self.state
-
-        # --------------------------------
-        # MUTATE EXECUTION STATE
-        # --------------------------------
         self.state = new_state
 
         self.updated_at = (
-
             datetime.now(
                 timezone.utc
             ).isoformat()
         )
 
-        # --------------------------------
-        # EMIT EXECUTION EVENT
-        # --------------------------------
+        if self.should_publish():
+
+            self.publish(
+                event_payload
+            )
+
+        if self.should_checkpoint():
+
+            self.checkpoint()
+
+        return self
+
+    # ======================================
+    # PUBLISH DECISION
+    # ======================================
+    def should_publish(self):
+
+        return (
+            self.state
+            in
+            PUBLISHABLE_STATES
+        )
+
+    # ======================================
+    # CHECKPOINT DECISION
+    # ======================================
+    def should_checkpoint(self):
+
+        return self.state in {
+
+            ExecutionState.PENDING,
+
+            ExecutionState.EXECUTION_CONFIRMED,
+
+            ExecutionState.EXECUTION_FAILED,
+
+            ExecutionState.SETTLED,
+
+            ExecutionState.FINALIZED
+        }
+
+    # ======================================
+    # CHECKPOINT
+    # ======================================
+    def checkpoint(self):
+
+        create_checkpoint(
+
+            utt_id=self.utt_id,
+
+            rtt_id=self.rtt_id,
+
+            continuity_uid=
+                self.continuity_uid,
+
+            checkpoint_state=
+                self.state.value,
+
+            snapshot=
+                self.to_dict(),
+
+            lineage_parent=
+                self.lineage_parent,
+
+            replay_generation=
+                self.replay_generation
+        )
+
+    # ======================================
+    # PUBLISH
+    # ======================================
+    def publish(
+
+        self,
+
+        event_payload=None
+    ):
+
         emit_event(
 
             utt_id=self.utt_id,
@@ -367,24 +346,12 @@ class ExecutionContext:
                 self.continuity_uid,
 
             event_type=
-                "STATE_TRANSITION",
+                self.state.value,
 
-            previous_state=
-                old_state.value,
-
-            new_state=
-                new_state.value,
+            canonical_state=
+                self.state.value,
 
             payload={
-
-                "utt_id":
-                    self.utt_id,
-
-                "rtt_id":
-                    self.rtt_id,
-
-                "continuity_uid":
-                    self.continuity_uid,
 
                 "amount":
                     self.amount,
@@ -403,45 +370,37 @@ class ExecutionContext:
 
                 "event_payload":
                     event_payload or {}
-            },
-
-            lineage_parent=
-                self.lineage_parent,
-
-            replay_generation=
-                self.replay_generation
+            }
         )
 
-        return self
-
-    # ==========================================
-    # ATTACH EXECUTION CONTEXT
-    # ==========================================
+    # ======================================
+    # ATTACH
+    # ======================================
     def attach(
 
         self,
 
-        key: str,
+        key,
 
-        value: Any
+        value
     ):
 
         self.metadata[key] = value
 
         return self
 
-    # ==========================================
-    # REPLAY GENERATION BUMP
-    # ==========================================
+    # ======================================
+    # REPLAY BUMP
+    # ======================================
     def increment_replay_generation(self):
 
         self.replay_generation += 1
 
         return self
 
-    # ==========================================
-    # SERIALIZATION
-    # ==========================================
+    # ======================================
+    # SERIALIZE
+    # ======================================
     def to_dict(self):
 
         return {
@@ -454,12 +413,6 @@ class ExecutionContext:
 
             "continuity_uid":
                 self.continuity_uid,
-
-            "lineage_parent":
-                self.lineage_parent,
-
-            "replay_generation":
-                self.replay_generation,
 
             "amount":
                 self.amount,
@@ -475,6 +428,12 @@ class ExecutionContext:
 
             "state":
                 self.state.value,
+
+            "lineage_parent":
+                self.lineage_parent,
+
+            "replay_generation":
+                self.replay_generation,
 
             "updated_at":
                 self.updated_at,
