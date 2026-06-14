@@ -29,21 +29,53 @@ class TokenFactory:
         ).hexdigest()
 
     # =====================================
+    # CONTINUITY ANCHOR
+    # =====================================
+    @staticmethod
+    def generate_continuity_anchor(
+        continuity_uid
+    ):
+
+        payload = {
+
+            "continuity_uid":
+                continuity_uid,
+
+            "anchor_nonce":
+                secrets.token_hex(32),
+
+            "timestamp":
+                int(time.time())
+        }
+
+        continuity_anchor = (
+            TokenFactory._hash(payload)
+        )
+
+        return {
+
+            "continuity_anchor":
+                continuity_anchor,
+
+            "payload":
+                payload
+        }
+
+    # =====================================
     # ETK-S
-    # Execution Trust Key (Sender)
     # =====================================
     @staticmethod
     def generate_etk_s(
 
-        sender_railone_id,
+        sender_id,
         amount,
         currency
     ):
 
         payload = {
 
-            "sender":
-                sender_railone_id,
+            "sender_id":
+                sender_id,
 
             "amount":
                 amount,
@@ -73,13 +105,12 @@ class TokenFactory:
 
     # =====================================
     # ETK-R
-    # Derived from ETK-S
     # =====================================
     @staticmethod
     def generate_etk_r(
 
         etk_s,
-        receiver_railone_id
+        receiver_id
     ):
 
         payload = {
@@ -87,8 +118,8 @@ class TokenFactory:
             "etk_s":
                 etk_s,
 
-            "receiver":
-                receiver_railone_id,
+            "receiver_id":
+                receiver_id,
 
             "timestamp":
                 int(time.time())
@@ -108,83 +139,57 @@ class TokenFactory:
         }
 
     # =====================================
-    # RTT
-    # Derived from ETK-S + ETK-R
-    # =====================================
-    @staticmethod
-    def generate_rtt(
-
-        etk_s,
-        etk_r
-    ):
-
-        payload = {
-
-            "etk_s":
-                etk_s,
-
-            "etk_r":
-                etk_r,
-
-            "tracking_nonce":
-                secrets.token_hex(16),
-
-            "timestamp":
-                int(time.time())
-        }
-
-        rtt = TokenFactory._hash(
-            payload
-        )
-
-        return {
-
-            "rtt":
-                rtt,
-
-            "payload":
-                payload
-        }
-
-    # =====================================
     # UTT
-    # Derived after quote acceptance
+    # Commercial Contract
     # =====================================
     @staticmethod
     def generate_utt(
 
-        rtt,
-        etk_s,
-        etk_r,
+        continuity_uid,
+
         quote_id,
-        accepted_quote
+
+        sender_id,
+
+        receiver_id,
+
+        amount,
+
+        currency,
+
+        routing_fee,
+
+        max_attempts=5
     ):
-
-        quote_hash = hashlib.sha256(
-
-            json.dumps(
-                accepted_quote,
-                sort_keys=True
-            ).encode()
-
-        ).hexdigest()
 
         payload = {
 
-            "rtt":
-                rtt,
-
-            "etk_s":
-                etk_s,
-
-            "etk_r":
-                etk_r,
+            "continuity_uid":
+                continuity_uid,
 
             "quote_id":
                 quote_id,
 
-            "quote_hash":
-                quote_hash,
+            "sender_id":
+                sender_id,
+
+            "receiver_id":
+                receiver_id,
+
+            "amount":
+                amount,
+
+            "currency":
+                currency,
+
+            "routing_fee":
+                routing_fee,
+
+            "pricing_model":
+                "PER_INTENT",
+
+            "max_attempts":
+                max_attempts,
 
             "timestamp":
                 int(time.time())
@@ -204,35 +209,55 @@ class TokenFactory:
         }
 
     # =====================================
-    # CONTINUITY ANCHOR
-    # Identity continuity root
+    # RTT
+    # Routing Attempt Artifact
     # =====================================
     @staticmethod
-    def generate_continuity_anchor(
+    def generate_rtt(
 
-        continuity_uid
+        utt_id,
+
+        attempt,
+
+        selected_route,
+
+        route_score,
+
+        previous_route=None
     ):
 
         payload = {
 
-            "continuity_uid":
-                continuity_uid,
+            "utt_id":
+                utt_id,
 
-            "anchor_nonce":
-                secrets.token_hex(32),
+            "attempt":
+                attempt,
+
+            "selected_route":
+                selected_route,
+
+            "previous_route":
+                previous_route,
+
+            "route_score":
+                route_score,
+
+            "tracking_nonce":
+                secrets.token_hex(16),
 
             "timestamp":
                 int(time.time())
         }
 
-        anchor = TokenFactory._hash(
+        rtt_id = TokenFactory._hash(
             payload
         )
 
         return {
 
-            "continuity_anchor":
-                anchor,
+            "rtt_id":
+                rtt_id,
 
             "payload":
                 payload
@@ -260,5 +285,7 @@ class TokenFactory:
 
             time.time()
             >
-            (timestamp + ttl)
+            (
+                timestamp + ttl
+            )
         )

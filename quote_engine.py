@@ -8,7 +8,7 @@ import json
 
 from ledger.db import SessionLocal
 
-from routing import get_best_rail
+from routing.routing import get_best_rail
 from pricing_engine import compute_total_pricing
 
 from fx_engine import convert

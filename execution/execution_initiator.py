@@ -1,8 +1,4 @@
 # ==============================
-# transaction_engine.py (PROTOCOL LOCKED)
-# ==============================
-
-# ==============================
 # execution/execution_initiator.py
 # RailOne Deterministic
 # Execution Continuity Initiator
@@ -340,25 +336,32 @@ def initiate_execution(
 
     gross = float(amount)
 
+
+
+    utt_id = TokenFactory.generate_utt(
+    sender_id=sender_id,
+    receiver_id=receiver_id,
+    amount=gross,
+    continuity_uid=continuity_uid
+    )
+
+
     # ==========================================
     # EXECUTION HANDSHAKE
     # ==========================================
     handshake = run_handshake(
 
-        sender_id=
-            sender_id,
+    utt_id=utt_id,
 
-        receiver_id=
-            receiver_id,
+    sender_id=sender_id,
 
-        amount=
-            gross,
+    receiver_id=receiver_id,
 
-        currency=
-            sender_currency,
+    amount=gross,
 
-        continuity_uid=
-        continuity_uid
+    currency=sender_currency,
+
+    continuity_uid=continuity_uid
     )
 
     # ==========================================

@@ -11,7 +11,7 @@ def get_route(sender_inst, receiver_inst):
     return [sender_inst, receiver_inst]
 
 from identity.attestation_engine import AttestationEngine
-from route_planner import get_route
+from routing.route_planner import get_route
 
 
 def execute_multi_hop(tx, router):

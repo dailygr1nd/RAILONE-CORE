@@ -25,10 +25,16 @@ from execution.checkpoint_engine import (
 # ==========================================
 def run_handshake(
 
+    utt_id: str,
+
     sender_id: str,
+
     receiver_id: str,
+
     amount: float,
+
     currency: str = "KES",
+
     continuity_uid: str | None = None
 ):
 
@@ -44,7 +50,7 @@ def run_handshake(
 
     ctx = ExecutionContext(
 
-        utt_id="HANDSHAKE_ONLY",
+        utt_id=utt_id,
 
         rtt_id=None,
 
@@ -177,7 +183,7 @@ def run_handshake(
     create_checkpoint(
 
         utt_id=
-            "HANDSHAKE_ONLY",
+            utt_id,
 
         rtt_id=
             rtt_id,
@@ -233,6 +239,9 @@ def run_handshake(
     )
 
     return {
+
+        "utt_id":
+            utt_id,
 
         "continuity_uid":
             continuity_uid,

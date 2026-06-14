@@ -6,7 +6,7 @@
 
 from uuid import uuid4
 
-from routing import get_best_route
+from routing.routing import get_best_route
 
 from execution.execution_initiator import (
     initiate_transaction

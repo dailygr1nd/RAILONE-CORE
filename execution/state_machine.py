@@ -1,8 +1,7 @@
-# ==============================
+## ==========================================
 # execution/state_machine.py
-# RailOne Execution Continuity
-# Deterministic State Engine
-# ==============================
+# RailOne UTT Lifecycle Engine
+# ==========================================
 
 from enum import Enum
 
@@ -18,11 +17,12 @@ from datetime import (
 
 from typing import (
     Dict,
-    Any,
-    Optional
+    Any
 )
 
-from execution.event_store import emit_event
+from execution.event_store import (
+    emit_event
+)
 
 from execution.checkpoint_engine import (
     create_checkpoint
@@ -30,45 +30,15 @@ from execution.checkpoint_engine import (
 
 
 # ==========================================
-# EXECUTION STATES
+# UTT STATES
 # ==========================================
-class ExecutionState(str, Enum):
+class UTTState(str, Enum):
 
-    INIT = "INIT"
+    CREATED = "CREATED"
 
-    IDENTITY_VERIFIED = "IDENTITY_VERIFIED"
+    PROCESSING = "PROCESSING"
 
-    INTENT_LOCKED = "INTENT_LOCKED"
-
-    RECEIVER_CONFIRMED = "RECEIVER_CONFIRMED"
-
-    HANDSHAKE_VERIFIED = "HANDSHAKE_VERIFIED"
-
-    ROUTE_COMPUTED = "ROUTE_COMPUTED"
-
-    PRICED = "PRICED"
-
-    VALIDATED = "VALIDATED"
-
-    PENDING = "PENDING"
-
-    DISPATCHED = "DISPATCHED"
-
-    EXECUTION_STARTED = "EXECUTION_STARTED"
-
-    EXECUTION_CONFIRMED = "EXECUTION_CONFIRMED"
-
-    EXECUTION_FAILED = "EXECUTION_FAILED"
-
-    REPLAY_REQUIRED = "REPLAY_REQUIRED"
-
-    RECONCILIATION_PENDING = (
-        "RECONCILIATION_PENDING"
-    )
-
-    ROLLED_BACK = "ROLLED_BACK"
-
-    SETTLED = "SETTLED"
+    RETRYING = "RETRYING"
 
     FINALIZED = "FINALIZED"
 
@@ -76,108 +46,38 @@ class ExecutionState(str, Enum):
 
 
 # ==========================================
-# PUBLISHED STATES ONLY
-# ==========================================
-PUBLISHABLE_STATES = {
-
-    ExecutionState.PENDING,
-
-    ExecutionState.EXECUTION_STARTED,
-
-    ExecutionState.EXECUTION_CONFIRMED,
-
-    ExecutionState.EXECUTION_FAILED,
-
-    ExecutionState.REPLAY_REQUIRED,
-
-    ExecutionState.SETTLED,
-
-    ExecutionState.FINALIZED
-}
-
-
-# ==========================================
 # VALID TRANSITIONS
 # ==========================================
 VALID_TRANSITIONS = {
 
-    ExecutionState.INIT: [
-        ExecutionState.IDENTITY_VERIFIED,
-        ExecutionState.FAILED
+    UTTState.CREATED: [
+
+        UTTState.PROCESSING,
+
+        UTTState.FAILED
     ],
 
-    ExecutionState.IDENTITY_VERIFIED: [
-        ExecutionState.INTENT_LOCKED
+    UTTState.PROCESSING: [
+
+        UTTState.RETRYING,
+
+        UTTState.FINALIZED,
+
+        UTTState.FAILED
     ],
 
-    ExecutionState.INTENT_LOCKED: [
-        ExecutionState.RECEIVER_CONFIRMED
+    UTTState.RETRYING: [
+
+        UTTState.PROCESSING,
+
+        UTTState.FINALIZED,
+
+        UTTState.FAILED
     ],
 
-    ExecutionState.RECEIVER_CONFIRMED: [
-        ExecutionState.HANDSHAKE_VERIFIED
-    ],
+    UTTState.FINALIZED: [],
 
-    ExecutionState.HANDSHAKE_VERIFIED: [
-        ExecutionState.ROUTE_COMPUTED
-    ],
-
-    ExecutionState.ROUTE_COMPUTED: [
-        ExecutionState.PRICED
-    ],
-
-    ExecutionState.PRICED: [
-        ExecutionState.VALIDATED
-    ],
-
-    ExecutionState.VALIDATED: [
-        ExecutionState.PENDING
-    ],
-
-    ExecutionState.PENDING: [
-        ExecutionState.DISPATCHED,
-        ExecutionState.FAILED
-    ],
-
-    ExecutionState.DISPATCHED: [
-        ExecutionState.EXECUTION_STARTED
-    ],
-
-    ExecutionState.EXECUTION_STARTED: [
-        ExecutionState.EXECUTION_CONFIRMED,
-        ExecutionState.EXECUTION_FAILED
-    ],
-
-    ExecutionState.EXECUTION_FAILED: [
-        ExecutionState.REPLAY_REQUIRED,
-        ExecutionState.ROLLED_BACK
-    ],
-
-    ExecutionState.REPLAY_REQUIRED: [
-        ExecutionState.EXECUTION_STARTED,
-        ExecutionState.RECONCILIATION_PENDING
-    ],
-
-    ExecutionState.RECONCILIATION_PENDING: [
-        ExecutionState.SETTLED,
-        ExecutionState.ROLLED_BACK
-    ],
-
-    ExecutionState.EXECUTION_CONFIRMED: [
-        ExecutionState.SETTLED
-    ],
-
-    ExecutionState.SETTLED: [
-        ExecutionState.FINALIZED
-    ],
-
-    ExecutionState.FINALIZED: [],
-
-    ExecutionState.FAILED: [
-        ExecutionState.ROLLED_BACK
-    ],
-
-    ExecutionState.ROLLED_BACK: []
+    UTTState.FAILED: []
 }
 
 
@@ -189,8 +89,6 @@ class ExecutionContext:
 
     utt_id: str
 
-    rtt_id: str
-
     continuity_uid: str
 
     sender_id: str
@@ -201,12 +99,8 @@ class ExecutionContext:
 
     currency: str
 
-    lineage_parent: Optional[str] = None
-
-    replay_generation: int = 0
-
-    state: ExecutionState = (
-        ExecutionState.INIT
+    state: UTTState = (
+        UTTState.CREATED
     )
 
     updated_at: str = field(
@@ -233,7 +127,9 @@ class ExecutionContext:
     ):
 
         allowed = VALID_TRANSITIONS.get(
+
             self.state,
+
             []
         )
 
@@ -253,51 +149,19 @@ class ExecutionContext:
         self.state = new_state
 
         self.updated_at = (
+
             datetime.now(
                 timezone.utc
             ).isoformat()
         )
 
-        if self.should_publish():
-
-            self.publish(
-                event_payload
-            )
-
-        if self.should_checkpoint():
-
-            self.checkpoint()
-
-        return self
-
-    # ======================================
-    # PUBLISH DECISION
-    # ======================================
-    def should_publish(self):
-
-        return (
-            self.state
-            in
-            PUBLISHABLE_STATES
+        self.publish(
+            event_payload
         )
 
-    # ======================================
-    # CHECKPOINT DECISION
-    # ======================================
-    def should_checkpoint(self):
+        self.checkpoint()
 
-        return self.state in {
-
-            ExecutionState.PENDING,
-
-            ExecutionState.EXECUTION_CONFIRMED,
-
-            ExecutionState.EXECUTION_FAILED,
-
-            ExecutionState.SETTLED,
-
-            ExecutionState.FINALIZED
-        }
+        return self
 
     # ======================================
     # CHECKPOINT
@@ -306,9 +170,8 @@ class ExecutionContext:
 
         create_checkpoint(
 
-            utt_id=self.utt_id,
-
-            rtt_id=self.rtt_id,
+            utt_id=
+                self.utt_id,
 
             continuity_uid=
                 self.continuity_uid,
@@ -317,13 +180,7 @@ class ExecutionContext:
                 self.state.value,
 
             snapshot=
-                self.to_dict(),
-
-            lineage_parent=
-                self.lineage_parent,
-
-            replay_generation=
-                self.replay_generation
+                self.to_dict()
         )
 
     # ======================================
@@ -338,9 +195,8 @@ class ExecutionContext:
 
         emit_event(
 
-            utt_id=self.utt_id,
-
-            rtt_id=self.rtt_id,
+            utt_id=
+                self.utt_id,
 
             continuity_uid=
                 self.continuity_uid,
@@ -390,15 +246,6 @@ class ExecutionContext:
         return self
 
     # ======================================
-    # REPLAY BUMP
-    # ======================================
-    def increment_replay_generation(self):
-
-        self.replay_generation += 1
-
-        return self
-
-    # ======================================
     # SERIALIZE
     # ======================================
     def to_dict(self):
@@ -408,17 +255,8 @@ class ExecutionContext:
             "utt_id":
                 self.utt_id,
 
-            "rtt_id":
-                self.rtt_id,
-
             "continuity_uid":
                 self.continuity_uid,
-
-            "amount":
-                self.amount,
-
-            "currency":
-                self.currency,
 
             "sender_id":
                 self.sender_id,
@@ -426,14 +264,14 @@ class ExecutionContext:
             "receiver_id":
                 self.receiver_id,
 
+            "amount":
+                self.amount,
+
+            "currency":
+                self.currency,
+
             "state":
                 self.state.value,
-
-            "lineage_parent":
-                self.lineage_parent,
-
-            "replay_generation":
-                self.replay_generation,
 
             "updated_at":
                 self.updated_at,
