@@ -5,7 +5,7 @@
 
 from ledger.db import SessionLocal
 
-from routing.execution_plan_models import (
+from routing.models.execution_plan_models import (
     ExecutionPlanRecord
 )
 

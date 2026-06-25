@@ -16,9 +16,9 @@ from identity.models import *
 # --------------------------------
 # EXECUTION EVENTS
 # --------------------------------
-from execution.event_models import *
+from execution.events.event_models import *
 
 # --------------------------------
 # CHECKPOINTS
 # --------------------------------
-from execution.checkpoint_models import *
+from execution.checkpoints.checkpoint_models import *

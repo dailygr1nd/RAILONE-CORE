@@ -15,7 +15,7 @@ from ledger.models import (
     ExecutionThread
 )
 
-from execution.event_store import (
+from execution.events.event_store import (
     emit_event
 )
 

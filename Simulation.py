@@ -21,19 +21,19 @@ from identity.user_directory import (
     list_users
 )
 
-from execution.execution_initiator import (
+from execution.application.execution_initiator import (
     initiate_execution
 )
 
-from execution.execution_queue import (
+from execution.queue.execution_queue import (
     get_all_executions
 )
 
-from execution.replay_engine import (
+from execution.orchestrator.replay_engine import (
     replay_execution
 )
 
-from execution.continuity_reconstructor import (
+from execution.continuity.continuity_reconstructor import (
     summarize_continuity
 )
 
@@ -48,7 +48,7 @@ from institutions.core_registry import (
     register_core
 )
 
-from quote_engine import (
+from settlement.quote_engine import (
     generate_quote
 )
 

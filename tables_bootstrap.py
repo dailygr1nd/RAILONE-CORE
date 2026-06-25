@@ -17,16 +17,16 @@ import ledger.models
 # EXECUTION EVENT MODELS
 # ==========================================
 
-from execution.event_models import (
+from execution.events.event_models import (
     ExecutionEvent
 )
 
-from execution.checkpoint_models import (
+from execution.checkpoints.checkpoint_models import (
     ExecutionCheckpoint
 )
-from execution.replay_models import *
+from execution.continuity.replay_models import *
 
-from execution.replay_models import (
+from execution.continuity.replay_models import (
     ExecutionReplay
 )
 

@@ -8,7 +8,7 @@ from adapters.mpesa.mapper import (
     map_mpesa_state
 )
 
-from execution.event_store import (
+from execution.events.event_store import (
     emit_event
 )
 

@@ -5,10 +5,10 @@
 from fastapi import FastAPI, Request, HTTPException
 import json
 
-from execution.execution_initiator import initiate_transaction
-from execution.execution_queue import get_tx
+from execution.application.execution_initiator import initiate_transaction
+from execution.queue.execution_queue import get_tx
 
-from execution.idempotency_store import check_idempotency, store_idempotency
+from idempotency.idempotency_store import check_idempotency, store_idempotency
 
 from institutions.auth_registry import get_institution_by_key, get_rate_limit
 from crypto.auth_engine import verify_request
@@ -21,7 +21,7 @@ app = FastAPI()
 
 from ledger.db import SessionLocal
 
-from settlement_reference_engine import (
+from settlement.settlement_reference_engine import (
     settlement_reference_snapshot,
     get_settlement_reference_pressure,
     get_corridor_state
@@ -178,7 +178,7 @@ def get_iso(utt_id: str):
 # --------------------------------
 # DASHBOARD METRICS (unchanged)
 # --------------------------------
-from revenue_db import get_total_revenue
+from revenue.revenue_db import get_total_revenue
 import sqlite3
 
 
