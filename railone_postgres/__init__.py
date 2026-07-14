@@ -16,6 +16,8 @@ from .api_security import (
 from .callbacks import PostgresCallbackInboxStore
 from .notifications import PostgresSettlementNotificationStore
 from .partners import PostgresPartnerDirectory
+from .security import PostgresEncryptedSecretStore
+from .sandbox import PostgresSandboxEffectStore
 
 __all__ = [
     "PostgresDatabase",
@@ -31,6 +33,8 @@ __all__ = [
     "PostgresCallbackInboxStore",
     "PostgresSettlementNotificationStore",
     "PostgresPartnerDirectory",
+    "PostgresEncryptedSecretStore",
+    "PostgresSandboxEffectStore",
     "PostgresIdentityRepository",
     "psycopg_connection_factory",
 ]

@@ -80,6 +80,24 @@ the same:
 7. Settlement replay with changed provider evidence.
 8. Key rotation, key revocation, database restore, and certificate expiry.
 
+## Step 11B implementation status
+
+Implemented in `0.12.0`: versioned AES-256-GCM envelopes, per-record DEKs,
+purpose-specific KEK identifiers, canonical associated data, encrypted
+account/contact vaults, an isolated key-service client interface, append-only
+PostgreSQL envelope persistence, and synthetic-only bank/M-PESA effect drills.
+
+The bundled in-memory KEK implementation is test-only. A shared pilot remains
+blocked until an isolated KMS/HSM client is supplied. Provider credential and
+notification-body persistence must also be wired through the same envelope
+boundary before those values are stored in a deployed environment.
+
+Step 11C closes those two persistence gaps for its deployed composition:
+provider credentials resolve from the encrypted credential vault, and new
+PostgreSQL SMS records store only an encrypted body envelope plus a placeholder.
+Durable simulated effects now use expiring worker leases and dead-letter state.
+The external isolated Ed25519 signer remains a deployment requirement.
+
 ## Pilot release gate
 
 The profile passes only when repository convergence and secret checks pass, all

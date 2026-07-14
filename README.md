@@ -1,616 +1,96 @@
-Good point. Before rewriting code, I'd write a design paper that becomes the authoritative specification for RailOne's execution model. Otherwise you'll end up rewriting files twice.
+# RailOne Core
 
----
+RailOne is a non-custodial execution-continuity engine. It accepts a signed
+financial intent, selects an eligible route, submits an execution request to an
+existing financial rail, and preserves deterministic evidence through finality
+or reconciliation.
 
-# RailOne Execution Architecture
+This repository is the cumulative Step 11C pilot baseline. It adds encrypted
+notification and provider-credential persistence, durable synthetic effects,
+lease-safe workers, supervision and a PostgreSQL-backed deployment composition
+to Step 11B. The package is safe to overlay without deleting legacy files; the
+convergence checker will continue to report legacy runtime copies until cleanup
+is performed deliberately.
 
-## UTT-Driven Intelligent Routing with Replayable Execution
+## Core invariants
 
-### Version
+- P2P transfers are first-class RailOne intents.
+- Avia and other commerce systems enter through merchant, branch, or partner
+  contexts rather than being coerced into human ContUIDs.
+- A quote is a signed, expiring commercial offer.
+- Explicit quote acceptance creates one immutable UTT and sender authority.
+- RTTs are signed immutable attempt-birth artifacts; operational state is
+  versioned separately.
+- Unknown provider outcomes block blind retry and require reconciliation.
+- RailOne resolves provider-ready account endpoints only at dispatch.
+- Provider acceptance is never described as settlement.
+- Sender and receiver SMS records are created only from signed settlement
+  evidence.
+- RailOne never takes custody of customer funds.
 
-Draft 1.0
+## Repository map
 
-### Status
+| Area | Responsibility |
+|---|---|
+| `railone_identity/` | ContUID, immutable identity genesis, and mutable trust revisions |
+| `railone_authority/` | ETK-S and ETK-R execution authority |
+| `railone_contracts/` | Quote acceptance and immutable UTT contracts |
+| `railone_execution/` | Deterministic plans, RTT lineage, retry and reconciliation |
+| `railone_operations/` | Provider dispatch, idempotency and signed outbox |
+| `railone_callbacks/` | M-PESA callback normalization and correlation |
+| `railone_partners/` | Partner institutions and opaque account bindings |
+| `railone_notifications/` | Settlement evidence and finality-gated SMS |
+| `railone_postgres/` | Durable PostgreSQL repository adapters |
+| `railone_api/` | Authenticated visibility boundary |
+| `railone_security/` | AES-256-GCM envelopes and isolated key-service boundary |
+| `railone_sandbox/` | Deterministic bank/M-PESA synthetic effects and readiness |
+| `migrations/` | Immutable forward database history |
+| `docs/` | ADRs, runbooks and security profile |
 
-Architectural Proposal
+## Local verification
 
----
+From the repository root:
 
-# 1. Purpose
-
-This document defines how RailOne executes payment intents across multiple financial rails while maintaining:
-
-* Deterministic execution
-* Intelligent routing
-* Replayability
-* Auditability
-* Commercial consistency
-
-The architecture separates:
-
-1. Commercial Intent
-2. Routing Decisions
-3. Execution State
-4. Revenue Recognition
-
-into distinct components.
-
----
-
-# 2. Core Principle
-
-RailOne does not sell access to rails.
-
-RailOne sells:
-
-> Execution Finality
-
-A customer does not purchase:
-
-* SWIFT
-* RTGS
-* Pesalink
-* Bilateral Networks
-
-A customer purchases:
-
-> Transfer value from Institution A to Institution B.
-
-Routing is an internal concern of RailOne.
-
----
-
-# 3. Network Model
-
-RailOne models the payment ecosystem as a graph.
-
-## Nodes
-
-Nodes represent institutions.
-
-Examples:
-
-```text
-KCB
-ABSA
-CRDB
-NMB
-Equity
-Stanbic
+```powershell
+python -m pip install -e ".[pilot]"
+python .\scripts\check_repository_convergence.py
+python .\scripts\check_no_secrets.py
+python .\run_tests.py
 ```
 
----
+For the live PostgreSQL gates, use a disposable database only:
 
-## Edges
-
-Edges represent rails.
-
-Examples:
-
-```text
-Pesalink
-SWIFT
-RTGS
-TIPS
-Bilateral Network
-Payment Orchestrator
+```powershell
+$env:RAILONE_TEST_DATABASE_URL = "postgresql://railone_test:railone_test@localhost:5432/railone_test"
+$env:RAILONE_ALLOW_TEST_SCHEMA_RESET = "1"
+$env:RAILONE_REQUIRE_LIVE_POSTGRES = "1"
+python .\run_tests.py
 ```
 
----
+The live test resets the `railone` schema. Never point it at a persistent or
+shared database.
 
-Example:
+## Security boundary
 
-```text
-KCB
- │
- ├── Pesalink ── ABSA
- │
- ├── SWIFT ───── ABSA
- │
- ├── RTGS ────── ABSA
- │
- └── Bilateral ─ ABSA
-```
+Ed25519 signs RailOne artifacts; it does not encrypt data. The pilot security
+profile is defined in `docs/SECURITY-PROFILE-R1-PILOT-SEC-1.md`.
 
-Multiple edges may connect the same node pair.
+The repository contains only test in-memory key providers. A deployed sandbox
+must supply isolated signing, continuity-secret, and envelope-key services.
+Private keys,
+provider credentials, access tokens, contact endpoints, and real account
+identifiers must never be committed.
 
----
+Any key previously stored under the legacy `crypto/keys/` or `keys/` paths is
+compromised and must be revoked, rotated, and purged from Git history.
 
-# 4. Routing Philosophy
+## Current release status
 
-There is rarely only one path through which value can move.
+The codebase is an architecture-convergent prototype with deployable simulated-
+pilot security and provider-effect boundaries. It is eligible for a simulated
+integration pilot only after CI executes all tests without skips, including the
+optional HTTP and disposable PostgreSQL gates. It is not a live-funds or
+production deployment profile.
 
-Therefore RailOne evaluates all available rails before execution.
-
-The objective is:
-
-```text
-Find the best available route
-at the time of execution.
-```
-
----
-
-# 5. Route Scoring
-
-Every route receives a dynamic score.
-
-Example:
-
-```python
-score = f(
-
-    latency,
-
-    congestion,
-
-    liquidity_capacity,
-
-    throughput_threshold,
-
-    speed,
-
-    cost,
-
-    link_status
-
-)
-```
-
----
-
-## Routing Factors
-
-### Latency
-
-Response time of the rail.
-
----
-
-### Congestion
-
-Current traffic level.
-
----
-
-### Liquidity Capacity
-
-Available liquidity.
-
----
-
-### Throughput Threshold
-
-Maximum sustainable volume.
-
----
-
-### Speed
-
-Settlement performance.
-
----
-
-### Cost
-
-Execution cost.
-
----
-
-### Link Status
-
-Health and availability.
-
----
-
-# 6. AI-Assisted Routing
-
-Artificial Intelligence does not execute payments.
-
-AI assists route discovery.
-
----
-
-## AI Responsibilities
-
-```text
-Analyze rails
-Detect patterns
-Predict failures
-Suggest routes
-```
-
----
-
-## Engine Responsibilities
-
-```text
-Score routes
-Select routes
-Execute routes
-Manage retries
-Finalize execution
-```
-
-Decision authority remains with the routing engine.
-
----
-
-# 7. UTT: Universal Transaction Token
-
-## Definition
-
-UTT represents execution intent.
-
-It is generated immediately after quote acceptance.
-
----
-
-## Why UTT Exists
-
-Before execution begins:
-
-```text
-Amount
-Currency
-Participants
-Pricing
-Validity
-```
-
-must be frozen.
-
-UTT becomes the authoritative contract for execution.
-
----
-
-## UTT Responsibilities
-
-```text
-Bind execution intent
-Store commercial terms
-Define retry policy
-Anchor execution history
-Enable auditability
-```
-
----
-
-## Example
-
-```json
-{
-  "utt_id": "UTT-001",
-
-  "quote_id": "Q-001",
-
-  "amount": 1000,
-
-  "currency": "USD",
-
-  "routing_fee": 3.00,
-
-  "pricing_model": "PER_INTENT",
-
-  "max_retry_attempts": 5,
-
-  "status": "PROCESSING"
-}
-```
-
----
-
-# 8. Why RTT Must Come After UTT
-
-RTTs represent execution attempts.
-
-Execution attempts cannot exist without execution intent.
-
-Therefore:
-
-```text
-Quote Accepted
-        ↓
-UTT Created
-        ↓
-RTT Created
-```
-
-Never:
-
-```text
-Quote Accepted
-        ↓
-RTT Created
-        ↓
-UTT Created
-```
-
-because RTT would have no authoritative execution context.
-
----
-
-# 9. RTT: Routing Transaction Token
-
-## Definition
-
-RTT represents routing state.
-
-It is generated after UTT creation.
-
-RTTs may mutate throughout execution.
-
----
-
-## RTT Responsibilities
-
-```text
-Track route selection
-Track failures
-Track retries
-Track route changes
-Track execution status
-Provide replayability
-```
-
----
-
-## Example
-
-```json
-{
-  "rtt_id": "RTT-001",
-
-  "utt_id": "UTT-001",
-
-  "attempt": 1,
-
-  "selected_route": "Pesalink",
-
-  "status": "FAILED",
-
-  "failure_reason": "INSUFFICIENT_LIQUIDITY"
-}
-```
-
----
-
-# 10. Replay Capability
-
-Every RTT is preserved.
-
-Example:
-
-```text
-UTT-001
-
-RTT-001
-FAILED
-
-RTT-002
-FAILED
-
-RTT-003
-SUCCESS
-```
-
-Execution history can be reconstructed at any time.
-
----
-
-# 11. Retry Architecture
-
-RailOne optimizes for finality.
-
-Failure of a route does not imply failure of intent.
-
----
-
-Example:
-
-```text
-Attempt 1
-Pesalink
-FAILED
-
-Attempt 2
-RTGS
-FAILED
-
-Attempt 3
-SWIFT
-SUCCESS
-```
-
-Intent reaches finality.
-
----
-
-# 12. Commercial Model
-
-## Per-Intent Pricing
-
-Customers are charged once.
-
-Example:
-
-```text
-KCB → ABSA
-
-Fee = $3
-```
-
-Customer purchased:
-
-```text
-Execution Outcome
-```
-
-not:
-
-```text
-Specific Route
-```
-
----
-
-# 13. Why Per-Attempt Charging Is Rejected
-
-Bad model:
-
-```text
-Attempt 1 = $3
-
-Attempt 2 = $3
-
-Attempt 3 = $3
-```
-
-Total:
-
-```text
-$9
-```
-
-This creates:
-
-* unpredictable costs
-* customer dissatisfaction
-* poor scalability
-
----
-
-# 14. Routing Budget
-
-UTT may contain an internal routing budget.
-
-Example:
-
-```json
-{
-  "routing_fee": 3.00,
-
-  "routing_budget": 1.20
-}
-```
-
-This budget absorbs retries and failovers.
-
----
-
-# 15. Revenue Recognition
-
-Revenue is not recognized when RTTs are created.
-
-Revenue is recognized when execution reaches finality.
-
----
-
-Example:
-
-```text
-UTT FINALIZED
-        ↓
-Revenue Event
-```
-
----
-
-# 16. State Machine
-
-```text
-QUOTE_ACCEPTED
-
-↓
-UTT_CREATED
-
-↓
-PROCESSING
-
-↓
-RTT_CREATED
-
-↓
-EXECUTING
-
-↓
-RETRYING
-
-↓
-FINALIZED
-```
-
-or
-
-```text
-FAILED
-```
-
----
-
-# 17. Design Summary
-
-RailOne is fundamentally:
-
-```text
-UTT
-=
-Commercial Contract
-
-RTT
-=
-Execution Evidence
-
-Routing Engine
-=
-Decision System
-
-AI
-=
-Advisory Layer
-
-Ledger
-=
-Financial Truth
-```
-
-The objective of the platform is not to execute through a specific rail.
-
-The objective is to drive every valid execution intent toward a finalized state while preserving full replayability, auditability, and routing intelligence.
-
----
-
-Now, for the code rewrite, paste these files first:
-
-1. Your current `UTT` generation file.
-2. Your current `RTT` generation file.
-3. Your `EventType` enum.
-4. Any execution/orchestration file that currently creates RTTs.
-
-Once I see those, I'll help you refactor them into a proper **UTT-parent / RTT-child execution architecture** instead of just patching the current implementation.
-
-
----
-
-# Closing Statement
-
-RailOne is not attempting to replace financial institutions.
-
-Instead, the protocol attempts to solve one of the hardest operational problems in fragmented financial ecosystems:
-
-> deterministic execution continuity.
-
-By combining:
-
-* bilateral execution participation,
-* replay-safe orchestration,
-* canonical lineage,
-* and institution-compatible interoperability,
-
-RailOne aims to establish a new trust-oriented coordination model for African financial execution environments.
-
----
-
-# Avia Technologies
-
-Engineering Trust Infrastructure
+The detailed Step 10 baseline remains available at
+`docs/STEP-10-BASELINE.md`.

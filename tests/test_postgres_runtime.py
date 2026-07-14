@@ -126,6 +126,24 @@ class PostgresRuntimeTests(unittest.TestCase):
         self.assertIn("sms_notification_outbox", sql)
         self.assertIn("prepared SMS must enter dispatching", sql)
 
+    def test_step_11b_migration_persists_only_envelopes_and_synthetic_effects(self):
+        root = Path(__file__).resolve().parents[1]
+        sql = (root / "migrations" / "0007_encrypted_vault_sandbox_runtime.sql").read_text()
+        self.assertIn("encrypted_secrets", sql)
+        self.assertIn("A256GCM", sql)
+        self.assertIn("encrypted_secrets_append_only", sql)
+        self.assertIn("sandbox_provider_effects", sql)
+        self.assertIn("sandbox provider effect may be delivered exactly once", sql)
+
+    def test_step_11c_migration_encrypts_sms_and_leases_durable_effects(self):
+        root = Path(__file__).resolve().parents[1]
+        sql = (root / "migrations" / "0008_deployable_sandbox_workers.sql").read_text()
+        self.assertIn("rendered_body_envelope", sql)
+        self.assertIn("NOTIFICATION_BODY", sql)
+        self.assertIn("sandbox_runtime_clock", sql)
+        self.assertIn("lease_owner", sql)
+        self.assertIn("DEAD_LETTER", sql)
+
 
 if __name__ == "__main__":
     unittest.main()
