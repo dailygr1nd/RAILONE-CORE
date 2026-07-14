@@ -1,0 +1,15 @@
+cryptography>=42
+
+[api]
+fastapi<1,>=0.115
+uvicorn[standard]<1,>=0.34
+httpx<1,>=0.28
+
+[pilot]
+psycopg[binary]<4,>=3.3
+fastapi<1,>=0.115
+uvicorn[standard]<1,>=0.34
+httpx<1,>=0.28
+
+[postgres]
+psycopg[binary]<4,>=3.3

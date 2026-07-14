@@ -14,7 +14,7 @@ from institutions.auth_registry import get_institution_by_key, get_rate_limit
 from crypto.auth_engine import verify_request
 from rate_limiter import check_rate_limit
 
-from request_logger import log_request
+from webhooks.request_logger import log_request
 from institutions.iso_adapter import build_pacs008
 
 app = FastAPI()

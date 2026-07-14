@@ -1,0 +1,10 @@
+railone_api
+railone_authority
+railone_contracts
+railone_crypto
+railone_execution
+railone_history
+railone_identity
+railone_operations
+railone_postgres
+railone_projection

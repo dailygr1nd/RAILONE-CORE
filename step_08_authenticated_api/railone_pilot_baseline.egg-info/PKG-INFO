@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: railone-pilot-baseline
+Version: 0.8.0
+Summary: RailOne non-custodial authenticated pilot API baseline
+Requires-Python: >=3.11
+Requires-Dist: cryptography>=42
+Provides-Extra: postgres
+Requires-Dist: psycopg[binary]<4,>=3.3; extra == "postgres"
+Provides-Extra: api
+Requires-Dist: fastapi<1,>=0.115; extra == "api"
+Requires-Dist: uvicorn[standard]<1,>=0.34; extra == "api"
+Requires-Dist: httpx<1,>=0.28; extra == "api"
+Provides-Extra: pilot
+Requires-Dist: psycopg[binary]<4,>=3.3; extra == "pilot"
+Requires-Dist: fastapi<1,>=0.115; extra == "pilot"
+Requires-Dist: uvicorn[standard]<1,>=0.34; extra == "pilot"
+Requires-Dist: httpx<1,>=0.28; extra == "pilot"

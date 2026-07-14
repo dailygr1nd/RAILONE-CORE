@@ -33,9 +33,6 @@ from execution.orchestrator.replay_engine import (
     replay_execution
 )
 
-from execution.continuity.continuity_reconstructor import (
-    summarize_continuity
-)
 
 import sys
 import uuid

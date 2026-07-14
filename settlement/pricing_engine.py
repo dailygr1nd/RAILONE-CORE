@@ -2,7 +2,7 @@
 # pricing_engine.py (ADAPTIVE)
 # ==============================
 
-from liquidity_engine import get_liquidity_pressure
+from settlement.liquidity_engine import get_liquidity_pressure
 
 
 # --------------------------------

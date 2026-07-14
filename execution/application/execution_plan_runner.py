@@ -47,10 +47,6 @@ from execution.state.state_machine import (
     TransactionState
 )
 
-from execution.continuity.continuity_reconstructor import (
-    reconstruct_continuity
-)
-
 from ledger.db import SessionLocal
 
 

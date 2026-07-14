@@ -2,7 +2,7 @@
 # failure_handler.py (FIXED)
 # ==============================
 
-from liquidity_engine import release_liquidity
+from settlement.liquidity_engine import release_liquidity
 
 
 def handle_failure(tx, router, settlement, error):

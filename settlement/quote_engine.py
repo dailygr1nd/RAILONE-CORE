@@ -11,8 +11,8 @@ from ledger.db import SessionLocal
 from routing.routing import get_best_rail
 from settlement.pricing_engine import compute_total_pricing
 
-from fx_engine import convert
-from corridor_fx_model import get_market_rate
+from settlement.fx_engine import convert
+from settlement.corridor_fx_model import get_market_rate
 
 
 QUOTE_TTL = 60

@@ -1,0 +1,4 @@
+cryptography>=42
+
+[postgres]
+psycopg[binary]<4,>=3.2
