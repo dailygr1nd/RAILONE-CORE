@@ -14,8 +14,11 @@ def request(*, provider="BANK-KE", rail="DOMESTIC_BANK", rtt="RTT-001"):
     return ProviderExecutionRequest(
         idempotency_key=f"IDEM-{rtt}", request_sha256=f"hash-{rtt}",
         utt_id="UTT-001", rtt_id=rtt, attempt_number=1,
-        provider_id=provider, rail=rail, amount_minor=10_000,
+        provider_id=provider, adapter_binding_ref=f"{provider.lower()}@1.0.0",
+        rail=rail, amount_minor=10_000,
         currency_from="KES", receive_amount_minor=10_000, currency_to="KES",
+        source_institution_id="INST-SOURCE",
+        destination_institution_id="INST-DEST",
         payer_account_reference="SIM-PAYER-001",
         beneficiary_account_reference="SIM-BENEFICIARY-001",
     )

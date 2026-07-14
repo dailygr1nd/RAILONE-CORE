@@ -266,6 +266,10 @@ class MpesaB2CAdapter:
             return _terminal(f"MPESA_REJECTED_{_safe_code(response_code)}")
         return _unknown(f"MPESA_HTTP_{response.status_code}_OUTCOME_UNKNOWN")
 
+    @property
+    def request_timeout_seconds(self) -> int:
+        return self._config.timeout_seconds
+
 
 def _safe_code(value: str) -> str:
     return re.sub(r"[^A-Z0-9]+", "_", value.upper()).strip("_")[:80] or "UNKNOWN"

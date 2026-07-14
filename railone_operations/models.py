@@ -43,11 +43,14 @@ class ProviderExecutionRequest:
     rtt_id: str
     attempt_number: int
     provider_id: str
+    adapter_binding_ref: str
     rail: str
     amount_minor: int
     currency_from: str
     receive_amount_minor: int
     currency_to: str
+    source_institution_id: str
+    destination_institution_id: str
     payer_account_reference: str = field(repr=False)
     beneficiary_account_reference: str = field(repr=False)
 

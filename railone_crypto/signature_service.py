@@ -29,6 +29,7 @@ class ArtifactType(StrEnum):
     SETTLEMENT_EVIDENCE = "railone.settlement_evidence"
     REPLAY_CHECKPOINT = "railone.replay_checkpoint"
     API_REQUEST_AUDIT = "railone.api_request_audit"
+    INSTITUTION_CAPABILITY_MANIFEST = "railone.institution_capability_manifest"
 
 
 _PURPOSE_BY_ARTIFACT = {
@@ -42,6 +43,7 @@ _PURPOSE_BY_ARTIFACT = {
     ArtifactType.SETTLEMENT_EVIDENCE: KeyPurpose.SETTLEMENT_SIGNING,
     ArtifactType.REPLAY_CHECKPOINT: KeyPurpose.REPLAY_SIGNING,
     ArtifactType.API_REQUEST_AUDIT: KeyPurpose.API_AUDIT_SIGNING,
+    ArtifactType.INSTITUTION_CAPABILITY_MANIFEST: KeyPurpose.EXECUTION_SIGNING,
 }
 
 _DOMAIN_PREFIX = b"RAILONE-SIGNED-ARTIFACT-V1\x00"

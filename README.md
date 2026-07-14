@@ -5,12 +5,12 @@ financial intent, selects an eligible route, submits an execution request to an
 existing financial rail, and preserves deterministic evidence through finality
 or reconciliation.
 
-This repository is the cumulative Step 11C pilot baseline. It adds encrypted
-notification and provider-credential persistence, durable synthetic effects,
-lease-safe workers, supervision and a PostgreSQL-backed deployment composition
-to Step 11B. The package is safe to overlay without deleting legacy files; the
-convergence checker will continue to report legacy runtime copies until cleanup
-is performed deliberately.
+This repository is the cumulative Step 11D pilot baseline. It adds a signed,
+version-pinned institution adapter SPI to Step 11C. Banks, mobile-money
+networks, domestic switches and cross-border providers implement explicit
+capability, authentication, transport, message, callback, status and
+reconciliation contracts. The package is safe to overlay without deleting
+legacy files; cleanup remains a deliberate later convergence operation.
 
 ## Core invariants
 
@@ -24,6 +24,11 @@ is performed deliberately.
 - Unknown provider outcomes block blind retry and require reconciliation.
 - RailOne resolves provider-ready account endpoints only at dispatch.
 - Provider acceptance is never described as settlement.
+- Every RTT pins one exact adapter id and semantic version; a retry cannot
+  silently change adapter implementation.
+- Adapter capability manifests are Ed25519-signed and append-only.
+- Institution adapters normalize external evidence; RailOne core owns UTT/RTT,
+  retry, finality and transaction-history truth.
 - Sender and receiver SMS records are created only from signed settlement
   evidence.
 - RailOne never takes custody of customer funds.
@@ -37,6 +42,7 @@ is performed deliberately.
 | `railone_contracts/` | Quote acceptance and immutable UTT contracts |
 | `railone_execution/` | Deterministic plans, RTT lineage, retry and reconciliation |
 | `railone_operations/` | Provider dispatch, idempotency and signed outbox |
+| `railone_institutions/` | Signed adapter SPI, registry, codecs, transport and reference profiles |
 | `railone_callbacks/` | M-PESA callback normalization and correlation |
 | `railone_partners/` | Partner institutions and opaque account bindings |
 | `railone_notifications/` | Settlement evidence and finality-gated SMS |

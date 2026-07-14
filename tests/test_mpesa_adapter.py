@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
+from railone_institutions.models import InstitutionExecutionInstruction, InstitutionOutcome
 from railone_operations import (
     ProviderExecutionRequest,
     ProviderOutcome,
@@ -13,6 +14,7 @@ from railone_providers import (
     MpesaB2CAdapter,
     MpesaConfig,
     MpesaCredentials,
+    mpesa_b2c_institution_plugin,
 )
 
 
@@ -50,11 +52,14 @@ def request(**overrides) -> ProviderExecutionRequest:
         "rtt_id": "RTT-001",
         "attempt_number": 1,
         "provider_id": "MPESA-KE",
+        "adapter_binding_ref": "mpesa-ke@1.0.0",
         "rail": "MOBILE_MONEY",
         "amount_minor": 250_000,
         "currency_from": "KES",
         "receive_amount_minor": 250_000,
         "currency_to": "KES",
+        "source_institution_id": "INST-SOURCE",
+        "destination_institution_id": "INST-DEST",
         "payer_account_reference": "PAYER-PRIVATE-REFERENCE",
         "beneficiary_account_reference": "254712345678",
     }
@@ -74,6 +79,25 @@ def adapter(transport: FakeTransport) -> MpesaB2CAdapter:
 
 
 class MpesaAdapterTests(unittest.TestCase):
+    def test_existing_b2c_adapter_runs_as_versioned_institution_plugin(self) -> None:
+        transport = FakeTransport(
+            HttpResponse(200, b'{"access_token":"token","expires_in":"3599"}'),
+            HttpResponse(200, b'{"ResponseCode":"0","ConversationID":"AG_002",'
+                               b'"OriginatorConversationID":"R1_ORIGIN_002"}'),
+        )
+        plugin = mpesa_b2c_institution_plugin(
+            adapter(transport),
+            source_institution_ids=("INST-SOURCE",),
+            destination_institution_ids=("INST-DEST",),
+        )
+        item = request(adapter_binding_ref=plugin.descriptor.binding_ref)
+
+        result = plugin.submit(InstitutionExecutionInstruction.from_provider_request(item))
+
+        self.assertEqual(result.outcome, InstitutionOutcome.ACCEPTED_FOR_PROCESSING)
+        self.assertEqual(result.external_reference, "AG_002")
+        self.assertEqual(plugin.descriptor.binding_ref, "railone.mpesa.ke.b2c@1.0.0")
+
     def test_b2c_acceptance_is_processing_only_and_keeps_correlation_context(self) -> None:
         transport = FakeTransport(
             HttpResponse(200, b'{"access_token":"token","expires_in":"3599"}'),

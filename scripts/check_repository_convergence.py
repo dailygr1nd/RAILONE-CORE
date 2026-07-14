@@ -17,6 +17,7 @@ REQUIRED_PACKAGES = {
     "railone_execution",
     "railone_history",
     "railone_identity",
+    "railone_institutions",
     "railone_notifications",
     "railone_operations",
     "railone_partners",
@@ -56,6 +57,7 @@ EXPECTED_MIGRATIONS = [
     "0006_partner_bindings_settlement_notifications.sql",
     "0007_encrypted_vault_sandbox_runtime.sql",
     "0008_deployable_sandbox_workers.sql",
+    "0009_institution_adapter_spi.sql",
 ]
 
 
@@ -88,13 +90,13 @@ def validate() -> list[str]:
     migrations = sorted(path.name for path in (ROOT / "migrations").glob("*.sql"))
     if migrations != EXPECTED_MIGRATIONS:
         errors.append(
-            "migration chain differs from immutable 0001-0008 baseline: "
+            "migration chain differs from immutable 0001-0009 baseline: "
             + ", ".join(migrations)
         )
 
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    if 'name = "railone-core"' not in pyproject or 'version = "0.13.0"' not in pyproject:
-        errors.append("pyproject does not identify the converged 0.13.0 package")
+    if 'name = "railone-core"' not in pyproject or 'version = "0.14.0"' not in pyproject:
+        errors.append("pyproject does not identify the converged 0.14.0 package")
 
     required_files = {
         ".gitignore",
@@ -104,6 +106,7 @@ def validate() -> list[str]:
         "STEP_11_RELEASE_MANIFEST.md",
         "STEP_11B_RELEASE_MANIFEST.md",
         "STEP_11C_RELEASE_MANIFEST.md",
+        "STEP_11D_RELEASE_MANIFEST.md",
         "run_tests.py",
     }
     absent_files = sorted(name for name in required_files if not (ROOT / name).is_file())

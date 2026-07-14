@@ -18,6 +18,7 @@ from .notifications import PostgresSettlementNotificationStore
 from .partners import PostgresPartnerDirectory
 from .security import PostgresEncryptedSecretStore
 from .sandbox import PostgresSandboxEffectStore
+from .institutions import PostgresInstitutionManifestStore
 
 __all__ = [
     "PostgresDatabase",
@@ -35,6 +36,7 @@ __all__ = [
     "PostgresPartnerDirectory",
     "PostgresEncryptedSecretStore",
     "PostgresSandboxEffectStore",
+    "PostgresInstitutionManifestStore",
     "PostgresIdentityRepository",
     "psycopg_connection_factory",
 ]

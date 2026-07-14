@@ -15,7 +15,8 @@ from typing import Mapping
 from railone_postgres import (
     MigrationRunner, PostgresCallbackInboxStore, PostgresContractStore,
     PostgresDatabase, PostgresEncryptedSecretStore, PostgresExecutionStore,
-    PostgresIdentityRepository, PostgresOperationsStore,
+    PostgresIdentityRepository, PostgresInstitutionManifestStore,
+    PostgresOperationsStore,
     PostgresPartnerDirectory, PostgresProviderOutcomeProjectionStore,
     PostgresSandboxEffectStore, PostgresSettlementNotificationStore,
     PostgresTransactionHistoryStore, psycopg_connection_factory,
@@ -70,7 +71,7 @@ class DeployedSandboxConfig:
 
     def validate(self) -> None:
         if self.runtime_mode != "SIMULATED_PILOT":
-            raise ValueError("deployable Step 11C runtime is simulation-only")
+            raise ValueError("deployable Step 11D runtime is simulation-only")
         required = {
             "database_url": self.database_url,
             "account_endpoint_key_id": self.account_endpoint_key_id,
@@ -95,6 +96,7 @@ class DeployedSandboxRuntime:
     contracts: PostgresContractStore
     executions: PostgresExecutionStore
     operations: PostgresOperationsStore
+    institution_manifests: PostgresInstitutionManifestStore
     history: PostgresTransactionHistoryStore
     projections: PostgresProviderOutcomeProjectionStore
     callbacks: PostgresCallbackInboxStore
@@ -128,14 +130,14 @@ class DeployedSandboxRuntime:
                     )
                     row = cursor.fetchone()
                 checks["postgres"] = "UP"
-                checks["migration_0008"] = (
-                    "UP" if row is not None and str(row["version"]) == "0008" else "DOWN"
+                checks["migration_0009"] = (
+                    "UP" if row is not None and str(row["version"]) == "0009" else "DOWN"
                 )
             finally:
                 connection.close()
         except Exception:
             checks["postgres"] = "DOWN"
-            checks["migration_0008"] = "DOWN"
+            checks["migration_0009"] = "DOWN"
         supervisor = self.supervisor.status()
         checks["effect_worker"] = (
             "DOWN" if supervisor.state is SupervisorState.STOPPED else
@@ -199,6 +201,7 @@ def compose_deployed_sandbox(
         contracts=PostgresContractStore(database),
         executions=PostgresExecutionStore(database),
         operations=PostgresOperationsStore(database),
+        institution_manifests=PostgresInstitutionManifestStore(database),
         history=PostgresTransactionHistoryStore(database),
         projections=PostgresProviderOutcomeProjectionStore(database),
         callbacks=PostgresCallbackInboxStore(database),

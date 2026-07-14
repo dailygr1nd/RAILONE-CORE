@@ -8,6 +8,7 @@ from .mpesa import (
     UrllibHttpTransport,
 )
 from .encrypted_credentials import EncryptedMpesaCredentialProvider
+from .mpesa_institution import mpesa_b2c_institution_plugin
 
 __all__ = [
     "EnvironmentMpesaCredentialProvider",
@@ -18,4 +19,5 @@ __all__ = [
     "MpesaCredentials",
     "MpesaOAuthTokenProvider",
     "UrllibHttpTransport",
+    "mpesa_b2c_institution_plugin",
 ]

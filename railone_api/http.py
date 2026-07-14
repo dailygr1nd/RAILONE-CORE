@@ -32,7 +32,7 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(
         title="RailOne Pilot API",
-        version="0.13.0",
+        version="0.14.0",
         description="Non-custodial execution visibility and control boundary",
         docs_url="/docs" if expose_docs else None,
         openapi_url="/openapi.json" if expose_docs else None,
