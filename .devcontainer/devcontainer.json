@@ -1,0 +1,10 @@
+{
+  "name": "My Dev Container",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers-extra/features/redis-homebrew:1.0.21": {
+      "version": "latest"
+    }
+  },
+  "remoteUser": "vscode"
+}
