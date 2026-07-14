@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+build/
+dist/
+.venv/
+venv/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+crypto/keys/
+keys/
+
+# Runtime material
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.backup
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+desktop.ini
+Thumbs.db
