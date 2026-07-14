@@ -2,7 +2,7 @@
 
 ## Current support level
 
-RailOne Core `0.11.x` is a simulated-pilot baseline. It must not process real
+RailOne Core `0.15.x` is a partner-certification pilot baseline. It must not process real
 customer funds or production personal data until the production security and
 operational gates are approved.
 

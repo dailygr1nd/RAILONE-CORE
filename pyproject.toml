@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "railone-core"
-version = "0.14.0"
-description = "RailOne institution-agnostic adapter and deployable synthetic-pilot runtime"
+version = "0.15.0"
+description = "RailOne partner certification harness and institution-agnostic pilot runtime"
 requires-python = ">=3.11"
 dependencies = ["cryptography>=42"]
 
@@ -18,6 +18,9 @@ pilot = [
     "uvicorn[standard]>=0.34,<1",
     "httpx>=0.28,<1",
 ]
+
+[project.scripts]
+railone-certify = "railone_certification.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["railone_*"]

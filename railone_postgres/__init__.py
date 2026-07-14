@@ -19,6 +19,9 @@ from .partners import PostgresPartnerDirectory
 from .security import PostgresEncryptedSecretStore
 from .sandbox import PostgresSandboxEffectStore
 from .institutions import PostgresInstitutionManifestStore
+from .certification import (
+    PostgresCertificationReportStore, PostgresCertificationRunRecorder,
+)
 
 __all__ = [
     "PostgresDatabase",
@@ -37,6 +40,8 @@ __all__ = [
     "PostgresEncryptedSecretStore",
     "PostgresSandboxEffectStore",
     "PostgresInstitutionManifestStore",
+    "PostgresCertificationReportStore",
+    "PostgresCertificationRunRecorder",
     "PostgresIdentityRepository",
     "psycopg_connection_factory",
 ]

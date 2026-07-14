@@ -5,12 +5,12 @@ financial intent, selects an eligible route, submits an execution request to an
 existing financial rail, and preserves deterministic evidence through finality
 or reconciliation.
 
-This repository is the cumulative Step 11D pilot baseline. It adds a signed,
-version-pinned institution adapter SPI to Step 11C. Banks, mobile-money
-networks, domestic switches and cross-border providers implement explicit
-capability, authentication, transport, message, callback, status and
-reconciliation contracts. The package is safe to overlay without deleting
-legacy files; cleanup remains a deliberate later convergence operation.
+This repository is the cumulative Step 11E pilot baseline. It adds a signed
+partner certification harness to Step 11D's version-pinned institution adapter
+SPI. Partner sandbox executions produce canonical traces that RailOne evaluates
+for execution ordering, replay safety, evidence finality, history authorization,
+notification gating, adapter pinning and sensitive-data minimization. The
+package is safe to overlay without deleting legacy files.
 
 ## Core invariants
 
@@ -29,6 +29,9 @@ legacy files; cleanup remains a deliberate later convergence operation.
 - Adapter capability manifests are Ed25519-signed and append-only.
 - Institution adapters normalize external evidence; RailOne core owns UTT/RTT,
   retry, finality and transaction-history truth.
+- Synthetic harness self-tests are never signable as partner evidence.
+- Only a verified, active adapter manifest and partner-sandbox trace driver can
+  produce an Ed25519-signed certification report.
 - Sender and receiver SMS records are created only from signed settlement
   evidence.
 - RailOne never takes custody of customer funds.
@@ -44,6 +47,7 @@ legacy files; cleanup remains a deliberate later convergence operation.
 | `railone_operations/` | Provider dispatch, idempotency and signed outbox |
 | `railone_institutions/` | Signed adapter SPI, registry, codecs, transport and reference profiles |
 | `railone_callbacks/` | M-PESA callback normalization and correlation |
+| `railone_certification/` | Capability-aware partner scenarios, trace evaluation and signed reports |
 | `railone_partners/` | Partner institutions and opaque account bindings |
 | `railone_notifications/` | Settlement evidence and finality-gated SMS |
 | `railone_postgres/` | Durable PostgreSQL repository adapters |

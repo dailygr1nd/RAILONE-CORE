@@ -30,6 +30,7 @@ class ArtifactType(StrEnum):
     REPLAY_CHECKPOINT = "railone.replay_checkpoint"
     API_REQUEST_AUDIT = "railone.api_request_audit"
     INSTITUTION_CAPABILITY_MANIFEST = "railone.institution_capability_manifest"
+    PARTNER_CERTIFICATION_REPORT = "railone.partner_certification_report"
 
 
 _PURPOSE_BY_ARTIFACT = {
@@ -44,6 +45,7 @@ _PURPOSE_BY_ARTIFACT = {
     ArtifactType.REPLAY_CHECKPOINT: KeyPurpose.REPLAY_SIGNING,
     ArtifactType.API_REQUEST_AUDIT: KeyPurpose.API_AUDIT_SIGNING,
     ArtifactType.INSTITUTION_CAPABILITY_MANIFEST: KeyPurpose.EXECUTION_SIGNING,
+    ArtifactType.PARTNER_CERTIFICATION_REPORT: KeyPurpose.EXECUTION_SIGNING,
 }
 
 _DOMAIN_PREFIX = b"RAILONE-SIGNED-ARTIFACT-V1\x00"
