@@ -11,6 +11,7 @@ from .models import (
     RttAttemptRecord,
 )
 from .scoring import DeterministicRouteScorer, RouteScoreWeights
+from .decisions import RouteDecisionRecord
 from .service import (
     ExecutionPlanningService,
     NoEligibleRouteError,
@@ -32,6 +33,7 @@ __all__ = [
     "PlanNotExecutableError",
     "PlanStatus",
     "RouteCandidate",
+    "RouteDecisionRecord",
     "RouteFailure",
     "RouteScoreWeights",
     "RttAttemptRecord",

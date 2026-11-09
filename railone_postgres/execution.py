@@ -7,6 +7,7 @@ from typing import Any
 
 from railone_crypto.signature_service import SignatureEnvelope
 from railone_execution.models import AttemptState, ExecutionPlan, RttAttemptRecord
+from railone_execution.decisions import RouteDecisionRecord
 from railone_execution.store import (
     ConcurrentPlanUpdateError,
     ExecutionPlanConflictError,
@@ -48,6 +49,69 @@ class PostgresExecutionStore(ExecutionStore):
             if existing is None or existing["plan_id"] != plan.plan_id:
                 raise ExecutionPlanConflictError("UTT already has a different execution plan")
             return plan_from_row(existing)
+
+    def create_plan_with_decision(
+        self, plan: ExecutionPlan, decision: RouteDecisionRecord
+    ) -> ExecutionPlan:
+        """Persist plan and immutable decision in the same SQL transaction."""
+        decision.verify(plan=plan)
+        with self._database.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                f"""INSERT INTO railone.execution_plans ({_PLAN_COLUMNS})
+                VALUES (%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (utt_id) DO NOTHING
+                RETURNING {_PLAN_COLUMNS}""",
+                _plan_params(plan),
+            )
+            inserted = cursor.fetchone()
+            if inserted is not None:
+                cursor.execute(
+                    """INSERT INTO railone.route_decision_records
+                    (decision_id, plan_id, utt_id, decision_sha256,
+                     schema_version, decision_payload, created_at)
+                    VALUES (%s,%s,%s,%s,1,%s::jsonb,%s)""",
+                    (decision.decision_id, decision.plan_id, decision.utt_id,
+                     decision.decision_sha256, decision.canonical_body,
+                     plan.created_at),
+                )
+                return plan_from_row(inserted)
+            cursor.execute(
+                f"SELECT {_PLAN_COLUMNS} FROM railone.execution_plans WHERE utt_id = %s",
+                (plan.utt_id,),
+            )
+            existing = cursor.fetchone()
+            if existing is None or existing["plan_id"] != plan.plan_id:
+                raise ExecutionPlanConflictError("UTT already has a different execution plan")
+            cursor.execute(
+                """SELECT decision_id, plan_id, utt_id, decision_sha256, decision_payload
+                   FROM railone.route_decision_records WHERE plan_id = %s""",
+                (plan.plan_id,),
+            )
+            row = cursor.fetchone()
+            if row is None or _decision_from_row(row) != decision:
+                raise ExecutionPlanConflictError("UTT already has a different route decision")
+            return plan_from_row(existing)
+
+    def require_decision_for_plan(self, plan_id: str) -> RouteDecisionRecord:
+        with self._database.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT decision_id, plan_id, utt_id, decision_sha256, decision_payload
+                   FROM railone.route_decision_records WHERE plan_id = %s""",
+                (plan_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise ExecutionPlanNotFoundError(f"route decision not found for plan: {plan_id}")
+            decision = _decision_from_row(row)
+            cursor.execute(
+                f"SELECT {_PLAN_COLUMNS} FROM railone.execution_plans WHERE plan_id = %s",
+                (plan_id,),
+            )
+            plan_row = cursor.fetchone()
+            if plan_row is None:
+                raise ExecutionPlanNotFoundError(f"execution plan not found: {plan_id}")
+            decision.verify(plan=plan_from_row(plan_row))
+            return decision
 
     def require_plan_for_utt(self, utt_id: str) -> ExecutionPlan:
         return self._require_plan("utt_id", utt_id)
@@ -183,4 +247,16 @@ def _attempt(row: Mapping[str, Any]) -> RttAttemptRecord:
         state=AttemptState(row["state"]), failure_code=row["failure_code"],
         actual_cost_minor=row["actual_cost_minor"], created_at=row["created_at"],
         updated_at=row["updated_at"],
+    )
+
+
+def _decision_from_row(row: Mapping[str, Any]) -> RouteDecisionRecord:
+    payload = row["decision_payload"]
+    if isinstance(payload, str):
+        from .codec import json_object
+        payload = json_object(payload)
+    return RouteDecisionRecord(
+        decision_id=str(row["decision_id"]), plan_id=str(row["plan_id"]),
+        utt_id=str(row["utt_id"]), decision_sha256=str(row["decision_sha256"]),
+        canonical_body=json_text(payload),
     )

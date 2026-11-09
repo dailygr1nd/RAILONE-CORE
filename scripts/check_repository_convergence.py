@@ -62,6 +62,7 @@ EXPECTED_MIGRATIONS = [
     "0009_institution_adapter_spi.sql",
     "0010_partner_certification_harness.sql",
     "0011_currency_and_settlement_instruments.sql",
+    "0012_immutable_route_decision_records.sql",
 ]
 
 
@@ -94,7 +95,7 @@ def validate() -> list[str]:
     migrations = sorted(path.name for path in (ROOT / "migrations").glob("*.sql"))
     if migrations != EXPECTED_MIGRATIONS:
         errors.append(
-            "migration chain differs from extended immutable 0001-0011 sequence: "
+            "migration chain differs from extended immutable 0001-0012 sequence: "
             + ", ".join(migrations)
         )
 

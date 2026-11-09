@@ -52,7 +52,7 @@ class DeterministicRouteScorer:
             raise ValueError("route_id must be unique within a planning request")
         for candidate in candidates:
             candidate.normalized()
-            if not self._eligible(
+            if self.rejection_reasons(
                 candidate,
                 amount_minor=amount_minor,
                 currency_from=currency_from,
@@ -88,6 +88,46 @@ class DeterministicRouteScorer:
         )
 
     @staticmethod
+    def rejection_reasons(
+        candidate: RouteCandidate,
+        *,
+        amount_minor: int,
+        currency_from: str,
+        currency_to: str,
+        routing_budget_minor: int,
+        source_institution_id: str,
+        destination_institution_id: str,
+        at: datetime,
+    ) -> tuple[str, ...]:
+        """Explain ineligibility using the exact predicates used by rank().
+
+        Reason ordering is protocol-controlled, not dependent on collection order.
+        No provider or adapter may override these results.
+        """
+        reasons: list[str] = []
+        if candidate.link_status is LinkStatus.DOWN:
+            reasons.append("LINK_DOWN")
+        if candidate.telemetry_observed_at > at:
+            reasons.append("TELEMETRY_FROM_FUTURE")
+        if candidate.telemetry_expires_at <= at:
+            reasons.append("TELEMETRY_EXPIRED")
+        if candidate.currency_from.upper() != currency_from.upper():
+            reasons.append("SOURCE_CURRENCY_MISMATCH")
+        if candidate.currency_to.upper() != currency_to.upper():
+            reasons.append("DESTINATION_CURRENCY_MISMATCH")
+        if not candidate.min_amount_minor <= amount_minor <= candidate.max_amount_minor:
+            reasons.append("AMOUNT_OUT_OF_RANGE")
+        if candidate.liquidity_capacity_minor < amount_minor:
+            reasons.append("INSUFFICIENT_ROUTE_LIQUIDITY")
+        if candidate.estimated_cost_minor > routing_budget_minor:
+            reasons.append("EXCEEDS_ROUTING_BUDGET")
+        if candidate.source_institution_id != source_institution_id:
+            reasons.append("SOURCE_INSTITUTION_MISMATCH")
+        if candidate.destination_institution_id != destination_institution_id:
+            reasons.append("DESTINATION_INSTITUTION_MISMATCH")
+        return tuple(reasons)
+
+    @staticmethod
     def _eligible(
         candidate: RouteCandidate,
         *,
@@ -99,17 +139,11 @@ class DeterministicRouteScorer:
         destination_institution_id: str,
         at: datetime,
     ) -> bool:
-        return (
-            candidate.link_status is not LinkStatus.DOWN
-            and candidate.telemetry_observed_at <= at
-            and candidate.telemetry_expires_at > at
-            and candidate.currency_from.upper() == currency_from.upper()
-            and candidate.currency_to.upper() == currency_to.upper()
-            and candidate.min_amount_minor <= amount_minor <= candidate.max_amount_minor
-            and candidate.liquidity_capacity_minor >= amount_minor
-            and candidate.estimated_cost_minor <= routing_budget_minor
-            and candidate.source_institution_id == source_institution_id
-            and candidate.destination_institution_id == destination_institution_id
+        return not DeterministicRouteScorer.rejection_reasons(
+            candidate, amount_minor=amount_minor, currency_from=currency_from,
+            currency_to=currency_to, routing_budget_minor=routing_budget_minor,
+            source_institution_id=source_institution_id,
+            destination_institution_id=destination_institution_id, at=at,
         )
 
     @staticmethod

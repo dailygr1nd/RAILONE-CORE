@@ -180,9 +180,17 @@ class LivePostgresRuntimeTests(unittest.TestCase):
             speed_bps=8500, estimated_cost_minor=30, link_status=LinkStatus.UP,
             telemetry_observed_at=now, telemetry_expires_at=now + timedelta(minutes=5),
         )
-        ExecutionPlanningService(
+        plan = ExecutionPlanningService(
             signatures=signatures, contracts=contracts, executions=executions
         ).build_plan(utt_id=contract.utt_id, candidates=(route,), at=now + timedelta(seconds=2))
+        decision = executions.require_decision_for_plan(plan.plan_id)
+        decision.verify(plan=plan)
+        with database.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) AS count FROM railone.route_decision_records WHERE plan_id=%s",
+                (plan.plan_id,),
+            )
+            self.assertEqual(cursor.fetchone()["count"], 1)
         attempt = RttAttemptService(
             signatures=signatures, contracts=contracts, executions=executions,
             rtt_signing_key_id="R1CORE:execution:live",

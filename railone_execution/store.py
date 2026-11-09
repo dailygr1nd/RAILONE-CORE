@@ -8,6 +8,7 @@ from typing import Protocol
 from railone_contracts.store import ContractStore
 
 from .models import ExecutionPlan, RttAttemptRecord
+from .decisions import RouteDecisionRecord
 
 
 class ExecutionPlanNotFoundError(LookupError):
@@ -28,6 +29,10 @@ class ExecutionPlanConflictError(RuntimeError):
 
 class ExecutionStore(Protocol):
     def create_plan(self, plan: ExecutionPlan) -> ExecutionPlan: ...
+    def create_plan_with_decision(
+        self, plan: ExecutionPlan, decision: RouteDecisionRecord
+    ) -> ExecutionPlan: ...
+    def require_decision_for_plan(self, plan_id: str) -> RouteDecisionRecord: ...
     def require_plan_for_utt(self, utt_id: str) -> ExecutionPlan: ...
     def require_plan(self, plan_id: str) -> ExecutionPlan: ...
     def require_attempt(self, rtt_id: str) -> RttAttemptRecord: ...
@@ -48,6 +53,7 @@ class InMemoryExecutionStore:
         self._plans: dict[str, ExecutionPlan] = {}
         self._plan_by_utt: dict[str, str] = {}
         self._attempts: dict[str, RttAttemptRecord] = {}
+        self._decisions: dict[str, RouteDecisionRecord] = {}
 
     def create_plan(self, plan: ExecutionPlan) -> ExecutionPlan:
         self._contracts.require_utt(plan.utt_id)
@@ -64,6 +70,35 @@ class InMemoryExecutionStore:
             self._plans[plan.plan_id] = plan
             self._plan_by_utt[plan.utt_id] = plan.plan_id
             return plan
+
+    def create_plan_with_decision(
+        self, plan: ExecutionPlan, decision: RouteDecisionRecord
+    ) -> ExecutionPlan:
+        self._contracts.require_utt(plan.utt_id)
+        decision.verify(plan=plan)
+        with self._lock:
+            existing_id = self._plan_by_utt.get(plan.utt_id)
+            if existing_id is not None:
+                existing = self._plans[existing_id]
+                stored_decision = self._decisions.get(existing_id)
+                if existing_id != plan.plan_id or stored_decision != decision:
+                    raise ExecutionPlanConflictError("UTT has a different plan or decision")
+                return existing
+            if plan.plan_id in self._plans or plan.plan_id in self._decisions:
+                raise ExecutionPlanConflictError("execution plan identifier collision")
+            self._plans[plan.plan_id] = plan
+            self._plan_by_utt[plan.utt_id] = plan.plan_id
+            self._decisions[plan.plan_id] = decision
+            return plan
+
+    def require_decision_for_plan(self, plan_id: str) -> RouteDecisionRecord:
+        with self._lock:
+            decision = self._decisions.get(plan_id)
+            if decision is None:
+                raise ExecutionPlanNotFoundError(
+                    f"route decision not found for plan: {plan_id}"
+                )
+            return decision
 
     def require_plan_for_utt(self, utt_id: str) -> ExecutionPlan:
         with self._lock:
