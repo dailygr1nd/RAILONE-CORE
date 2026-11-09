@@ -1,0 +1,29 @@
+OWNER USER ID
+471330cf-8e7a-4607-ae6f-9b3b09e384f4
+
+471330cf-8e7a-4607-ae6f-9b3b09e384f4
+
+CASHIER USER ID
+9472c509-2301-4082-b1dd-77b7af1dd57a
+bearer token:eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5NDcyYzUwOS0yMzAxLTQwODItYjFkZC03N2I3YWYxZGQ1N2EiLCJtZXJjaGFudF9pZCI6Ik1FUjAwMyIsInJvbGUiOiJDQVNISUVSIiwiYnJhbmNoX2lkIjoiTUVSMDAzLUJSMDAxIiwiZXhwIjoxNzg1MTgzMjY5fQ.o76pTiTVfDOkpQYmxk7y2Qnzj6aQ6OeQJ90ka40vJVY
+
+{
+  "user_id": "471330cf-8e7a-4607-ae6f-9b3b09e384f4",
+  "merchant_id": "MER003",
+  "username": "pilot.owner",
+  "role": "OWNER",
+  "branch_id": null,
+  "active": true
+}
+
+{
+  "merchant_id": "MER003",
+  "username": "pilot.owner",
+  "password": "YOUR_EXISTING_OWNER_PASSWORD"
+}
+
+SHIFT_ID MER003: 59f94678-ff3e-4e30-bc76-cca1df2e7909
+branch_day_id: a04840d6-74b7-4776-83b2-7f008ed808de
+shift_id: fc243c56-c559-49b1-84bd-d9dad50d626f
+sale_id: db725238-228a-4241-b34c-e96d64bdcf8a
+captureID: 5f7b8961-5413-4146-b434-94253ef9520b

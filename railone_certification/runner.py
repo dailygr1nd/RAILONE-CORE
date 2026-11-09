@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Protocol
+from typing import Callable, Protocol
 
 from railone_institutions.models import InstitutionCapabilityManifest
 
@@ -87,8 +87,16 @@ class CertificationRunRecorder(Protocol):
 
 
 class CertificationRunner:
-    def __init__(self, evaluator: CertificationTraceEvaluator | None = None) -> None:
+    def __init__(
+        self,
+        evaluator: CertificationTraceEvaluator | None = None,
+        *,
+        completion_clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self._evaluator = evaluator or CertificationTraceEvaluator()
+        # Production defaults to wall-clock completion. Tests may supply a
+        # controlled clock, without weakening real-world signing validity.
+        self._completion_clock = completion_clock or (lambda: datetime.now(timezone.utc))
 
     def run(
         self,
@@ -138,8 +146,11 @@ class CertificationRunner:
                     failures=(f"{type(exc).__name__}: certification case execution failed",),
                     duration_ms=duration_ms, event_count=0,
                 ))
+        completion_instant = self._completion_clock()
+        if completion_instant.tzinfo is None or completion_instant.utcoffset() is None:
+            raise ValueError("certification completion clock must be timezone-aware")
         completed = max(
-            datetime.now(timezone.utc).replace(microsecond=0), start
+            completion_instant.astimezone(timezone.utc).replace(microsecond=0), start
         )
         status = (
             CertificationStatus.PASSED

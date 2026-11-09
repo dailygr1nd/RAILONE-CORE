@@ -236,8 +236,10 @@ class InstitutionAdapterSpiTests(unittest.TestCase):
     def test_non_sandbox_no_auth_and_non_https_transport_fail_closed(self):
         with self.assertRaises(ValueError):
             SimulationNoAuth(AdapterEnvironment.PILOT)
+        tls_context = ssl.create_default_context()
+        tls_context.minimum_version = ssl.TLSVersion.TLSv1_2
         transport = UrllibInstitutionTransport(
-            ssl_context=ssl.create_default_context(), allowed_hosts=frozenset({"bank.test"})
+            ssl_context=tls_context, allowed_hosts=frozenset({"bank.test"})
         )
         from railone_institutions.transport import InstitutionHttpRequest
         with self.assertRaises(ValueError):

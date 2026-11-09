@@ -1,0 +1,68 @@
+--- a/railone_certification/runner.py
++++ b/railone_certification/runner.py
+@@ -5,7 +5,7 @@
+ import time
+ from dataclasses import dataclass
+ from datetime import datetime, timezone
+-from typing import Protocol
++from typing import Callable, Protocol
+ 
+ from railone_institutions.models import InstitutionCapabilityManifest
+ 
+@@ -87,8 +87,16 @@
+ 
+ 
+ class CertificationRunner:
+-    def __init__(self, evaluator: CertificationTraceEvaluator | None = None) -> None:
++    def __init__(
++        self,
++        evaluator: CertificationTraceEvaluator | None = None,
++        *,
++        completion_clock: Callable[[], datetime] | None = None,
++    ) -> None:
+         self._evaluator = evaluator or CertificationTraceEvaluator()
++        # Production defaults to wall-clock completion. Tests may supply a
++        # controlled clock, without weakening real-world signing validity.
++        self._completion_clock = completion_clock or (lambda: datetime.now(timezone.utc))
+ 
+     def run(
+         self,
+@@ -138,8 +146,11 @@
+                     failures=(f"{type(exc).__name__}: certification case execution failed",),
+                     duration_ms=duration_ms, event_count=0,
+                 ))
++        completion_instant = self._completion_clock()
++        if completion_instant.tzinfo is None or completion_instant.utcoffset() is None:
++            raise ValueError("certification completion clock must be timezone-aware")
+         completed = max(
+-            datetime.now(timezone.utc).replace(microsecond=0), start
++            completion_instant.astimezone(timezone.utc).replace(microsecond=0), start
+         )
+         status = (
+             CertificationStatus.PASSED
+--- a/tests/test_partner_certification_harness.py
++++ b/tests/test_partner_certification_harness.py
+@@ -178,7 +178,8 @@
+         recorder = InMemoryCertificationRunRecorder()
+         coordinator = PartnerCertificationCoordinator(
+             manifest_verifier=manifest_signer,
+-            runner=CertificationRunner(), recorder=recorder, reports=reports,
++            runner=CertificationRunner(completion_clock=lambda: NOW + timedelta(minutes=1)),
++            recorder=recorder, reports=reports,
+         )
+         driver = PartnerSandboxDriver(item.descriptor.binding_ref)
+ 
+--- a/tests/test_institution_adapter_spi.py
++++ b/tests/test_institution_adapter_spi.py
+@@ -236,8 +236,10 @@
+     def test_non_sandbox_no_auth_and_non_https_transport_fail_closed(self):
+         with self.assertRaises(ValueError):
+             SimulationNoAuth(AdapterEnvironment.PILOT)
++        tls_context = ssl.create_default_context()
++        tls_context.minimum_version = ssl.TLSVersion.TLSv1_2
+         transport = UrllibInstitutionTransport(
+-            ssl_context=ssl.create_default_context(), allowed_hosts=frozenset({"bank.test"})
++            ssl_context=tls_context, allowed_hosts=frozenset({"bank.test"})
+         )
+         from railone_institutions.transport import InstitutionHttpRequest
+         with self.assertRaises(ValueError):

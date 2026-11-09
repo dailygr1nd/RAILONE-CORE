@@ -178,7 +178,8 @@ class PartnerCertificationHarnessTests(unittest.TestCase):
         recorder = InMemoryCertificationRunRecorder()
         coordinator = PartnerCertificationCoordinator(
             manifest_verifier=manifest_signer,
-            runner=CertificationRunner(), recorder=recorder, reports=reports,
+            runner=CertificationRunner(completion_clock=lambda: NOW + timedelta(minutes=1)),
+            recorder=recorder, reports=reports,
         )
         driver = PartnerSandboxDriver(item.descriptor.binding_ref)
 

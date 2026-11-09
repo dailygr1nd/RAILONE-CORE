@@ -1,0 +1,64 @@
+{
+  "railone_standard_wrapper": {
+    "schema_version": "1.1.0-draft",
+    "message_type": "INSTITUTION_EXECUTION_DISPATCH",
+    "envelope_id": "env_synthetic_0003",
+    "issued_at": "2026-11-04T12:00:00Z",
+    "expires_at": "2026-11-04T12:00:30Z",
+    "trace_identifiers": {
+      "utt_id": "utt_01HK7PQ81B2KC4RE7V0X9Z4A2A",
+      "plan_id": "plan_01HK7PR54V1ND3CQ9W0X8B5F2M",
+      "rtt_id": "rtt_01HK7RZ99M4NF5ST8W1X9Z5D8M",
+      "correlation_id": "corr_p2p_991823a",
+      "attempt_number": 3,
+      "replay_generation": 2
+    },
+    "bilateral_trust_anchors": {
+      "utt_payload_digest": "<verified-sha256-hex>",
+      "rtt_birth_digest": "<verified-sha256-hex>",
+      "etk_s_digest": "<verified-sha256-hex>",
+      "etk_r_digest": "<verified-sha256-hex>",
+      "sender_cont_uid": "CUID-UG-7721A",
+      "recipient_cont_uid": "CUID-TZ-8834B"
+    },
+    "commercial_terms": {
+      "source_amount_minor": 100000,
+      "source_currency": "UGX",
+      "receive_amount_minor": 7150000,
+      "receive_currency": "TZS",
+      "pricing_model": "PER_INTENT"
+    },
+    "execution_binding": {
+      "route_id": "route_tips_direct_clearing",
+      "adapter_binding_ref": "tips_settlement_spi@0.15.0",
+      "adapter_manifest_digest": "<verified-sha256-hex>",
+      "route_decision_digest": "<verified-sha256-hex>",
+      "idempotency_key": "idmp_synthetic_gen2",
+      "dispatch_permit_id": "permit_synthetic_003"
+    },
+    "fencing_controls": {
+      "operational_mode": "ASYNC_RTT_RECONCILIATION_SUPPORTED",
+      "economic_effect_fence_epoch": 4,
+      "dispatch_guard_decision": "RELEASED_FOR_THIS_ATTEMPT",
+      "cancellation_evidence_ref": "recon_no_effect_synthetic_002"
+    },
+    "protected_account_bindings": {
+      "payer_binding_ref": "acctbind_opaque_ug_01",
+      "beneficiary_binding_ref": "acctbind_opaque_tz_01",
+      "source_routing_node": "UG-MTN-MOBILE-MONEY",
+      "destination_routing_node": "TZ-CRDB-BANK-PLC"
+    },
+    "institution_entitlement": {
+      "institution_id": "institution_synthetic_01",
+      "license_grant_id": "ilg_synthetic_01",
+      "license_decision_ref": "ild_synthetic_003"
+    }
+  },
+  "signature_envelope": {
+    "artifact_domain": "railone.dispatch-envelope.v1",
+    "algorithm": "Ed25519",
+    "signer_key_id": "<railone-core-signing-key-id>",
+    "payload_sha256": "<digest-of-canonical-wrapper>",
+    "signature": "<base64url-signature>"
+  }
+}
