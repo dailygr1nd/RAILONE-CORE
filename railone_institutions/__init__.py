@@ -18,6 +18,11 @@ from .models import (
 )
 from .registry import AdapterEligibilityQuery, InstitutionAdapterRegistry
 from .spi import InstitutionAdapter, InstitutionAdapterBridge
+from .wrapper_store import DispatchWrapperStore, InMemoryDispatchWrapperStore
+from .wrapper import (
+    AuthoritativeDispatchSnapshot, CanonicalDispatchWrapper,
+    DispatchWrapperService, SignedDispatchWrapper,
+)
 
 __all__ = [
     "AdapterCertificationStatus",
@@ -38,4 +43,10 @@ __all__ = [
     "MessageStandard",
     "SignedCapabilityManifest",
     "TransportKind",
+    "AuthoritativeDispatchSnapshot",
+    "CanonicalDispatchWrapper",
+    "DispatchWrapperService",
+    "SignedDispatchWrapper",
+    "DispatchWrapperStore",
+    "InMemoryDispatchWrapperStore",
 ]

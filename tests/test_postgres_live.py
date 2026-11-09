@@ -108,6 +108,18 @@ class LivePostgresRuntimeTests(unittest.TestCase):
             migrations_directory=self.migrations,
         ).apply_all()
         self.assertTrue(all(result.already_applied for result in results))
+        self.assertIn("0013", {result.version for result in results})
+        connection = self.factory()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT to_regclass('railone.institution_dispatch_wrappers') AS relation")
+                self.assertIsNotNone(cursor.fetchone()["relation"])
+                cursor.execute("""SELECT COUNT(*) AS count FROM pg_trigger
+                               WHERE tgrelid = 'railone.institution_dispatch_wrappers'::regclass
+                                 AND tgname = 'institution_dispatch_wrappers_append_only'""")
+                self.assertEqual(cursor.fetchone()["count"], 1)
+        finally:
+            connection.close()
 
     def test_contract_execution_submission_and_projection_round_trip(self):
         now = datetime(2026, 7, 14, 19, 0, tzinfo=timezone.utc)

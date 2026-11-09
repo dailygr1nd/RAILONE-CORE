@@ -1,0 +1,56 @@
+{
+  "fixture_warning": "SYNTHETIC UNSIGNED EXAMPLE; NOT VALID FOR EXTERNAL DISPATCH",
+  "railone_standard_wrapper": {
+    "bilateral_trust_anchors": {
+      "etk_r_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "etk_s_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "recipient_cont_uid": "CUID-SYN-RECIPIENT",
+      "rtt_birth_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sender_cont_uid": "CUID-SYN-SENDER",
+      "utt_payload_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "commercial_terms": {
+      "custody_model": "NON_CUSTODIAL",
+      "pricing_model": "PER_INTENT",
+      "receive_amount_minor": 7150000,
+      "receive_currency": "TZS",
+      "source_amount_minor": 100000,
+      "source_currency": "UGX"
+    },
+    "envelope_id": "IW-0B8BE2FFDF3FDEF2D93695AA8624443C",
+    "execution_binding": {
+      "adapter_binding_ref": "synthetic.mtn-crdb@1.0.0",
+      "adapter_manifest_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "idempotency_key": "IDEMP-SYN-01",
+      "provider_id": "SYN-UG-TZ-PROVIDER",
+      "request_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "route_decision_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "route_id": "ROUTE-SYN-01"
+    },
+    "expires_at_epoch": 1794225630,
+    "fencing_controls": {
+      "dispatch_guard_decision": "RELEASED_FOR_THIS_ATTEMPT",
+      "economic_effect_fence_epoch": 1,
+      "operational_mode": "SEQUENTIAL_RECONCILIATION_SAFE",
+      "release_evidence_ref": null
+    },
+    "issued_at_epoch": 1794225600,
+    "message_type": "INSTITUTION_EXECUTION_DISPATCH",
+    "protected_account_bindings": {
+      "beneficiary_binding_ref": "acctbind_tz_synthetic_0002",
+      "destination_routing_node": "TZ-CRDB-BANK-PLC",
+      "payer_binding_ref": "acctbind_ug_synthetic_0001",
+      "source_routing_node": "UG-MTN-MOBILE-MONEY"
+    },
+    "schema_version": "1.0.0",
+    "trace_identifiers": {
+      "attempt_number": 1,
+      "correlation_id": "CORR-SYN-01",
+      "plan_id": "PLAN-SYN-01",
+      "replay_generation": 0,
+      "rtt_id": "RTT-SYN-01",
+      "utt_id": "UTT-SYN-01"
+    }
+  },
+  "wrapper_sha256": "032fab9c344eefcb3d963eddcc7e9fd1ed2dfe431a86094195891f1e118b962e"
+}
