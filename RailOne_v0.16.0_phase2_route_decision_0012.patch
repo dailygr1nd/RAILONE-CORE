@@ -1,0 +1,836 @@
+diff --git a/docs/ADR-017-immutable-route-decision-evidence.md b/docs/ADR-017-immutable-route-decision-evidence.md
+new file mode 100644
+index 0000000..19e8b63
+--- /dev/null
++++ b/docs/ADR-017-immutable-route-decision-evidence.md
+@@ -0,0 +1,76 @@
++# ADR-017: Immutable, deterministic RouteDecisionRecord at plan birth
++
++- Status: Proposed for RailOne v0.16.0 Alpha Phase 2
++- Scope: Initial execution-plan decisions; not yet route mutation/re-scoring decisions
++- Depends on: ADR-004, ADR-016, RO-DOC-ARCH-002 and RO-DOC-RTT-006
++- Migration: `0012_immutable_route_decision_records.sql` (additive after 0011)
++
++## Context
++
++The v0.15 scorer ranks route candidates using deterministic integer basis-point
++scores. An ExecutionPlan stores eligible ranked routes, but does not preserve
++all excluded candidates or a separately content-addressed account of the
++inputs, policy, and decision. This weakens independent reconstruction of *why*
++a specific route was chosen.
++
++## Decision
++
++For each **new** plan created by `ExecutionPlanningService.build_plan`:
++
++1. Validate the persisted UTT and rank using the existing scorer.
++2. Build an immutable canonical `RouteDecisionRecord` containing the exact
++   UTT digest, plan ID, policy ID, policy-weight values, scoring-algorithm
++   version, UTC decision time, ordered candidate snapshots, granular exclusion
++   reasons, ranked routes, and the top selected route.
++3. Preserve microsecond timestamps for the replay inputs, without changing
++   the existing `RouteCandidate.to_payload()` historical representation.
++4. Compute a SHA-256 digest over a domain-separated canonical JSON body.
++5. Persist the plan and decision in the **same database transaction**.
++6. A repeated same-UTT plan request may return its existing plan only if both
++   plan identity and the entire decision record agree. Different decisions for
++   one UTT fail closed and never rewrite the original record.
++7. The in-memory store follows the same atomicity and immutability rules.
++
++The stored record supports independent replay: reconstitute the original
++candidates and scoring weights, re-evaluate exclusion reasons, re-rank, and
++compare the results to persisted evidence. A digest alone is **not** sufficient
++for verification.
++
++## Non-changes and safety boundaries
++
++- UTT creation, signatures and commercial terms do not change.
++- RTT creation, fee ownership, retry/fencing and unknown-outcome policy do not change.
++- Existing immutable ExecutionPlan rank snapshots and plan identifiers remain
++  unchanged.
++- Hashes are **integrity identifiers, not signatures**: parties with full
++  database write access can recompute hashes. Authenticity and independently
++  anchored evidence require a separately designed signing and audit control.
++- Decision records are **not dispatch permits** or evidence of external
++  settlement. No adapters or institutions may treat them as authorization.
++- No backfill is performed for plans created before migration 0012. The new
++  planner always creates both records; legacy plans remain operable under the
++  existing pilot semantics until a separately reviewed compatibility policy.
++- Changing a scorer algorithm or component normalization requires a new
++  `scoring_algorithm` version and its own replay verifier. Never silently
++  re-interpret old scores.
++
++## Next stages
++
++1. Verify migration 0012 and atomic rollback on disposable PostgreSQL.
++2. Introduce append-only **route mutation** decision records with parent
++   decision hashes, controlled re-scoring reasons and telemetry changes.
++3. Bind signed dispatch permits and adapter selection to verified decision
++   evidence, in a separate reviewed change after migration validation.
++4. Maintain fail-closed unknown-outcome rules; granular fencing is a distinct
++   safety project and is not authorized by this ADR.
++
++## Acceptance gates
++
++- Equal inputs and decision time yield identical record regardless of
++  candidate enumeration order.
++- Exclusion and rank evidence is identical on independent replay.
++- Recomputed digest cannot conceal a changed rank or policy outcome.
++- Same-UTT conflicting decisions are rejected without modifying plan or record.
++- Plan and decision commit atomically, including crash/error paths.
++- Existing 177-test v0.16 Alpha baseline still passes, with new tests added.
++- Migration remains append-only and checksum-locked. No old migrations altered.
+diff --git a/migrations/0012_immutable_route_decision_records.sql b/migrations/0012_immutable_route_decision_records.sql
+new file mode 100644
+index 0000000..faf8c1d
+--- /dev/null
++++ b/migrations/0012_immutable_route_decision_records.sql
+@@ -0,0 +1,26 @@
++BEGIN;
++
++-- ADR-017: original route-decision evidence for newly created execution plans.
++-- No rewrite of historical plans or UTT/RTT artifacts is required.
++CREATE TABLE railone.route_decision_records (
++    decision_id text PRIMARY KEY CHECK (decision_id ~ '^RDEC-[A-F0-9]{32}$'),
++    plan_id text NOT NULL UNIQUE REFERENCES railone.execution_plans(plan_id),
++    utt_id text NOT NULL REFERENCES railone.accepted_utts(utt_id),
++    decision_sha256 char(64) NOT NULL UNIQUE CHECK (decision_sha256 ~ '^[0-9a-f]{64}$'),
++    schema_version integer NOT NULL CHECK (schema_version = 1),
++    decision_payload jsonb NOT NULL,
++    created_at timestamptz NOT NULL,
++    CHECK (decision_payload ->> 'plan_id' = plan_id),
++    CHECK (decision_payload ->> 'utt_id' = utt_id),
++    CHECK ((decision_payload ->> 'schema_version')::integer = schema_version),
++    CHECK (decision_payload ->> 'scoring_algorithm' = 'R1-INTEGER-WEIGHTED-BPS-V1')
++);
++
++CREATE INDEX route_decision_utt_lookup_idx
++    ON railone.route_decision_records (utt_id, created_at DESC);
++
++CREATE TRIGGER route_decision_records_append_only
++BEFORE UPDATE OR DELETE ON railone.route_decision_records
++FOR EACH ROW EXECUTE FUNCTION railone.reject_append_only_mutation();
++
++COMMIT;
+diff --git a/railone_execution/__init__.py b/railone_execution/__init__.py
+index 41412f7..2e46012 100644
+--- a/railone_execution/__init__.py
++++ b/railone_execution/__init__.py
+@@ -11,6 +11,7 @@ from .models import (
+     RttAttemptRecord,
+ )
+ from .scoring import DeterministicRouteScorer, RouteScoreWeights
++from .decisions import RouteDecisionRecord
+ from .service import (
+     ExecutionPlanningService,
+     NoEligibleRouteError,
+@@ -32,6 +33,7 @@ __all__ = [
+     "PlanNotExecutableError",
+     "PlanStatus",
+     "RouteCandidate",
++    "RouteDecisionRecord",
+     "RouteFailure",
+     "RouteScoreWeights",
+     "RttAttemptRecord",
+diff --git a/railone_execution/decisions.py b/railone_execution/decisions.py
+new file mode 100644
+index 0000000..61faf22
+--- /dev/null
++++ b/railone_execution/decisions.py
+@@ -0,0 +1,221 @@
++"""Immutable, replay-verifiable birth record for the initial route decision.
++
++This is content-addressed integrity evidence, NOT a signature or permission to
++send funds. Existing route state, UTT authority and RTT safety gates are unchanged.
++"""
++
++from __future__ import annotations
++
++import hashlib
++import json
++from dataclasses import dataclass
++from datetime import datetime, timedelta, timezone
++from typing import Any
++
++from railone_crypto.canonical_json import canonical_json_bytes
++from .models import ExecutionPlan, LinkStatus, RouteCandidate, require_aware
++from .scoring import DeterministicRouteScorer, RouteScoreWeights
++
++SCHEMA_VERSION = 1
++SCORING_ALGORITHM = "R1-INTEGER-WEIGHTED-BPS-V1"
++_HASH_DOMAIN = b"RAILONE:ROUTE-DECISION:V1\x00"
++_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
++_WEIGHT_FIELDS = ("latency", "congestion", "liquidity", "throughput", "speed", "cost", "link")
++
++
++def _micros(value: datetime) -> int:
++    delta = require_aware("decision timestamp", value) - _EPOCH
++    return (delta.days * 86400 + delta.seconds) * 1_000_000 + delta.microseconds
++
++
++def _from_micros(value: object) -> datetime:
++    if isinstance(value, bool) or not isinstance(value, int):
++        raise ValueError("decision timestamp must be integer microseconds")
++    return _EPOCH + timedelta(microseconds=value)
++
++
++def _candidate_snapshot(candidate: RouteCandidate) -> dict[str, object]:
++    return {
++        "route": candidate.to_payload(),
++        "telemetry_observed_at_us": _micros(candidate.telemetry_observed_at),
++        "telemetry_expires_at_us": _micros(candidate.telemetry_expires_at),
++    }
++
++
++def _candidate_from_snapshot(snapshot: dict[str, Any]) -> RouteCandidate:
++    route = snapshot["route"]
++    observed = _from_micros(snapshot["telemetry_observed_at_us"])
++    expires = _from_micros(snapshot["telemetry_expires_at_us"])
++    # Snapshot retains full microsecond precision even though the historical
++    # RouteCandidate.to_payload() carries timestamps at second precision.
++    if int(observed.timestamp()) != route["telemetry_observed_at"]:
++        raise ValueError("route telemetry observation timestamp mismatch")
++    if int(expires.timestamp()) != route["telemetry_expires_at"]:
++        raise ValueError("route telemetry expiry timestamp mismatch")
++    candidate = RouteCandidate(
++        route_id=route["route_id"],
++        source_institution_id=route["source_institution_id"],
++        destination_institution_id=route["destination_institution_id"],
++        rail=route["rail"], provider=route["provider"], adapter=route["adapter"],
++        currency_from=route["currency_from"], currency_to=route["currency_to"],
++        min_amount_minor=route["min_amount_minor"], max_amount_minor=route["max_amount_minor"],
++        latency_ms=route["latency_ms"], congestion_bps=route["congestion_bps"],
++        liquidity_capacity_minor=route["liquidity_capacity_minor"],
++        throughput_headroom_bps=route["throughput_headroom_bps"],
++        speed_bps=route["speed_bps"], estimated_cost_minor=route["estimated_cost_minor"],
++        link_status=LinkStatus(route["link_status"]),
++        telemetry_observed_at=observed, telemetry_expires_at=expires,
++    )
++    if candidate.to_payload() != route:
++        raise ValueError("route candidate is not canonically representable")
++    return candidate
++
++
++def _weights_payload(weights: RouteScoreWeights) -> dict[str, int]:
++    return {name: getattr(weights, name) for name in _WEIGHT_FIELDS}
++
++
++def _digest(canonical: bytes) -> str:
++    return hashlib.sha256(_HASH_DOMAIN + canonical).hexdigest()
++
++
++@dataclass(frozen=True, slots=True)
++class RouteDecisionRecord:
++    """Persistent, content-addressed, reproducible original planning decision.
++
++    `canonical_body` is a string rather than a mutable nested dict so callers
++    cannot mutate signed/hash-checked evidence through a Python reference.
++    `payload()` always returns an independent object.
++    """
++
++    decision_id: str
++    plan_id: str
++    utt_id: str
++    decision_sha256: str
++    canonical_body: str
++
++    @property
++    def payload(self) -> dict[str, Any]:
++        return json.loads(self.canonical_body)
++
++    @classmethod
++    def create(
++        cls, *, plan: ExecutionPlan, utt_payload_sha256: str,
++        routing_policy_id: str, scorer: DeterministicRouteScorer,
++        candidates: tuple[RouteCandidate, ...] | list[RouteCandidate],
++        amount_minor: int, currency_from: str, currency_to: str,
++        routing_budget_minor: int, source_institution_id: str,
++        destination_institution_id: str, at: datetime,
++    ) -> "RouteDecisionRecord":
++        instant = require_aware("decision timestamp", at)
++        candidates = tuple(candidates)
++        route_ids = [route.route_id for route in candidates]
++        if len(route_ids) != len(set(route_ids)):
++            raise ValueError("duplicate route identifier in decision candidates")
++        request: dict[str, object] = {
++            "amount_minor": amount_minor,
++            "currency_from": currency_from.upper(), "currency_to": currency_to.upper(),
++            "routing_budget_minor": routing_budget_minor,
++            "source_institution_id": source_institution_id,
++            "destination_institution_id": destination_institution_id,
++            "decided_at_us": _micros(instant),
++        }
++        exclusion_rows = []
++        for candidate in sorted(candidates, key=lambda candidate: candidate.route_id):
++            reasons = scorer.rejection_reasons(
++                candidate, amount_minor=amount_minor, currency_from=currency_from,
++                currency_to=currency_to, routing_budget_minor=routing_budget_minor,
++                source_institution_id=source_institution_id,
++                destination_institution_id=destination_institution_id, at=instant,
++            )
++            if reasons:
++                exclusion_rows.append({"route_id": candidate.route_id, "reasons": list(reasons)})
++        body = {
++            "schema_version": SCHEMA_VERSION,
++            "plan_id": plan.plan_id,
++            "utt_id": plan.utt_id,
++            "utt_payload_sha256": utt_payload_sha256,
++            "routing_policy_id": routing_policy_id,
++            "scoring_algorithm": SCORING_ALGORITHM,
++            "weights_bps": _weights_payload(scorer.weights),
++            "request": request,
++            "candidate_snapshots": [
++                _candidate_snapshot(candidate)
++                for candidate in sorted(candidates, key=lambda candidate: candidate.route_id)
++            ],
++            "excluded_routes": exclusion_rows,
++            "ranked_routes": [route.to_payload() for route in plan.ranked_routes],
++            "selected_route_id": plan.ranked_routes[0].candidate.route_id if plan.ranked_routes else None,
++        }
++        canonical = canonical_json_bytes(body)
++        digest = _digest(canonical)
++        record = cls(
++            decision_id="RDEC-" + digest[:32].upper(),
++            plan_id=plan.plan_id, utt_id=plan.utt_id,
++            decision_sha256=digest, canonical_body=canonical.decode("utf-8"),
++        )
++        record.verify(plan=plan, expected_utt_payload_sha256=utt_payload_sha256)
++        return record
++
++    def verify(
++        self, *, plan: ExecutionPlan | None = None,
++        expected_utt_payload_sha256: str | None = None,
++    ) -> None:
++        """Recompute stored decision from its immutable inputs; raise on divergence."""
++        try:
++            body = self.payload
++            canonical = canonical_json_bytes(body)
++            if canonical.decode("utf-8") != self.canonical_body:
++                raise ValueError("route decision body is not canonical JSON")
++            digest = _digest(canonical)
++            if digest != self.decision_sha256 or self.decision_id != "RDEC-" + digest[:32].upper():
++                raise ValueError("route decision content digest or identifier does not match")
++            if body["schema_version"] != SCHEMA_VERSION or body["scoring_algorithm"] != SCORING_ALGORITHM:
++                raise ValueError("unsupported route decision schema/scorer version")
++            if body["plan_id"] != self.plan_id or body["utt_id"] != self.utt_id:
++                raise ValueError("route decision lineage mismatch")
++            if (expected_utt_payload_sha256 is not None and
++                    body["utt_payload_sha256"] != expected_utt_payload_sha256):
++                raise ValueError("route decision does not match verified UTT digest")
++            weights = RouteScoreWeights(**body["weights_bps"])
++            scorer = DeterministicRouteScorer(weights)
++            request = body["request"]
++            instant = _from_micros(request["decided_at_us"])
++            inputs = {
++                "amount_minor": request["amount_minor"],
++                "currency_from": request["currency_from"],
++                "currency_to": request["currency_to"],
++                "routing_budget_minor": request["routing_budget_minor"],
++                "source_institution_id": request["source_institution_id"],
++                "destination_institution_id": request["destination_institution_id"],
++                "at": instant,
++            }
++            candidates = tuple(_candidate_from_snapshot(item) for item in body["candidate_snapshots"])
++            ids = [candidate.route_id for candidate in candidates]
++            if ids != sorted(ids) or len(ids) != len(set(ids)):
++                raise ValueError("route candidate order or identity is invalid")
++            exclusions = [
++                {"route_id": candidate.route_id, "reasons": list(reasons)}
++                for candidate in candidates
++                if (reasons := scorer.rejection_reasons(candidate, **inputs))
++            ]
++            ranked = scorer.rank(candidates, **inputs)
++            ranked_payload = [route.to_payload() for route in ranked]
++            if exclusions != body["excluded_routes"]:
++                raise ValueError("route exclusion evidence is inconsistent")
++            if ranked_payload != body["ranked_routes"]:
++                raise ValueError("route ranking evidence is inconsistent")
++            selected = ranked[0].candidate.route_id if ranked else None
++            if selected != body["selected_route_id"]:
++                raise ValueError("selected route does not match highest ranked candidate")
++            if not ranked:
++                raise ValueError("no eligible route was recorded")
++            if plan is not None:
++                if plan.plan_id != self.plan_id or plan.utt_id != self.utt_id:
++                    raise ValueError("route decision belongs to another plan")
++                if [route.to_payload() for route in plan.ranked_routes] != ranked_payload:
++                    raise ValueError("route decision does not match persisted plan ranking")
++                if plan.routing_budget_minor != request["routing_budget_minor"]:
++                    raise ValueError("route decision routing budget does not match plan")
++        except (TypeError, KeyError, IndexError, AttributeError) as exc:
++            raise ValueError("invalid route decision record shape") from exc
+diff --git a/railone_execution/scoring.py b/railone_execution/scoring.py
+index 71677da..98afe9a 100644
+--- a/railone_execution/scoring.py
++++ b/railone_execution/scoring.py
+@@ -52,7 +52,7 @@ class DeterministicRouteScorer:
+             raise ValueError("route_id must be unique within a planning request")
+         for candidate in candidates:
+             candidate.normalized()
+-            if not self._eligible(
++            if self.rejection_reasons(
+                 candidate,
+                 amount_minor=amount_minor,
+                 currency_from=currency_from,
+@@ -87,6 +87,46 @@ class DeterministicRouteScorer:
+             for index, item in enumerate(scored, start=1)
+         )
+ 
++    @staticmethod
++    def rejection_reasons(
++        candidate: RouteCandidate,
++        *,
++        amount_minor: int,
++        currency_from: str,
++        currency_to: str,
++        routing_budget_minor: int,
++        source_institution_id: str,
++        destination_institution_id: str,
++        at: datetime,
++    ) -> tuple[str, ...]:
++        """Explain ineligibility using the exact predicates used by rank().
++
++        Reason ordering is protocol-controlled, not dependent on collection order.
++        No provider or adapter may override these results.
++        """
++        reasons: list[str] = []
++        if candidate.link_status is LinkStatus.DOWN:
++            reasons.append("LINK_DOWN")
++        if candidate.telemetry_observed_at > at:
++            reasons.append("TELEMETRY_FROM_FUTURE")
++        if candidate.telemetry_expires_at <= at:
++            reasons.append("TELEMETRY_EXPIRED")
++        if candidate.currency_from.upper() != currency_from.upper():
++            reasons.append("SOURCE_CURRENCY_MISMATCH")
++        if candidate.currency_to.upper() != currency_to.upper():
++            reasons.append("DESTINATION_CURRENCY_MISMATCH")
++        if not candidate.min_amount_minor <= amount_minor <= candidate.max_amount_minor:
++            reasons.append("AMOUNT_OUT_OF_RANGE")
++        if candidate.liquidity_capacity_minor < amount_minor:
++            reasons.append("INSUFFICIENT_ROUTE_LIQUIDITY")
++        if candidate.estimated_cost_minor > routing_budget_minor:
++            reasons.append("EXCEEDS_ROUTING_BUDGET")
++        if candidate.source_institution_id != source_institution_id:
++            reasons.append("SOURCE_INSTITUTION_MISMATCH")
++        if candidate.destination_institution_id != destination_institution_id:
++            reasons.append("DESTINATION_INSTITUTION_MISMATCH")
++        return tuple(reasons)
++
+     @staticmethod
+     def _eligible(
+         candidate: RouteCandidate,
+@@ -99,17 +139,11 @@ class DeterministicRouteScorer:
+         destination_institution_id: str,
+         at: datetime,
+     ) -> bool:
+-        return (
+-            candidate.link_status is not LinkStatus.DOWN
+-            and candidate.telemetry_observed_at <= at
+-            and candidate.telemetry_expires_at > at
+-            and candidate.currency_from.upper() == currency_from.upper()
+-            and candidate.currency_to.upper() == currency_to.upper()
+-            and candidate.min_amount_minor <= amount_minor <= candidate.max_amount_minor
+-            and candidate.liquidity_capacity_minor >= amount_minor
+-            and candidate.estimated_cost_minor <= routing_budget_minor
+-            and candidate.source_institution_id == source_institution_id
+-            and candidate.destination_institution_id == destination_institution_id
++        return not DeterministicRouteScorer.rejection_reasons(
++            candidate, amount_minor=amount_minor, currency_from=currency_from,
++            currency_to=currency_to, routing_budget_minor=routing_budget_minor,
++            source_institution_id=source_institution_id,
++            destination_institution_id=destination_institution_id, at=at,
+         )
+ 
+     @staticmethod
+diff --git a/railone_execution/service.py b/railone_execution/service.py
+index b0f2ef2..cf1a008 100644
+--- a/railone_execution/service.py
++++ b/railone_execution/service.py
+@@ -28,6 +28,7 @@ from .models import (
+     require_aware,
+ )
+ from .scoring import DeterministicRouteScorer
++from .decisions import RouteDecisionRecord
+ from .store import ExecutionStore
+ 
+ 
+@@ -111,7 +112,17 @@ class ExecutionPlanningService:
+             created_at=instant,
+             updated_at=instant,
+         )
+-        return self._executions.create_plan(plan)
++        decision = RouteDecisionRecord.create(
++            plan=plan, utt_payload_sha256=signed_utt.protected["payload_sha256"],
++            routing_policy_id=utt["routing_policy_id"], scorer=self._scorer,
++            candidates=candidates, amount_minor=utt["amount_minor"],
++            currency_from=utt["currency_from"], currency_to=utt["currency_to"],
++            routing_budget_minor=utt["routing_budget_minor"],
++            source_institution_id=utt["payer"]["endpoint"]["institution_id"],
++            destination_institution_id=utt["beneficiary"]["endpoint"]["institution_id"],
++            at=instant,
++        )
++        return self._executions.create_plan_with_decision(plan, decision)
+ 
+ 
+ class RttAttemptService:
+diff --git a/railone_execution/store.py b/railone_execution/store.py
+index 4006f40..8b14b96 100644
+--- a/railone_execution/store.py
++++ b/railone_execution/store.py
+@@ -8,6 +8,7 @@ from typing import Protocol
+ from railone_contracts.store import ContractStore
+ 
+ from .models import ExecutionPlan, RttAttemptRecord
++from .decisions import RouteDecisionRecord
+ 
+ 
+ class ExecutionPlanNotFoundError(LookupError):
+@@ -28,6 +29,10 @@ class ExecutionPlanConflictError(RuntimeError):
+ 
+ class ExecutionStore(Protocol):
+     def create_plan(self, plan: ExecutionPlan) -> ExecutionPlan: ...
++    def create_plan_with_decision(
++        self, plan: ExecutionPlan, decision: RouteDecisionRecord
++    ) -> ExecutionPlan: ...
++    def require_decision_for_plan(self, plan_id: str) -> RouteDecisionRecord: ...
+     def require_plan_for_utt(self, utt_id: str) -> ExecutionPlan: ...
+     def require_plan(self, plan_id: str) -> ExecutionPlan: ...
+     def require_attempt(self, rtt_id: str) -> RttAttemptRecord: ...
+@@ -48,6 +53,7 @@ class InMemoryExecutionStore:
+         self._plans: dict[str, ExecutionPlan] = {}
+         self._plan_by_utt: dict[str, str] = {}
+         self._attempts: dict[str, RttAttemptRecord] = {}
++        self._decisions: dict[str, RouteDecisionRecord] = {}
+ 
+     def create_plan(self, plan: ExecutionPlan) -> ExecutionPlan:
+         self._contracts.require_utt(plan.utt_id)
+@@ -65,6 +71,35 @@ class InMemoryExecutionStore:
+             self._plan_by_utt[plan.utt_id] = plan.plan_id
+             return plan
+ 
++    def create_plan_with_decision(
++        self, plan: ExecutionPlan, decision: RouteDecisionRecord
++    ) -> ExecutionPlan:
++        self._contracts.require_utt(plan.utt_id)
++        decision.verify(plan=plan)
++        with self._lock:
++            existing_id = self._plan_by_utt.get(plan.utt_id)
++            if existing_id is not None:
++                existing = self._plans[existing_id]
++                stored_decision = self._decisions.get(existing_id)
++                if existing_id != plan.plan_id or stored_decision != decision:
++                    raise ExecutionPlanConflictError("UTT has a different plan or decision")
++                return existing
++            if plan.plan_id in self._plans or plan.plan_id in self._decisions:
++                raise ExecutionPlanConflictError("execution plan identifier collision")
++            self._plans[plan.plan_id] = plan
++            self._plan_by_utt[plan.utt_id] = plan.plan_id
++            self._decisions[plan.plan_id] = decision
++            return plan
++
++    def require_decision_for_plan(self, plan_id: str) -> RouteDecisionRecord:
++        with self._lock:
++            decision = self._decisions.get(plan_id)
++            if decision is None:
++                raise ExecutionPlanNotFoundError(
++                    f"route decision not found for plan: {plan_id}"
++                )
++            return decision
++
+     def require_plan_for_utt(self, utt_id: str) -> ExecutionPlan:
+         with self._lock:
+             plan_id = self._plan_by_utt.get(utt_id)
+diff --git a/railone_postgres/execution.py b/railone_postgres/execution.py
+index dc7c822..d3c4dfc 100644
+--- a/railone_postgres/execution.py
++++ b/railone_postgres/execution.py
+@@ -7,6 +7,7 @@ from typing import Any
+ 
+ from railone_crypto.signature_service import SignatureEnvelope
+ from railone_execution.models import AttemptState, ExecutionPlan, RttAttemptRecord
++from railone_execution.decisions import RouteDecisionRecord
+ from railone_execution.store import (
+     ConcurrentPlanUpdateError,
+     ExecutionPlanConflictError,
+@@ -49,6 +50,69 @@ class PostgresExecutionStore(ExecutionStore):
+                 raise ExecutionPlanConflictError("UTT already has a different execution plan")
+             return plan_from_row(existing)
+ 
++    def create_plan_with_decision(
++        self, plan: ExecutionPlan, decision: RouteDecisionRecord
++    ) -> ExecutionPlan:
++        """Persist plan and immutable decision in the same SQL transaction."""
++        decision.verify(plan=plan)
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                f"""INSERT INTO railone.execution_plans ({_PLAN_COLUMNS})
++                VALUES (%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
++                ON CONFLICT (utt_id) DO NOTHING
++                RETURNING {_PLAN_COLUMNS}""",
++                _plan_params(plan),
++            )
++            inserted = cursor.fetchone()
++            if inserted is not None:
++                cursor.execute(
++                    """INSERT INTO railone.route_decision_records
++                    (decision_id, plan_id, utt_id, decision_sha256,
++                     schema_version, decision_payload, created_at)
++                    VALUES (%s,%s,%s,%s,1,%s::jsonb,%s)""",
++                    (decision.decision_id, decision.plan_id, decision.utt_id,
++                     decision.decision_sha256, decision.canonical_body,
++                     plan.created_at),
++                )
++                return plan_from_row(inserted)
++            cursor.execute(
++                f"SELECT {_PLAN_COLUMNS} FROM railone.execution_plans WHERE utt_id = %s",
++                (plan.utt_id,),
++            )
++            existing = cursor.fetchone()
++            if existing is None or existing["plan_id"] != plan.plan_id:
++                raise ExecutionPlanConflictError("UTT already has a different execution plan")
++            cursor.execute(
++                """SELECT decision_id, plan_id, utt_id, decision_sha256, decision_payload
++                   FROM railone.route_decision_records WHERE plan_id = %s""",
++                (plan.plan_id,),
++            )
++            row = cursor.fetchone()
++            if row is None or _decision_from_row(row) != decision:
++                raise ExecutionPlanConflictError("UTT already has a different route decision")
++            return plan_from_row(existing)
++
++    def require_decision_for_plan(self, plan_id: str) -> RouteDecisionRecord:
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                """SELECT decision_id, plan_id, utt_id, decision_sha256, decision_payload
++                   FROM railone.route_decision_records WHERE plan_id = %s""",
++                (plan_id,),
++            )
++            row = cursor.fetchone()
++            if row is None:
++                raise ExecutionPlanNotFoundError(f"route decision not found for plan: {plan_id}")
++            decision = _decision_from_row(row)
++            cursor.execute(
++                f"SELECT {_PLAN_COLUMNS} FROM railone.execution_plans WHERE plan_id = %s",
++                (plan_id,),
++            )
++            plan_row = cursor.fetchone()
++            if plan_row is None:
++                raise ExecutionPlanNotFoundError(f"execution plan not found: {plan_id}")
++            decision.verify(plan=plan_from_row(plan_row))
++            return decision
++
+     def require_plan_for_utt(self, utt_id: str) -> ExecutionPlan:
+         return self._require_plan("utt_id", utt_id)
+ 
+@@ -184,3 +248,15 @@ def _attempt(row: Mapping[str, Any]) -> RttAttemptRecord:
+         actual_cost_minor=row["actual_cost_minor"], created_at=row["created_at"],
+         updated_at=row["updated_at"],
+     )
++
++
++def _decision_from_row(row: Mapping[str, Any]) -> RouteDecisionRecord:
++    payload = row["decision_payload"]
++    if isinstance(payload, str):
++        from .codec import json_object
++        payload = json_object(payload)
++    return RouteDecisionRecord(
++        decision_id=str(row["decision_id"]), plan_id=str(row["plan_id"]),
++        utt_id=str(row["utt_id"]), decision_sha256=str(row["decision_sha256"]),
++        canonical_body=json_text(payload),
++    )
+diff --git a/scripts/check_repository_convergence.py b/scripts/check_repository_convergence.py
+index 5afbbd3..8b305ef 100644
+--- a/scripts/check_repository_convergence.py
++++ b/scripts/check_repository_convergence.py
+@@ -62,6 +62,7 @@ EXPECTED_MIGRATIONS = [
+     "0009_institution_adapter_spi.sql",
+     "0010_partner_certification_harness.sql",
+     "0011_currency_and_settlement_instruments.sql",
++    "0012_immutable_route_decision_records.sql",
+ ]
+ 
+ 
+@@ -94,7 +95,7 @@ def validate() -> list[str]:
+     migrations = sorted(path.name for path in (ROOT / "migrations").glob("*.sql"))
+     if migrations != EXPECTED_MIGRATIONS:
+         errors.append(
+-            "migration chain differs from extended immutable 0001-0011 sequence: "
++            "migration chain differs from extended immutable 0001-0012 sequence: "
+             + ", ".join(migrations)
+         )
+ 
+diff --git a/tests/test_postgres_live.py b/tests/test_postgres_live.py
+index 4ca3f6d..9e15e9f 100644
+--- a/tests/test_postgres_live.py
++++ b/tests/test_postgres_live.py
+@@ -180,9 +180,17 @@ class LivePostgresRuntimeTests(unittest.TestCase):
+             speed_bps=8500, estimated_cost_minor=30, link_status=LinkStatus.UP,
+             telemetry_observed_at=now, telemetry_expires_at=now + timedelta(minutes=5),
+         )
+-        ExecutionPlanningService(
++        plan = ExecutionPlanningService(
+             signatures=signatures, contracts=contracts, executions=executions
+         ).build_plan(utt_id=contract.utt_id, candidates=(route,), at=now + timedelta(seconds=2))
++        decision = executions.require_decision_for_plan(plan.plan_id)
++        decision.verify(plan=plan)
++        with database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                "SELECT count(*) AS count FROM railone.route_decision_records WHERE plan_id=%s",
++                (plan.plan_id,),
++            )
++            self.assertEqual(cursor.fetchone()["count"], 1)
+         attempt = RttAttemptService(
+             signatures=signatures, contracts=contracts, executions=executions,
+             rtt_signing_key_id="R1CORE:execution:live",
+diff --git a/tests/test_route_decision_records.py b/tests/test_route_decision_records.py
+new file mode 100644
+index 0000000..76a6456
+--- /dev/null
++++ b/tests/test_route_decision_records.py
+@@ -0,0 +1,146 @@
++"""ADR-017 deterministic route-decision evidence and storage semantics."""
++
++from __future__ import annotations
++
++import json
++import unittest
++from dataclasses import FrozenInstanceError, replace
++from datetime import timedelta
++
++from railone_execution import LinkStatus, RouteDecisionRecord
++from railone_execution.store import ExecutionPlanConflictError
++from tests import test_execution_plan_rtt as fixture_module
++
++
++class RouteDecisionRecordTests(unittest.TestCase):
++    def setUp(self):
++        # Reuse the repository's real accepted-UTT/quote/signature test fixture.
++        self.fixture = fixture_module.ExecutionPlanAndRttTests(methodName="test_unknown_utt_cannot_create_a_plan")
++        self.fixture.setUp()
++        self.utt_id = self.fixture._accepted_utt()
++        self.instant = self.fixture.now + timedelta(seconds=20)
++        self.fast = self.fixture._route("FAST", latency_ms=100, cost_minor=100)
++        self.slow = self.fixture._route("SLOW", latency_ms=2000, cost_minor=400)
++        self.down = self.fixture._route("DOWN", latency_ms=1, cost_minor=1, status=LinkStatus.DOWN)
++        self.low = self.fixture._route("NO-LIQUIDITY", latency_ms=1, cost_minor=1, capacity_minor=100)
++
++    def _make(self, candidates=None):
++        plan = self.fixture.planning.build_plan(
++            utt_id=self.utt_id,
++            candidates=candidates if candidates is not None else (self.slow, self.down, self.low, self.fast),
++            at=self.instant,
++        )
++        record = self.fixture.executions.require_decision_for_plan(plan.plan_id)
++        return plan, record
++
++    def test_build_plan_persists_one_verifiable_original_decision(self):
++        plan, decision = self._make()
++        self.assertTrue(decision.decision_id.startswith("RDEC-"))
++        self.assertEqual(decision.plan_id, plan.plan_id)
++        self.assertEqual(decision.utt_id, self.utt_id)
++        self.assertEqual(decision.payload["selected_route_id"], "FAST")
++        decision.verify(plan=plan)
++        self.assertEqual([row["route_id"] for row in decision.payload["excluded_routes"]],
++                         ["DOWN", "NO-LIQUIDITY"])
++
++    def test_no_side_effect_on_rtt_start(self):
++        plan, decision = self._make()
++        attempt = self.fixture.attempts.start_next(utt_id=self.utt_id, at=self.instant + timedelta(seconds=1))
++        self.assertEqual(attempt.route_id, "FAST")
++        decision.verify(plan=self.fixture.executions.require_plan(plan.plan_id))
++
++    def test_candidate_input_order_does_not_change_decision(self):
++        plan, original = self._make()
++        reordered = (self.fast, self.low, self.down, self.slow)
++        identical = self.fixture.planning.build_plan(utt_id=self.utt_id, candidates=reordered, at=self.instant)
++        self.assertEqual(plan, identical)
++        self.assertEqual(self.fixture.executions.require_decision_for_plan(plan.plan_id), original)
++
++    def test_different_input_timestamp_does_not_rewrite_decision(self):
++        self._make()
++        with self.assertRaises(ExecutionPlanConflictError):
++            self.fixture.planning.build_plan(
++                utt_id=self.utt_id, candidates=(self.fast, self.slow),
++                at=self.instant + timedelta(microseconds=1),
++            )
++
++    def test_decision_body_is_immutable_from_caller(self):
++        plan, original = self._make()
++        material = original.payload
++        material["selected_route_id"] = "SLOW"
++        self.assertEqual(original.payload["selected_route_id"], "FAST")
++        with self.assertRaises(FrozenInstanceError):
++            original.decision_sha256 = "0" * 64
++        original.verify(plan=plan)
++
++    def test_altered_json_without_hash_fails(self):
++        _, original = self._make()
++        material = original.payload
++        material["selected_route_id"] = "SLOW"
++        tampered = replace(original, canonical_body=json.dumps(material, sort_keys=True, separators=(",", ":")))
++        with self.assertRaises(ValueError):
++            tampered.verify()
++
++    def test_self_consistent_digest_cannot_hide_scoring_tamper(self):
++        from railone_execution.decisions import _digest
++        from railone_crypto.canonical_json import canonical_json_bytes
++        _, original = self._make()
++        material = original.payload
++        material["ranked_routes"][0]["score_bps"] -= 1
++        body = canonical_json_bytes(material)
++        digest = _digest(body)
++        forged = replace(original, canonical_body=body.decode(),
++                         decision_sha256=digest, decision_id="RDEC-" + digest[:32].upper())
++        with self.assertRaisesRegex(ValueError, "ranking"):
++            forged.verify()
++
++    def test_microsecond_precise_telemetry_roundtrip(self):
++        # Rounded second timestamps could otherwise change eligibility at the boundary.
++        adjusted = replace(self.fast,
++                           telemetry_observed_at=self.instant - timedelta(microseconds=1),
++                           telemetry_expires_at=self.instant + timedelta(microseconds=1))
++        plan, record = self._make(candidates=(adjusted,))
++        record.verify(plan=plan)
++
++    def test_route_exclusion_reasons_use_scorer_predicates(self):
++        _, decision = self._make()
++        exclusions = {v["route_id"]: v["reasons"] for v in decision.payload["excluded_routes"]}
++        self.assertEqual(exclusions["DOWN"], ["LINK_DOWN"])
++        self.assertEqual(exclusions["NO-LIQUIDITY"], ["INSUFFICIENT_ROUTE_LIQUIDITY"])
++
++    def test_recomputed_digest_cannot_hide_exclusion_tamper(self):
++        from railone_execution.decisions import _digest
++        from railone_crypto.canonical_json import canonical_json_bytes
++        _, original = self._make()
++        material = original.payload
++        material["excluded_routes"] = []
++        body = canonical_json_bytes(material)
++        digest = _digest(body)
++        forged = replace(original, canonical_body=body.decode(),
++                         decision_sha256=digest, decision_id="RDEC-" + digest[:32].upper())
++        with self.assertRaisesRegex(ValueError, "exclusion"):
++            forged.verify()
++
++    def test_external_utt_digest_binding_is_enforced(self):
++        _, decision = self._make()
++        with self.assertRaisesRegex(ValueError, "verified UTT digest"):
++            decision.verify(expected_utt_payload_sha256="0" * 64)
++
++    def test_policy_weight_values_are_reproducible(self):
++        _, decision = self._make()
++        weights = decision.payload["weights_bps"]
++        self.assertEqual(sum(weights.values()), 10_000)
++        self.assertEqual(decision.payload["scoring_algorithm"], "R1-INTEGER-WEIGHTED-BPS-V1")
++        decision.verify()
++
++    def test_migration_is_append_only_and_fk_bound(self):
++        from pathlib import Path
++        src = (Path(__file__).resolve().parents[1] / "migrations" /
++               "0012_immutable_route_decision_records.sql").read_text()
++        self.assertIn("CREATE TABLE railone.route_decision_records", src)
++        self.assertIn("REFERENCES railone.execution_plans(plan_id)", src)
++        self.assertIn("route_decision_records_append_only", src)
++
++
++if __name__ == "__main__":
++    unittest.main()

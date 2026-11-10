@@ -1,0 +1,1035 @@
+diff --git a/docs/ADR-018-signed-institution-dispatch-wrapper.md b/docs/ADR-018-signed-institution-dispatch-wrapper.md
+new file mode 100644
+index 0000000..8570e6b
+--- /dev/null
++++ b/docs/ADR-018-signed-institution-dispatch-wrapper.md
+@@ -0,0 +1,111 @@
++# ADR-018: Signed Canonical Institution Dispatch Wrapper (Phase 3)
++
++- **Status:** Proposed — review candidate, no live-funds approval
++- **Scope:** Canonical cross-boundary instruction artifact; NOT a dispatch permit
++- **Baseline:** v0.16 Alpha Phase 2 (ADR-017 and migrations 0001–0012)
++- **Migration:** `0013_signed_institution_dispatch_wrappers.sql`
++- **Related:** ADR-013 (Institution SPI), ADR-014 (partner conformance), ADR-017 (route decision), RO-DOC-TERM-001, RO-DOC-RTT-006
++
++## Context
++
++Institutions will develop independent RailOne adapters. Adapters must receive a
++standard, strictly bounded description of an already-authorized intent rather
++than mutable access to RailOne core objects. The v0.15 SPI already maps provider
++messages, but its current compatibility bridge can submit `ProviderExecutionRequest`
++without requiring the new signed wrapper. This ADR **does not yet close that
++legacy dispatch path**. The next integration gate must do so before live funds.
++
++## Decision
++
++Define `CanonicalDispatchWrapper` with exact schema version `1.0.0` and message
++kind `INSTITUTION_EXECUTION_DISPATCH`. Its contents are:
++
++1. **Trace identifiers:** UTT, ExecutionPlan, RTT, correlation, attempt number,
++   replay generation.
++2. **Bilateral trust anchors:** SHA-256 digests of verified UTT, RTT, ETK-S and
++   ETK-R artifacts and sender/receiver continuity identifiers.
++3. **Commercial terms:** positive integer minor-unit amounts, three-letter
++   currency codes, `PER_INTENT` and `NON_CUSTODIAL`.
++4. **Execution binding:** route, exact adapter semantic version, manifest digest,
++   immutable initial route decision digest, provider, idempotency key and request digest.
++5. **Fencing references:** sequential mode, fence epoch, asserted dispatch guard
++   decision and optional reconciliation release evidence reference. A replay RTT
++   must carry a release reference.
++6. **Protected endpoint bindings:** opaque binding references only, never an
++   MSISDN, account number, beneficiary name, access token, credential or secret.
++
++For now, `SPLIT_NON_BLOCKING` is rejected at the wrapper schema boundary.
++Parallel economic-effect dispatch requires a separate reviewed granular fencing
++implementation, not a message flag.
++
++Each wrapper has a domain-separated content-addressed ID, short expiry (maximum
++60 seconds), and an Ed25519 `INSTITUTION_DISPATCH_WRAPPER` signature produced by
++RailOne's existing `SignatureService` with an execution-signing key.
++`DispatchWrapperService.verify()` checks signature type, trusted signer owner,
++issuer time, envelope validity, exact content equality and a separately loaded
++`AuthoritativeDispatchSnapshot`.
++
++The snapshot must be assembled by a *trusted RailOne core component* from
++persisted, authenticated UTT/RTT/ExecutionPlan, ETK, decision, manifest, account
++binding and economic-fence state. An externally supplied snapshot or an embedded
++`dispatch_guard_decision` value is not authoritative. If a snapshot can be
++constructed solely from untrusted wrapper contents, binding verification is
++meaningless.
++
++## Persistence
++
++Migration 0013 introduces append-only `institution_dispatch_wrappers` storage
++with foreign keys to RTT, UTT, plan, initial route decision and exact institution
++adapter manifest. The table stores the complete signed envelope, signer key ID,
++content digest and 60-second validity window. One RTT has at most one persisted
++wrapper; conflicting copies fail closed. Raw endpoints must not be inserted into
++this table. The database rejects mutation, but downstream systems still need
++cryptographic verification of stored artifacts.
++
++## Security and non-claims
++
++- **A wrapper is NOT a payment authorization.** Signature verification alone
++  does not prove funds can be dispatched.
++- The existing provider submission coordinator and unknown-outcome safety model
++  remain unchanged. The wrapper is an **additive, not yet mandatory**, protocol
++  capability. It must not be represented as integrated end-to-end.
++- An adapter must never choose its own route, change accepted UTT amounts,
++  mutate an RTT or assert settlement without correlated provider evidence.
++- Neither a hash nor a wrapper guarantees provider cancellation, settlement,
++  regulatory authorization, malicious-adapter isolation or license validity.
++- `InstitutionLicenseGrant` is **not** included; entitlement checks belong to a
++  separately reviewed trusted admission decision.
++- The reference is a Python class contract. An external SDK should ship a
++  language-neutral canonical JSON/JSON Schema plus conformance vectors and
++  signature-validation rules before partner distribution.
++- Current wrapper construction permits a caller to supply the snapshot. That is
++  suitable for controlled tests, **not sufficient for live funds**. A trusted
++  snapshot resolver and mandatory admission gateway must be added next.
++
++## Acceptance tests
++
++- Same semantic payload reorders identically, with an immutable digest.
++- Unknown fields, extra nesting, raw account identifiers, non-minor-unit
++  floats, bad currency codes, unsupported custody and unrecognized operational
++  modes are rejected.
++- Tampered Ed25519 signatures, different artifact type, untrusted signer,
++  expired wrapper and differing authoritative route, amount, provider, ETK,
++  binding, decision or fence reject before outbound operation.
++- In-memory and PostgreSQL stores never rewrite an RTT's signed wrapper.
++- Older UTT/RTT tests remain green; no current dispatch flow is altered.
++- Migration 0013 executes and rolls back correctly on **disposable PostgreSQL**;
++  audit append-only triggers and FK constraints with real queries.
++
++## Next integration gates (not part of Phase 3)
++
++1. Implement trusted admission-snapshot resolver using canonical persisted
++   records and independently verified signatures/evidence, not user input.
++2. Require signed-wrapper and admission verification at every institution
++   dispatch path, including the legacy provider bridge and all retries.
++3. Add signed short-lived dispatch permits with atomic economic-effect fencing;
++   a valid wrapper must never bypass uncertainty, idempotency or replay gates.
++4. Add mutually authenticated isolated institution-adapter runtimes, strict
++   command and response schemas, capability/quota/entitlement checks and
++   attested partner conformance.
++5. Test against real disposable PostgreSQL and controlled provider sandboxes;
++   never treat this unit-test suite as permission for live money movement.
+diff --git a/docs/fixtures/institution-dispatch-wrapper-synthetic-v1.json b/docs/fixtures/institution-dispatch-wrapper-synthetic-v1.json
+new file mode 100644
+index 0000000..7afc3c8
+--- /dev/null
++++ b/docs/fixtures/institution-dispatch-wrapper-synthetic-v1.json
+@@ -0,0 +1,56 @@
++{
++  "fixture_warning": "SYNTHETIC UNSIGNED EXAMPLE; NOT VALID FOR EXTERNAL DISPATCH",
++  "railone_standard_wrapper": {
++    "bilateral_trust_anchors": {
++      "etk_r_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
++      "etk_s_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
++      "recipient_cont_uid": "CUID-SYN-RECIPIENT",
++      "rtt_birth_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
++      "sender_cont_uid": "CUID-SYN-SENDER",
++      "utt_payload_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
++    },
++    "commercial_terms": {
++      "custody_model": "NON_CUSTODIAL",
++      "pricing_model": "PER_INTENT",
++      "receive_amount_minor": 7150000,
++      "receive_currency": "TZS",
++      "source_amount_minor": 100000,
++      "source_currency": "UGX"
++    },
++    "envelope_id": "IW-0B8BE2FFDF3FDEF2D93695AA8624443C",
++    "execution_binding": {
++      "adapter_binding_ref": "synthetic.mtn-crdb@1.0.0",
++      "adapter_manifest_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
++      "idempotency_key": "IDEMP-SYN-01",
++      "provider_id": "SYN-UG-TZ-PROVIDER",
++      "request_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
++      "route_decision_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
++      "route_id": "ROUTE-SYN-01"
++    },
++    "expires_at_epoch": 1794225630,
++    "fencing_controls": {
++      "dispatch_guard_decision": "RELEASED_FOR_THIS_ATTEMPT",
++      "economic_effect_fence_epoch": 1,
++      "operational_mode": "SEQUENTIAL_RECONCILIATION_SAFE",
++      "release_evidence_ref": null
++    },
++    "issued_at_epoch": 1794225600,
++    "message_type": "INSTITUTION_EXECUTION_DISPATCH",
++    "protected_account_bindings": {
++      "beneficiary_binding_ref": "acctbind_tz_synthetic_0002",
++      "destination_routing_node": "TZ-CRDB-BANK-PLC",
++      "payer_binding_ref": "acctbind_ug_synthetic_0001",
++      "source_routing_node": "UG-MTN-MOBILE-MONEY"
++    },
++    "schema_version": "1.0.0",
++    "trace_identifiers": {
++      "attempt_number": 1,
++      "correlation_id": "CORR-SYN-01",
++      "plan_id": "PLAN-SYN-01",
++      "replay_generation": 0,
++      "rtt_id": "RTT-SYN-01",
++      "utt_id": "UTT-SYN-01"
++    }
++  },
++  "wrapper_sha256": "032fab9c344eefcb3d963eddcc7e9fd1ed2dfe431a86094195891f1e118b962e"
++}
+diff --git a/migrations/0013_signed_institution_dispatch_wrappers.sql b/migrations/0013_signed_institution_dispatch_wrappers.sql
+new file mode 100644
+index 0000000..3437081
+--- /dev/null
++++ b/migrations/0013_signed_institution_dispatch_wrappers.sql
+@@ -0,0 +1,41 @@
++BEGIN;
++
++-- Phase 3: signed canonical instruction envelopes. These rows are NOT dispatch
++-- permits and do not prove settlement, fence release, or provider conformance.
++-- Only a trusted RailOne service may issue or persist these envelopes.
++CREATE TABLE railone.institution_dispatch_wrappers (
++    envelope_id text PRIMARY KEY CHECK (envelope_id ~ '^IW-[A-F0-9]{32}$'),
++    rtt_id text NOT NULL UNIQUE REFERENCES railone.rtt_attempts(rtt_id),
++    plan_id text NOT NULL REFERENCES railone.execution_plans(plan_id),
++    utt_id text NOT NULL REFERENCES railone.accepted_utts(utt_id),
++    route_decision_sha256 char(64) NOT NULL
++       REFERENCES railone.route_decision_records(decision_sha256),
++    adapter_binding_ref text NOT NULL
++       REFERENCES railone.institution_adapter_manifests(binding_ref),
++    wrapper_sha256 char(64) NOT NULL UNIQUE CHECK (wrapper_sha256 ~ '^[a-f0-9]{64}$'),
++    signed_artifact jsonb NOT NULL,
++    signing_key_id text NOT NULL,
++    issued_at timestamptz NOT NULL,
++    expires_at timestamptz NOT NULL CHECK (expires_at > issued_at AND expires_at <= issued_at + interval '60 seconds'),
++    created_at timestamptz NOT NULL DEFAULT now(),
++    CHECK (signed_artifact->'protected'->>'typ' = 'railone.institution_dispatch_wrapper'),
++    CHECK (signed_artifact->'protected'->>'alg' = 'EdDSA'),
++    CHECK (signed_artifact->'protected'->>'crv' = 'Ed25519'),
++    CHECK (signed_artifact->'protected'->>'kid' = signing_key_id),
++    CHECK (signed_artifact->'protected'->>'iss' = 'RAILONE'),
++    CHECK (signed_artifact->'payload'->>'envelope_id' = envelope_id),
++    CHECK (signed_artifact->'payload'->'trace_identifiers'->>'rtt_id' = rtt_id),
++    CHECK (signed_artifact->'payload'->'trace_identifiers'->>'plan_id' = plan_id),
++    CHECK (signed_artifact->'payload'->'trace_identifiers'->>'utt_id' = utt_id),
++    CHECK (signed_artifact->'payload'->'execution_binding'->>'adapter_binding_ref' = adapter_binding_ref),
++    CHECK (signed_artifact->'payload'->'execution_binding'->>'route_decision_digest' = route_decision_sha256)
++);
++
++CREATE INDEX institution_dispatch_wrappers_plan_idx
++    ON railone.institution_dispatch_wrappers(plan_id, created_at DESC);
++
++CREATE TRIGGER institution_dispatch_wrappers_append_only
++BEFORE UPDATE OR DELETE ON railone.institution_dispatch_wrappers
++FOR EACH ROW EXECUTE FUNCTION railone.reject_append_only_mutation();
++
++COMMIT;
+diff --git a/railone_crypto/signature_service.py b/railone_crypto/signature_service.py
+index b933ea3..a770612 100644
+--- a/railone_crypto/signature_service.py
++++ b/railone_crypto/signature_service.py
+@@ -31,6 +31,7 @@ class ArtifactType(StrEnum):
+     API_REQUEST_AUDIT = "railone.api_request_audit"
+     INSTITUTION_CAPABILITY_MANIFEST = "railone.institution_capability_manifest"
+     PARTNER_CERTIFICATION_REPORT = "railone.partner_certification_report"
++    INSTITUTION_DISPATCH_WRAPPER = "railone.institution_dispatch_wrapper"
+ 
+ 
+ _PURPOSE_BY_ARTIFACT = {
+@@ -46,6 +47,7 @@ _PURPOSE_BY_ARTIFACT = {
+     ArtifactType.API_REQUEST_AUDIT: KeyPurpose.API_AUDIT_SIGNING,
+     ArtifactType.INSTITUTION_CAPABILITY_MANIFEST: KeyPurpose.EXECUTION_SIGNING,
+     ArtifactType.PARTNER_CERTIFICATION_REPORT: KeyPurpose.EXECUTION_SIGNING,
++    ArtifactType.INSTITUTION_DISPATCH_WRAPPER: KeyPurpose.EXECUTION_SIGNING,
+ }
+ 
+ _DOMAIN_PREFIX = b"RAILONE-SIGNED-ARTIFACT-V1\x00"
+diff --git a/railone_institutions/__init__.py b/railone_institutions/__init__.py
+index dcb3234..08bc93a 100644
+--- a/railone_institutions/__init__.py
++++ b/railone_institutions/__init__.py
+@@ -18,6 +18,11 @@ from .models import (
+ )
+ from .registry import AdapterEligibilityQuery, InstitutionAdapterRegistry
+ from .spi import InstitutionAdapter, InstitutionAdapterBridge
++from .wrapper_store import DispatchWrapperStore, InMemoryDispatchWrapperStore
++from .wrapper import (
++    AuthoritativeDispatchSnapshot, CanonicalDispatchWrapper,
++    DispatchWrapperService, SignedDispatchWrapper,
++)
+ 
+ __all__ = [
+     "AdapterCertificationStatus",
+@@ -38,4 +43,10 @@ __all__ = [
+     "MessageStandard",
+     "SignedCapabilityManifest",
+     "TransportKind",
++    "AuthoritativeDispatchSnapshot",
++    "CanonicalDispatchWrapper",
++    "DispatchWrapperService",
++    "SignedDispatchWrapper",
++    "DispatchWrapperStore",
++    "InMemoryDispatchWrapperStore",
+ ]
+diff --git a/railone_institutions/wrapper.py b/railone_institutions/wrapper.py
+new file mode 100644
+index 0000000..df654bc
+--- /dev/null
++++ b/railone_institutions/wrapper.py
+@@ -0,0 +1,320 @@
++"""RailOne canonical institution wrapper (v0.16 Alpha Phase 3).
++
++This module authenticates an *instruction description*, not permission to move
++money. The current execution coordinator, economic-effect guard, and certified
++provider boundary remain authoritative. No caller can obtain a dispatch permit
++by setting a field in this wrapper.
++"""
++
++from __future__ import annotations
++
++import hashlib
++import hmac
++import json
++import re
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from typing import Any, Mapping
++
++from railone_crypto.canonical_json import canonical_json_bytes
++from railone_crypto.signature_service import ArtifactType, SignatureEnvelope, SignatureService
++
++_VERSION = "1.0.0"
++_DOMAIN = b"RAILONE:INSTITUTION-DISPATCH-WRAPPER:V1\x00"
++_DIGEST = re.compile(r"^[a-f0-9]{64}$")
++_CURRENCY = re.compile(r"^[A-Z]{3}$")
++_OPAQUE = re.compile(r"^(?:acctbind|binding|vaultref)[_-][A-Za-z0-9._:-]{3,127}$")
++_ADAPTER = re.compile(r"^[A-Za-z0-9._:-]+@[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
++_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$")
++_RESTRICTED_NAMES = ("msisdn", "account_number", "account_iban", "account_name", "phone_number", "raw_account", "raw_sender", "raw_receiver", "private_key", "access_token", "secret")
++
++_FIELDS: dict[str, tuple[str, ...]] = {
++    "trace_identifiers": ("utt_id", "plan_id", "rtt_id", "correlation_id", "attempt_number", "replay_generation"),
++    "bilateral_trust_anchors": ("utt_payload_digest", "rtt_birth_digest", "etk_s_digest", "etk_r_digest", "sender_cont_uid", "recipient_cont_uid"),
++    "commercial_terms": ("source_amount_minor", "source_currency", "receive_amount_minor", "receive_currency", "pricing_model", "custody_model"),
++    "execution_binding": ("route_id", "adapter_binding_ref", "adapter_manifest_digest", "route_decision_digest", "idempotency_key", "request_sha256", "provider_id"),
++    "fencing_controls": ("operational_mode", "economic_effect_fence_epoch", "dispatch_guard_decision", "release_evidence_ref"),
++    "protected_account_bindings": ("payer_binding_ref", "beneficiary_binding_ref", "source_routing_node", "destination_routing_node"),
++}
++_ROOT_FIELDS = ("schema_version", "message_type", "envelope_id", "issued_at_epoch", "expires_at_epoch", *_FIELDS)
++
++
++def _exact_keys(name: str, value: object, required: tuple[str, ...]) -> Mapping[str, Any]:
++    if not isinstance(value, Mapping) or set(value) != set(required):
++        raise ValueError(f"{name}: fields do not match the exact canonical schema")
++    return value
++
++
++def _text(name: str, value: object, pattern: re.Pattern[str] = _ID) -> str:
++    if not isinstance(value, str) or not pattern.fullmatch(value):
++        raise ValueError(f"{name} is not a valid bounded identifier")
++    return value
++
++
++def _integer(name: str, value: object, minimum: int, maximum: int = (1 << 63) - 1) -> int:
++    if type(value) is not int or not minimum <= value <= maximum:
++        raise ValueError(f"{name} is not an integer within the supported range")
++    return value
++
++
++def _sha(name: str, value: object) -> str:
++    return _text(name, value, _DIGEST)
++
++
++def _inspect_sensitive_keys(value: object) -> None:
++    if isinstance(value, Mapping):
++        for key, child in value.items():
++            if not isinstance(key, str):
++                raise ValueError("wrapper key must be a string")
++            if any(fragment in key.lower() for fragment in _RESTRICTED_NAMES):
++                raise ValueError("cleartext identity, credentials or account fields are prohibited")
++            _inspect_sensitive_keys(child)
++    elif isinstance(value, (tuple, list)):
++        for item in value:
++            _inspect_sensitive_keys(item)
++
++
++def _check_body(value: object) -> dict[str, Any]:
++    obj = _exact_keys("wrapper", value, _ROOT_FIELDS)
++    _inspect_sensitive_keys(obj)
++    if obj["schema_version"] != _VERSION or obj["message_type"] != "INSTITUTION_EXECUTION_DISPATCH":
++        raise ValueError("unsupported canonical wrapper version or message type")
++    envelope_id = _text("envelope_id", obj["envelope_id"], re.compile(r"^IW-[A-F0-9]{32}$"))
++    issued = _integer("issued_at_epoch", obj["issued_at_epoch"], 1)
++    expires = _integer("expires_at_epoch", obj["expires_at_epoch"], 1)
++    if not issued < expires <= issued + 60:
++        raise ValueError("wrapper must expire within 60 seconds of issuance")
++
++    sections = {name: _exact_keys(name, obj[name], fields) for name, fields in _FIELDS.items()}
++    t = sections["trace_identifiers"]
++    for key in ("utt_id", "plan_id", "rtt_id", "correlation_id"):
++        _text(key, t[key])
++    _integer("attempt_number", t["attempt_number"], 1)
++    _integer("replay_generation", t["replay_generation"], 0)
++    if t["attempt_number"] - 1 != t["replay_generation"]:
++        raise ValueError("RTT attempt and replay generation disagree")
++
++    a = sections["bilateral_trust_anchors"]
++    for key in ("utt_payload_digest", "rtt_birth_digest", "etk_s_digest", "etk_r_digest"):
++        _sha(key, a[key])
++    for key in ("sender_cont_uid", "recipient_cont_uid"):
++        _text(key, a[key])
++
++    c = sections["commercial_terms"]
++    _integer("source_amount_minor", c["source_amount_minor"], 1)
++    _integer("receive_amount_minor", c["receive_amount_minor"], 1)
++    for key in ("source_currency", "receive_currency"):
++        _text(key, c[key], _CURRENCY)
++    if c["pricing_model"] != "PER_INTENT" or c["custody_model"] != "NON_CUSTODIAL":
++        raise ValueError("wrapper cannot change RailOne pricing or custody semantics")
++
++    b = sections["execution_binding"]
++    for key in ("route_id", "idempotency_key", "provider_id"):
++        _text(key, b[key])
++    _text("adapter_binding_ref", b["adapter_binding_ref"], _ADAPTER)
++    for key in ("adapter_manifest_digest", "route_decision_digest", "request_sha256"):
++        _sha(key, b[key])
++
++    fence = sections["fencing_controls"]
++    if fence["operational_mode"] != "SEQUENTIAL_RECONCILIATION_SAFE":
++        raise ValueError("parallel financial-effect dispatch is not authorized in phase 3")
++    _integer("economic_effect_fence_epoch", fence["economic_effect_fence_epoch"], 0)
++    if fence["dispatch_guard_decision"] != "RELEASED_FOR_THIS_ATTEMPT":
++        raise ValueError("wrapper must contain an explicit, bounded admission assertion")
++    if fence["release_evidence_ref"] is not None:
++        _text("release_evidence_ref", fence["release_evidence_ref"])
++    if t["attempt_number"] > 1 and fence["release_evidence_ref"] is None:
++        raise ValueError("replay requires a referenced no-effect/reconciliation release")
++
++    bindings = sections["protected_account_bindings"]
++    _text("payer_binding_ref", bindings["payer_binding_ref"], _OPAQUE)
++    _text("beneficiary_binding_ref", bindings["beneficiary_binding_ref"], _OPAQUE)
++    _text("source_routing_node", bindings["source_routing_node"])
++    _text("destination_routing_node", bindings["destination_routing_node"])
++
++    canonical = canonical_json_bytes(obj)
++    if len(canonical) > 16_384:
++        raise ValueError("wrapper exceeds the 16 KiB canonical message limit")
++    # The public envelope ID is derived without including itself in the digest input.
++    without_id = dict(obj)
++    without_id.pop("envelope_id")
++    expected_id = "IW-" + hashlib.sha256(_DOMAIN + canonical_json_bytes(without_id)).hexdigest()[:32].upper()
++    if not hmac.compare_digest(expected_id, envelope_id):
++        raise ValueError("envelope_id does not match its canonical content")
++    return json.loads(canonical)
++
++
++@dataclass(frozen=True, slots=True)
++class CanonicalDispatchWrapper:
++    """Immutable-by-value wrapper; nested dictionaries are never exposed directly."""
++
++    canonical_body: str
++    wrapper_sha256: str
++
++    @classmethod
++    def build(cls, *, issued_at_epoch: int, expires_at_epoch: int, **sections: Mapping[str, Any]) -> "CanonicalDispatchWrapper":
++        body = {
++            "schema_version": _VERSION,
++            "message_type": "INSTITUTION_EXECUTION_DISPATCH",
++            "issued_at_epoch": issued_at_epoch,
++            "expires_at_epoch": expires_at_epoch,
++            **sections,
++        }
++        body["envelope_id"] = "IW-" + hashlib.sha256(_DOMAIN + canonical_json_bytes(body)).hexdigest()[:32].upper()
++        return cls.from_payload(body)
++
++    @classmethod
++    def from_payload(cls, payload: Mapping[str, Any]) -> "CanonicalDispatchWrapper":
++        body = _check_body(payload)
++        encoded = canonical_json_bytes(body)
++        return cls(encoded.decode("utf-8"), hashlib.sha256(_DOMAIN + encoded).hexdigest())
++
++    def to_payload(self) -> dict[str, Any]:
++        result = json.loads(self.canonical_body)
++        if not hmac.compare_digest(
++            hashlib.sha256(_DOMAIN + canonical_json_bytes(result)).hexdigest(),
++            self.wrapper_sha256,
++        ):
++            raise ValueError("wrapper integrity check failed")
++        _check_body(result)
++        return result
++
++
++@dataclass(frozen=True, slots=True)
++class SignedDispatchWrapper:
++    wrapper: CanonicalDispatchWrapper
++    signature: SignatureEnvelope
++
++
++@dataclass(frozen=True, slots=True)
++class AuthoritativeDispatchSnapshot:
++    """Expected values independently loaded from trusted core records.
++
++    This structure is not a permit: callers must obtain it from RailOne's
++    authenticated UTT, RTT, ExecutionPlan, route-decision and adapter stores.
++    A caller-supplied snapshot is NOT sufficient authorization for real funds.
++    """
++
++    utt_id: str
++    plan_id: str
++    rtt_id: str
++    attempt_number: int
++    replay_generation: int
++    correlation_id: str
++    utt_payload_digest: str
++    rtt_birth_digest: str
++    etk_s_digest: str
++    etk_r_digest: str
++    sender_cont_uid: str
++    recipient_cont_uid: str
++    adapter_binding_ref: str
++    adapter_manifest_digest: str
++    route_decision_digest: str
++    route_id: str
++    provider_id: str
++    request_sha256: str
++    idempotency_key: str
++    source_amount_minor: int
++    source_currency: str
++    receive_amount_minor: int
++    receive_currency: str
++    payer_binding_ref: str
++    beneficiary_binding_ref: str
++    source_routing_node: str
++    destination_routing_node: str
++    economic_effect_fence_epoch: int
++    release_evidence_ref: str | None
++
++    def assert_matches(self, body: Mapping[str, Any]) -> None:
++        paths = {
++            "utt_id": ("trace_identifiers", "utt_id"),
++            "plan_id": ("trace_identifiers", "plan_id"),
++            "rtt_id": ("trace_identifiers", "rtt_id"),
++            "attempt_number": ("trace_identifiers", "attempt_number"),
++            "replay_generation": ("trace_identifiers", "replay_generation"),
++            "correlation_id": ("trace_identifiers", "correlation_id"),
++            "utt_payload_digest": ("bilateral_trust_anchors", "utt_payload_digest"),
++            "rtt_birth_digest": ("bilateral_trust_anchors", "rtt_birth_digest"),
++            "etk_s_digest": ("bilateral_trust_anchors", "etk_s_digest"),
++            "etk_r_digest": ("bilateral_trust_anchors", "etk_r_digest"),
++            "sender_cont_uid": ("bilateral_trust_anchors", "sender_cont_uid"),
++            "recipient_cont_uid": ("bilateral_trust_anchors", "recipient_cont_uid"),
++            "adapter_binding_ref": ("execution_binding", "adapter_binding_ref"),
++            "adapter_manifest_digest": ("execution_binding", "adapter_manifest_digest"),
++            "route_decision_digest": ("execution_binding", "route_decision_digest"),
++            "route_id": ("execution_binding", "route_id"),
++            "provider_id": ("execution_binding", "provider_id"),
++            "request_sha256": ("execution_binding", "request_sha256"),
++            "idempotency_key": ("execution_binding", "idempotency_key"),
++            "source_amount_minor": ("commercial_terms", "source_amount_minor"),
++            "source_currency": ("commercial_terms", "source_currency"),
++            "receive_amount_minor": ("commercial_terms", "receive_amount_minor"),
++            "receive_currency": ("commercial_terms", "receive_currency"),
++            "payer_binding_ref": ("protected_account_bindings", "payer_binding_ref"),
++            "beneficiary_binding_ref": ("protected_account_bindings", "beneficiary_binding_ref"),
++            "source_routing_node": ("protected_account_bindings", "source_routing_node"),
++            "destination_routing_node": ("protected_account_bindings", "destination_routing_node"),
++            "economic_effect_fence_epoch": ("fencing_controls", "economic_effect_fence_epoch"),
++            "release_evidence_ref": ("fencing_controls", "release_evidence_ref"),
++        }
++        for field_name, (section, item) in paths.items():
++            if body[section][item] != getattr(self, field_name):
++                raise PermissionError(f"wrapper {field_name} disagrees with authoritative RailOne state")
++
++
++class DispatchWrapperService:
++    """Sign and verify an instruction wrapper; NEVER infer execution permission."""
++
++    def __init__(self, signatures: SignatureService, *, signing_key_id: str, expected_core_owner_id: str = "RAILONE") -> None:
++        self._signatures = signatures
++        self._signing_key_id = signing_key_id
++        self._expected_owner = expected_core_owner_id
++
++    def issue(
++        self, wrapper: CanonicalDispatchWrapper, *, expected: AuthoritativeDispatchSnapshot,
++        at: datetime,
++    ) -> SignedDispatchWrapper:
++        instant = _aware(at)
++        body = wrapper.to_payload()
++        expected.assert_matches(body)
++        if not body["issued_at_epoch"] <= int(instant.timestamp()) < body["expires_at_epoch"]:
++            raise PermissionError("wrapper is outside its issuance window")
++        signed = self._signatures.sign_artifact(
++            artifact_type=ArtifactType.INSTITUTION_DISPATCH_WRAPPER,
++            payload=body,
++            key_id=self._signing_key_id,
++            issued_at=instant,
++        )
++        if signed.protected.get("iss") != self._expected_owner:
++            raise PermissionError("wrapper was not signed by RailOne Core")
++        return SignedDispatchWrapper(wrapper, signed)
++
++    def verify(
++        self, signed: SignedDispatchWrapper, *, expected: AuthoritativeDispatchSnapshot,
++        at: datetime,
++    ) -> CanonicalDispatchWrapper:
++        instant = _aware(at)
++        result = self._signatures.verify_artifact(
++            signed.signature,
++            expected_artifact_type=ArtifactType.INSTITUTION_DISPATCH_WRAPPER,
++        )
++        if not result.valid:
++            raise PermissionError(f"dispatch wrapper signature invalid: {result.reason}")
++        if signed.signature.protected.get("iss") != self._expected_owner:
++            raise PermissionError("wrapper signer is not the trusted RailOne Core identity")
++        payload = signed.wrapper.to_payload()
++        if canonical_json_bytes(signed.signature.payload) != canonical_json_bytes(payload):
++            raise PermissionError("wrapper differs from signed payload")
++        if not payload["issued_at_epoch"] <= int(instant.timestamp()) < payload["expires_at_epoch"]:
++            raise PermissionError("dispatch wrapper expired or not yet valid")
++        signed_iat = signed.signature.protected["iat"]
++        if not payload["issued_at_epoch"] <= signed_iat < payload["expires_at_epoch"]:
++            raise PermissionError("signature timestamp disagrees with the wrapper validity")
++        expected.assert_matches(payload)
++        return signed.wrapper
++
++
++def _aware(instant: datetime) -> datetime:
++    if not isinstance(instant, datetime) or instant.tzinfo is None:
++        raise ValueError("verification time must be timezone-aware")
++    return instant.astimezone(timezone.utc)
+diff --git a/railone_institutions/wrapper_store.py b/railone_institutions/wrapper_store.py
+new file mode 100644
+index 0000000..88cb819
+--- /dev/null
++++ b/railone_institutions/wrapper_store.py
+@@ -0,0 +1,46 @@
++"""Append-only wrapper persistence contract and test implementation.
++
++Stored wrappers are evidence only. Store acceptance does not authorize dispatch.
++"""
++
++from __future__ import annotations
++
++from threading import RLock
++from typing import Protocol
++
++from datetime import datetime
++
++from .wrapper import (AuthoritativeDispatchSnapshot, DispatchWrapperService, SignedDispatchWrapper)
++
++
++class DispatchWrapperStore(Protocol):
++    def put(self, signed: SignedDispatchWrapper, *, expected: AuthoritativeDispatchSnapshot, at: datetime) -> SignedDispatchWrapper: ...
++    def require(self, rtt_id: str) -> SignedDispatchWrapper: ...
++
++
++class InMemoryDispatchWrapperStore:
++    def __init__(self, verifier: DispatchWrapperService) -> None:
++        self._verifier = verifier
++        self._lock = RLock()
++        self._by_rtt: dict[str, SignedDispatchWrapper] = {}
++
++    def put(self, signed: SignedDispatchWrapper, *, expected: AuthoritativeDispatchSnapshot, at: datetime) -> SignedDispatchWrapper:
++        self._verifier.verify(signed, expected=expected, at=at)
++        rtt_id = signed.wrapper.to_payload()["trace_identifiers"]["rtt_id"]
++        with self._lock:
++            existing = self._by_rtt.get(rtt_id)
++            if existing is not None and (
++                existing.wrapper != signed.wrapper
++                or existing.signature.to_dict() != signed.signature.to_dict()
++            ):
++                raise ValueError("conflicting signed wrapper for one RTT")
++            if existing is None:
++                self._by_rtt[rtt_id] = signed
++            return self._by_rtt[rtt_id]
++
++    def require(self, rtt_id: str) -> SignedDispatchWrapper:
++        with self._lock:
++            try:
++                return self._by_rtt[rtt_id]
++            except KeyError as exc:
++                raise LookupError("signed dispatch wrapper not found") from exc
+diff --git a/railone_postgres/__init__.py b/railone_postgres/__init__.py
+index a9bac1a..377b0c5 100644
+--- a/railone_postgres/__init__.py
++++ b/railone_postgres/__init__.py
+@@ -19,6 +19,7 @@ from .partners import PostgresPartnerDirectory
+ from .security import PostgresEncryptedSecretStore
+ from .sandbox import PostgresSandboxEffectStore
+ from .institutions import PostgresInstitutionManifestStore
++from .dispatch_wrappers import PostgresDispatchWrapperStore
+ from .certification import (
+     PostgresCertificationReportStore, PostgresCertificationRunRecorder,
+ )
+@@ -40,6 +41,7 @@ __all__ = [
+     "PostgresEncryptedSecretStore",
+     "PostgresSandboxEffectStore",
+     "PostgresInstitutionManifestStore",
++    "PostgresDispatchWrapperStore",
+     "PostgresCertificationReportStore",
+     "PostgresCertificationRunRecorder",
+     "PostgresIdentityRepository",
+diff --git a/railone_postgres/dispatch_wrappers.py b/railone_postgres/dispatch_wrappers.py
+new file mode 100644
+index 0000000..859155b
+--- /dev/null
++++ b/railone_postgres/dispatch_wrappers.py
+@@ -0,0 +1,68 @@
++"""Append-only PostgreSQL storage for prevalidated signed dispatch wrappers.
++
++Requires migration 0013. Each put verifies the signature and independently
++provided expected RailOne values; the store itself never dispatches funds.
++"""
++
++from __future__ import annotations
++
++from datetime import datetime, timezone
++
++from railone_crypto.signature_service import SignatureEnvelope
++from railone_institutions.wrapper import (
++    AuthoritativeDispatchSnapshot, CanonicalDispatchWrapper,
++    DispatchWrapperService, SignedDispatchWrapper,
++)
++
++from .codec import json_object, json_text
++from .runtime import PostgresDatabase
++
++
++class PostgresDispatchWrapperStore:
++    def __init__(self, database: PostgresDatabase, verifier: DispatchWrapperService) -> None:
++        self._database = database
++        self._verifier = verifier
++
++    def put(
++        self, signed: SignedDispatchWrapper, *, expected: AuthoritativeDispatchSnapshot,
++        at: datetime,
++    ) -> SignedDispatchWrapper:
++        wrapper = self._verifier.verify(signed, expected=expected, at=at)
++        body = wrapper.to_payload()
++        trace = body["trace_identifiers"]
++        binding = body["execution_binding"]
++        signed_json = signed.signature.to_dict()
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                """INSERT INTO railone.institution_dispatch_wrappers
++                   (envelope_id, rtt_id, plan_id, utt_id, route_decision_sha256,
++                    adapter_binding_ref, wrapper_sha256, signed_artifact,
++                    signing_key_id, issued_at, expires_at)
++                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s)
++                   ON CONFLICT (rtt_id) DO NOTHING""",
++                (body["envelope_id"], trace["rtt_id"], trace["plan_id"], trace["utt_id"],
++                 binding["route_decision_digest"], binding["adapter_binding_ref"],
++                 wrapper.wrapper_sha256, json_text(signed_json), signed_json["protected"]["kid"],
++                 datetime.fromtimestamp(body["issued_at_epoch"], tz=timezone.utc),
++                 datetime.fromtimestamp(body["expires_at_epoch"], tz=timezone.utc)),
++            )
++        stored = self.require(trace["rtt_id"])
++        if (stored.wrapper != signed.wrapper or
++            stored.signature.to_dict() != signed.signature.to_dict()):
++            raise RuntimeError("signed wrapper immutability conflict")
++        return stored
++
++    def require(self, rtt_id: str) -> SignedDispatchWrapper:
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                """SELECT signed_artifact, wrapper_sha256
++                   FROM railone.institution_dispatch_wrappers WHERE rtt_id = %s""", (rtt_id,),
++            )
++            row = cursor.fetchone()
++        if row is None:
++            raise LookupError("signed dispatch wrapper not found")
++        signature = SignatureEnvelope.from_dict(json_object(row["signed_artifact"]))
++        wrapper = CanonicalDispatchWrapper.from_payload(signature.payload)
++        if wrapper.wrapper_sha256 != str(row["wrapper_sha256"]):
++            raise ValueError("database wrapper digest mismatch")
++        return SignedDispatchWrapper(wrapper, signature)
+diff --git a/scripts/check_repository_convergence.py b/scripts/check_repository_convergence.py
+index 8b305ef..b5f040d 100644
+--- a/scripts/check_repository_convergence.py
++++ b/scripts/check_repository_convergence.py
+@@ -63,6 +63,7 @@ EXPECTED_MIGRATIONS = [
+     "0010_partner_certification_harness.sql",
+     "0011_currency_and_settlement_instruments.sql",
+     "0012_immutable_route_decision_records.sql",
++    "0013_signed_institution_dispatch_wrappers.sql",
+ ]
+ 
+ 
+@@ -95,7 +96,7 @@ def validate() -> list[str]:
+     migrations = sorted(path.name for path in (ROOT / "migrations").glob("*.sql"))
+     if migrations != EXPECTED_MIGRATIONS:
+         errors.append(
+-            "migration chain differs from extended immutable 0001-0012 sequence: "
++            "migration chain differs from extended immutable 0001-0013 sequence: "
+             + ", ".join(migrations)
+         )
+ 
+diff --git a/tests/test_institution_dispatch_wrapper.py b/tests/test_institution_dispatch_wrapper.py
+new file mode 100644
+index 0000000..70d36d3
+--- /dev/null
++++ b/tests/test_institution_dispatch_wrapper.py
+@@ -0,0 +1,240 @@
++"""Phase 3 signed canonical adapter wrapper: format, proof and fail-closed checks."""
++from __future__ import annotations
++
++import copy
++import json
++import unittest
++from dataclasses import replace
++from datetime import datetime, timedelta, timezone
++from pathlib import Path
++
++from railone_crypto import InMemoryEd25519KeyProvider, KeyPurpose, SignatureService
++from railone_crypto.signature_service import ArtifactType, SignatureEnvelope
++from railone_institutions.wrapper_store import InMemoryDispatchWrapperStore
++from railone_institutions.wrapper import (
++    AuthoritativeDispatchSnapshot, CanonicalDispatchWrapper,
++    DispatchWrapperService, SignedDispatchWrapper,
++)
++
++NOW = datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc)
++HEX = {"utt": "a" * 64, "rtt": "b" * 64, "sender": "c" * 64,
++       "receiver": "d" * 64, "manifest": "e" * 64,
++       "decision": "f" * 64, "request": "0" * 64}
++
++
++def sections(*, replay=False):
++    return {
++        "trace_identifiers": {"utt_id": "UTT-SYN-01", "plan_id": "PLAN-SYN-01",
++                              "rtt_id": "RTT-SYN-02" if replay else "RTT-SYN-01",
++                              "correlation_id": "CORR-SYN-01", "attempt_number": 2 if replay else 1,
++                              "replay_generation": 1 if replay else 0},
++        "bilateral_trust_anchors": {"utt_payload_digest": HEX["utt"], "rtt_birth_digest": HEX["rtt"],
++                                    "etk_s_digest": HEX["sender"], "etk_r_digest": HEX["receiver"],
++                                    "sender_cont_uid": "CUID-SYN-SENDER", "recipient_cont_uid": "CUID-SYN-RECIPIENT"},
++        "commercial_terms": {"source_amount_minor": 100000, "source_currency": "UGX",
++                             "receive_amount_minor": 7150000, "receive_currency": "TZS",
++                             "pricing_model": "PER_INTENT", "custody_model": "NON_CUSTODIAL"},
++        "execution_binding": {"route_id": "ROUTE-SYN-01", "adapter_binding_ref": "synthetic.mtn-crdb@1.0.0",
++                              "adapter_manifest_digest": HEX["manifest"], "route_decision_digest": HEX["decision"],
++                              "idempotency_key": "IDEMP-SYN-01", "request_sha256": HEX["request"],
++                              "provider_id": "SYN-UG-TZ-PROVIDER"},
++        "fencing_controls": {"operational_mode": "SEQUENTIAL_RECONCILIATION_SAFE",
++                             "economic_effect_fence_epoch": 1,
++                             "dispatch_guard_decision": "RELEASED_FOR_THIS_ATTEMPT",
++                             "release_evidence_ref": "RECON-SYN-NO-EFFECT" if replay else None},
++        "protected_account_bindings": {"payer_binding_ref": "acctbind_ug_synthetic_0001",
++                                       "beneficiary_binding_ref": "acctbind_tz_synthetic_0002",
++                                       "source_routing_node": "UG-MTN-MOBILE-MONEY",
++                                       "destination_routing_node": "TZ-CRDB-BANK-PLC"},
++    }
++
++
++def snapshot(payload):
++    return AuthoritativeDispatchSnapshot(
++        utt_id=payload["trace_identifiers"]["utt_id"],
++        plan_id=payload["trace_identifiers"]["plan_id"],
++        rtt_id=payload["trace_identifiers"]["rtt_id"],
++        attempt_number=payload["trace_identifiers"]["attempt_number"],
++        replay_generation=payload["trace_identifiers"]["replay_generation"],
++        correlation_id=payload["trace_identifiers"]["correlation_id"],
++        utt_payload_digest=payload["bilateral_trust_anchors"]["utt_payload_digest"],
++        rtt_birth_digest=payload["bilateral_trust_anchors"]["rtt_birth_digest"],
++        etk_s_digest=payload["bilateral_trust_anchors"]["etk_s_digest"],
++        etk_r_digest=payload["bilateral_trust_anchors"]["etk_r_digest"],
++        sender_cont_uid=payload["bilateral_trust_anchors"]["sender_cont_uid"],
++        recipient_cont_uid=payload["bilateral_trust_anchors"]["recipient_cont_uid"],
++        adapter_binding_ref=payload["execution_binding"]["adapter_binding_ref"],
++        adapter_manifest_digest=payload["execution_binding"]["adapter_manifest_digest"],
++        route_decision_digest=payload["execution_binding"]["route_decision_digest"],
++        route_id=payload["execution_binding"]["route_id"],
++        provider_id=payload["execution_binding"]["provider_id"],
++        request_sha256=payload["execution_binding"]["request_sha256"],
++        idempotency_key=payload["execution_binding"]["idempotency_key"],
++        source_amount_minor=payload["commercial_terms"]["source_amount_minor"],
++        source_currency=payload["commercial_terms"]["source_currency"],
++        receive_amount_minor=payload["commercial_terms"]["receive_amount_minor"],
++        receive_currency=payload["commercial_terms"]["receive_currency"],
++        payer_binding_ref=payload["protected_account_bindings"]["payer_binding_ref"],
++        beneficiary_binding_ref=payload["protected_account_bindings"]["beneficiary_binding_ref"],
++        source_routing_node=payload["protected_account_bindings"]["source_routing_node"],
++        destination_routing_node=payload["protected_account_bindings"]["destination_routing_node"],
++        economic_effect_fence_epoch=payload["fencing_controls"]["economic_effect_fence_epoch"],
++        release_evidence_ref=payload["fencing_controls"]["release_evidence_ref"],
++    )
++
++
++class InstitutionDispatchWrapperTests(unittest.TestCase):
++    def setUp(self):
++        self.keys = InMemoryEd25519KeyProvider()
++        self.keys.generate(key_id="railone-wrapper-test", owner_id="RAILONE",
++                           purpose=KeyPurpose.EXECUTION_SIGNING,
++                           not_before=NOW - timedelta(days=1),
++                           not_after=NOW + timedelta(days=1))
++        self.signatures = SignatureService(self.keys)
++        self.service = DispatchWrapperService(self.signatures, signing_key_id="railone-wrapper-test")
++        self.wrapper = CanonicalDispatchWrapper.build(
++            issued_at_epoch=int(NOW.timestamp()), expires_at_epoch=int(NOW.timestamp())+30,
++            **sections())
++        self.expected = snapshot(self.wrapper.to_payload())
++
++    def test_wrapper_signs_and_verifies_at_bound_instant(self):
++        signed = self.service.issue(self.wrapper, expected=self.expected, at=NOW)
++        verified = self.service.verify(signed, expected=self.expected, at=NOW + timedelta(seconds=5))
++        self.assertEqual(verified, self.wrapper)
++        self.assertEqual(signed.signature.protected["typ"], ArtifactType.INSTITUTION_DISPATCH_WRAPPER.value)
++
++    def test_canonical_order_has_no_effect_on_hash(self):
++        original = self.wrapper.to_payload()
++        rehydrated = CanonicalDispatchWrapper.from_payload(dict(reversed(list(original.items()))))
++        self.assertEqual(rehydrated.wrapper_sha256, self.wrapper.wrapper_sha256)
++        self.assertEqual(rehydrated.canonical_body, self.wrapper.canonical_body)
++
++    def test_root_and_subsection_unknown_fields_rejected(self):
++        body = self.wrapper.to_payload()
++        body["raw_sender_msisdn"] = "+256772000000"
++        with self.assertRaises(ValueError):
++            CanonicalDispatchWrapper.from_payload(body)
++        body = self.wrapper.to_payload()
++        body["protected_account_bindings"]["raw_receiver_account"] = "000123"
++        with self.assertRaises(ValueError):
++            CanonicalDispatchWrapper.from_payload(body)
++
++    def test_opaque_account_refs_required(self):
++        body = self.wrapper.to_payload()
++        body["protected_account_bindings"]["payer_binding_ref"] = "+256772000000"
++        with self.assertRaises(ValueError):
++            CanonicalDispatchWrapper.from_payload(body)
++
++    def test_replay_requires_authoritative_release_reference(self):
++        body = sections(replay=True)
++        body["fencing_controls"]["release_evidence_ref"] = None
++        with self.assertRaises(ValueError):
++            CanonicalDispatchWrapper.build(issued_at_epoch=int(NOW.timestamp()),
++                                           expires_at_epoch=int(NOW.timestamp())+30, **body)
++        body["fencing_controls"]["release_evidence_ref"] = "RECON-SYN-NO-EFFECT"
++        valid = CanonicalDispatchWrapper.build(issued_at_epoch=int(NOW.timestamp()),
++                                               expires_at_epoch=int(NOW.timestamp())+30, **body)
++        self.assertEqual(valid.to_payload()["trace_identifiers"]["attempt_number"], 2)
++
++    def test_parallel_splits_not_allowed_at_this_stage(self):
++        body = sections()
++        body["fencing_controls"]["operational_mode"] = "SPLIT_NON_BLOCKING"
++        with self.assertRaises(ValueError):
++            CanonicalDispatchWrapper.build(issued_at_epoch=int(NOW.timestamp()),
++                                           expires_at_epoch=int(NOW.timestamp())+30, **body)
++
++    def test_rejects_float_bool_negative_currency_and_cross_currency_amount_change(self):
++        for section, key, invalid in (("commercial_terms", "source_amount_minor", 1.5),
++                                      ("commercial_terms", "source_amount_minor", True),
++                                      ("commercial_terms", "source_amount_minor", -1),
++                                      ("commercial_terms", "receive_currency", "TZSH")):
++            body = sections()
++            body[section][key] = invalid
++            with self.subTest(field=key, value=invalid), self.assertRaises(ValueError):
++                CanonicalDispatchWrapper.build(issued_at_epoch=int(NOW.timestamp()),
++                                               expires_at_epoch=int(NOW.timestamp())+30, **body)
++
++    def test_forged_payload_fails_signature_check(self):
++        signed = self.service.issue(self.wrapper, expected=self.expected, at=NOW)
++        changed = signed.signature.to_dict()
++        changed["payload"]["commercial_terms"]["source_amount_minor"] = 1
++        tampered = SignedDispatchWrapper(signed.wrapper, SignatureEnvelope.from_dict(changed))
++        with self.assertRaises(PermissionError):
++            self.service.verify(tampered, expected=self.expected, at=NOW)
++
++    def test_mismatched_expected_route_decision_or_fence_fails_closed(self):
++        signed = self.service.issue(self.wrapper, expected=self.expected, at=NOW)
++        for key, value in (("route_decision_digest", "1" * 64), ("adapter_binding_ref", "malign@2.0.0"),
++                           ("economic_effect_fence_epoch", 2), ("source_amount_minor", 123),
++                           ("etk_r_digest", "9"*64), ("provider_id", "EVIL"),
++                           ("beneficiary_binding_ref", "acctbind_bad_000")):
++            with self.subTest(key=key), self.assertRaises(PermissionError):
++                self.service.verify(signed, expected=replace(self.expected, **{key:value}), at=NOW)
++
++    def test_expired_or_early_envelope_rejected(self):
++        signed = self.service.issue(self.wrapper, expected=self.expected, at=NOW)
++        for delta in (-1, 30, 600):
++            with self.subTest(delta=delta), self.assertRaises(PermissionError):
++                self.service.verify(signed, expected=self.expected, at=NOW + timedelta(seconds=delta))
++
++    def test_wrong_signature_artifact_type_rejected(self):
++        wrong = self.signatures.sign_artifact(artifact_type=ArtifactType.RTT,
++                payload=self.wrapper.to_payload(), key_id="railone-wrapper-test", issued_at=NOW)
++        with self.assertRaises(PermissionError):
++            self.service.verify(SignedDispatchWrapper(self.wrapper, wrong), expected=self.expected, at=NOW)
++
++    def test_untrusted_signer_owner_rejected(self):
++        other_keys = InMemoryEd25519KeyProvider()
++        other_keys.generate(key_id="outside", owner_id="ADAPTER",
++                            purpose=KeyPurpose.EXECUTION_SIGNING,
++                            not_before=NOW-timedelta(hours=1), not_after=NOW+timedelta(hours=1))
++        other_service = DispatchWrapperService(SignatureService(other_keys), signing_key_id="outside")
++        with self.assertRaises(PermissionError):
++            other_service.issue(self.wrapper, expected=self.expected, at=NOW)
++
++    def test_store_duplicate_is_idempotent_and_conflict_is_rejected(self):
++        store = InMemoryDispatchWrapperStore(self.service)
++        signed = self.service.issue(self.wrapper, expected=self.expected, at=NOW)
++        self.assertEqual(store.put(signed, expected=self.expected, at=NOW), signed)
++        self.assertEqual(store.put(signed, expected=self.expected, at=NOW), signed)
++        self.assertEqual(store.require("RTT-SYN-01"), signed)
++        different = CanonicalDispatchWrapper.build(
++            issued_at_epoch=int(NOW.timestamp()), expires_at_epoch=int(NOW.timestamp())+20,
++            **sections())
++        different_signed = self.service.issue(different, expected=self.expected, at=NOW)
++        with self.assertRaises(ValueError):
++            store.put(different_signed, expected=self.expected, at=NOW)
++
++    def test_store_rejects_forged_wrapper_before_persistence(self):
++        store = InMemoryDispatchWrapperStore(self.service)
++        signed = self.service.issue(self.wrapper, expected=self.expected, at=NOW)
++        changed = signed.signature.to_dict()
++        changed["payload"]["execution_binding"]["route_id"] = "UNAUTHORIZED"
++        with self.assertRaises(PermissionError):
++            store.put(SignedDispatchWrapper(self.wrapper, SignatureEnvelope.from_dict(changed)),
++                      expected=self.expected, at=NOW)
++        with self.assertRaises(LookupError):
++            store.require("RTT-SYN-01")
++
++    def test_reject_expiry_window_larger_than_one_minute(self):
++        with self.assertRaises(ValueError):
++            CanonicalDispatchWrapper.build(issued_at_epoch=int(NOW.timestamp()),
++                                           expires_at_epoch=int(NOW.timestamp())+61, **sections())
++
++    def test_additive_migration_enforces_append_only_and_fk_bindings(self):
++        migration = (Path(__file__).resolve().parents[1] / "migrations" /
++                     "0013_signed_institution_dispatch_wrappers.sql").read_text()
++        self.assertIn("REFERENCES railone.route_decision_records(decision_sha256)", migration)
++        self.assertIn("REFERENCES railone.institution_adapter_manifests(binding_ref)", migration)
++        self.assertIn("REFERENCES railone.rtt_attempts(rtt_id)", migration)
++        self.assertIn("BEFORE UPDATE OR DELETE", migration)
++        self.assertIn("UNIQUE REFERENCES railone.rtt_attempts", migration)
++
++    def test_immutable_wrapped_values_not_exposed(self):
++        body = self.wrapper.to_payload()
++        body["commercial_terms"]["source_amount_minor"] = 1
++        self.assertEqual(self.wrapper.to_payload()["commercial_terms"]["source_amount_minor"], 100000)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_postgres_live.py b/tests/test_postgres_live.py
+index 9e15e9f..b09a73f 100644
+--- a/tests/test_postgres_live.py
++++ b/tests/test_postgres_live.py
+@@ -108,6 +108,18 @@ class LivePostgresRuntimeTests(unittest.TestCase):
+             migrations_directory=self.migrations,
+         ).apply_all()
+         self.assertTrue(all(result.already_applied for result in results))
++        self.assertIn("0013", {result.version for result in results})
++        connection = self.factory()
++        try:
++            with connection.cursor() as cursor:
++                cursor.execute("SELECT to_regclass('railone.institution_dispatch_wrappers') AS relation")
++                self.assertIsNotNone(cursor.fetchone()["relation"])
++                cursor.execute("""SELECT COUNT(*) AS count FROM pg_trigger
++                               WHERE tgrelid = 'railone.institution_dispatch_wrappers'::regclass
++                                 AND tgname = 'institution_dispatch_wrappers_append_only'""")
++                self.assertEqual(cursor.fetchone()["count"], 1)
++        finally:
++            connection.close()
+ 
+     def test_contract_execution_submission_and_projection_round_trip(self):
+         now = datetime(2026, 7, 14, 19, 0, tzinfo=timezone.utc)
