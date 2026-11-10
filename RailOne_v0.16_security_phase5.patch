@@ -1,0 +1,590 @@
+diff --git a/docs/ADR-020-dispatch-confidentiality-and-telemetry-hardening.md b/docs/ADR-020-dispatch-confidentiality-and-telemetry-hardening.md
+new file mode 100644
+index 0000000..bf8b78f
+--- /dev/null
++++ b/docs/ADR-020-dispatch-confidentiality-and-telemetry-hardening.md
+@@ -0,0 +1,77 @@
++# ADR-020: Dispatch confidentiality and bounded sandbox telemetry
++
++**Status:** Alpha implementation candidate — not live-money authorized
++**Scope:** v0.16 security hardening on top of ADR-019; non-custodial operation unchanged
++
++## Threat model
++
++An attacker who reads PostgreSQL metadata, worker errors or operational metrics
++may recover customer contacts, infer routing behavior or learn institution secrets.
++A separate attacker may invoke institutional dispatch with an expired or
++unverified wrapper in an attempt to make RailOne resolve account endpoints
++before the trusted gateway rejects a transaction.
++
++## Decisions
++
++1. **Preflight precedes sensitive resolution.** In `INSTITUTIONAL_SANDBOX`,
++   `ProviderSubmissionCoordinator.dispatch()` calls the trusted admission
++   gateway's `preflight(rtt_id, at)` before `_prepare()` can resolve account
++   endpoints or write a `PREPARED` submission. Preflight independently reads the
++   authoritative persisted snapshot, signed wrapper, registry-pinned adapter
++   manifest and current economic-effect fence. The final `admit(request, at)`
++   re-verifies the fully built request and safety fence. Invalid or missing
++   preflight is fail-closed; simulated pilot behavior remains explicit and intact.
++
++2. **Remove offline-guessable fingerprints.** `EncryptedSecretRecord` and
++   `PostgresEncryptedSecretStore` no longer compute or store
++   `plaintext_sha256` for account endpoints, contact destinations or provider
++   credentials. Forward-only migration `0014` drops the legacy column. The
++   AES-256-GCM encrypted envelope already authenticates its ciphertext and AAD;
++   no new plaintext-derived digest is required. Migration `0007` is unchanged.
++
++3. **Bound sandbox metric dimensions.** `MetricsRegistry` now accepts only the
++   existing named sandbox counters and their exact low-cardinality label sets.
++   Only the frozen synthetic pilot providers `BANK-KE` and `MPESA-KE` are
++   allowed; outcome, scenario and effect-type values are enumerated. A configurable
++   series cap rejects unbounded metric growth. No UTT/RTT, identity, account,
++   or callback values may be inserted into label dimensions. This registry is
++   for the synthetic pilot, not the future partner analytics product.
++
++4. **Redact worker exceptions.** Worker retry records and supervisor status
++   retain only the exception class name; an exception message originating from
++   a provider or callback may contain sensitive financial data or credentials.
++
++## Invariants retained
++
++- UTT, RTT, accepted commercial terms, route-scoring evidence and canonical
++  wrapper bytes/signatures are unchanged.
++- The existing unknown-outcome no-replay behavior remains in force.
++- Production institutional dispatch modes are still rejected.
++- Historical migrations `0001`–`0013` stay byte-for-byte unchanged.
++- Failed preflight may not decrypt account endpoints or create a prepared
++  provider submission.
++
++## Unresolved security gates
++
++- **Not a durable permit.** `preflight` and `admit` are checks, not an atomic
++  database-backed reservation. Another worker or a provider callback may change
++  economic state between checks. Live deployment requires durable fencing,
++  transaction isolation and crash/concurrency testing.
++- Live PostgreSQL migration `0014` has not been exercised in this development
++  environment; integration test added but skipped without a disposable DSN.
++- Dropping a PostgreSQL column does not guarantee physical erasure from old
++  pages, WAL, snapshots, replicas, exports or backups. Review retention,
++  re-encryption and secure backup lifecycle separately.
++- Existing signed request SHA-256 digests, raw callback JSON, UTT metadata and
++  immutable audit records still require their own sensitivity review.
++- Production DB roles/row-level security, encryption keys in managed KMS/HSM,
++  security logging, IAM, provider certificate validation, environment isolation,
++  independent review and incident response remain separate required gates.
++
++## Verification
++
++- Entire Python suite with the new regression tests.
++- Static convergence and secret checks on a canonical root-only copy.
++- Disposable PostgreSQL clean-install + 0013→0014 upgrade tests in CI.
++- Denied/expired wrapper, adapter mismatch, fence mismatch, repeated dispatch,
++  concurrent workers and unknown provider-outcome drills before external traffic.
+diff --git a/migrations/0014_drop_plaintext_secret_fingerprints.sql b/migrations/0014_drop_plaintext_secret_fingerprints.sql
+new file mode 100644
+index 0000000..03aee67
+--- /dev/null
++++ b/migrations/0014_drop_plaintext_secret_fingerprints.sql
+@@ -0,0 +1,8 @@
++-- Forward-only confidentiality hardening: the raw plaintext hash is unnecessary.
++-- It permits offline guessing of predictable account/contact values after a DB leak.
++-- AES-GCM already authenticates the encrypted envelope; no digest replacement is needed.
++-- Existing hashes in old backups, replicas and dumps require separate retention review.
++BEGIN;
++ALTER TABLE railone.encrypted_secrets
++    DROP COLUMN plaintext_sha256;
++COMMIT;
+diff --git a/railone_institutions/admission.py b/railone_institutions/admission.py
+index d9546c3..a8de560 100644
+--- a/railone_institutions/admission.py
++++ b/railone_institutions/admission.py
+@@ -53,6 +53,44 @@ class InstitutionalDispatchAdmissionGateway:
+         self._snapshots = snapshot_reader
+         self._fences = fence_reader
+ 
++    def preflight(self, *, rtt_id: str, at: datetime) -> None:
++        """Verify trusted instruction, adapter and economic fence BEFORE decrypting endpoints.
++
++        This is NOT a durable dispatch reservation. admit() independently
++        rechecks the fence immediately before adapter submission, and live
++        deployment remains disabled until atomic PostgreSQL fencing exists.
++        """
++        if not isinstance(at, datetime) or at.tzinfo is None:
++            raise ValueError("institutional dispatch time must be timezone-aware")
++        instant = at.astimezone(timezone.utc)
++        expected = self._snapshots.load(rtt_id=rtt_id)
++        signed = self._wrappers.require(rtt_id)
++        body = self._verifier.verify(signed, expected=expected, at=instant).to_payload()
++        trace, binding = body["trace_identifiers"], body["execution_binding"]
++        if trace["rtt_id"] != rtt_id:
++            raise PermissionError("preflight RTT does not match persisted wrapper")
++        _adapter, signed_manifest = self._registry.resolve_with_manifest(
++            binding["adapter_binding_ref"], at=instant
++        )
++        manifest = signed_manifest.manifest
++        if manifest.descriptor.environment not in {AdapterEnvironment.SANDBOX, AdapterEnvironment.PILOT}:
++            raise PermissionError("production institutional dispatch is not enabled")
++        if manifest.descriptor.certification_status not in {
++            AdapterCertificationStatus.CONFORMANCE, AdapterCertificationStatus.CERTIFIED
++        }:
++            raise PermissionError("institution adapter certification status is ineligible")
++        if not hmac.compare_digest(
++            str(signed_manifest.signature.protected.get("payload_sha256", "")),
++            binding["adapter_manifest_digest"],
++        ) or manifest.descriptor.provider_id != binding["provider_id"]:
++            raise PermissionError("pinned signed adapter manifest does not match wrapper")
++        fence = body["fencing_controls"]
++        self._fences.assert_dispatch_safe(
++            utt_id=trace["utt_id"], rtt_id=rtt_id,
++            fence_epoch=fence["economic_effect_fence_epoch"],
++            release_evidence_ref=fence["release_evidence_ref"], at=instant,
++        )
++
+     def admit(self, request: ProviderExecutionRequest, *, at: datetime) -> InstitutionAdapterBridge:
+         if not isinstance(at, datetime) or at.tzinfo is None:
+             raise ValueError("institutional dispatch time must be timezone-aware")
+diff --git a/railone_operations/service.py b/railone_operations/service.py
+index 3a12fe9..e36aff0 100644
+--- a/railone_operations/service.py
++++ b/railone_operations/service.py
+@@ -41,6 +41,8 @@ class ProviderAdapter(Protocol):
+ class InstitutionalAdmissionGate(Protocol):
+     """Trusted, registry-backed institutional admission; never caller-supplied policy data."""
+ 
++    def preflight(self, *, rtt_id: str, at: datetime) -> None: ...
++
+     def admit(self, request: ProviderExecutionRequest, *, at: datetime) -> ProviderAdapter: ...
+ 
+ 
+@@ -223,6 +225,11 @@ class ProviderSubmissionCoordinator:
+             raise PermissionError("institutional adapter must be selected by the trusted registry")
+         if self._dispatch_mode == "SIMULATED_PILOT" and adapter is None:
+             raise SubmissionNotDispatchableError("simulation requires an explicit adapter")
++        if self._dispatch_mode == "INSTITUTIONAL_SANDBOX":
++            # Deny before creating a prepared submission or resolving protected
++            # bank account endpoints. The final admit() revalidates the fence.
++            assert self._institutional_admission is not None
++            self._institutional_admission.preflight(rtt_id=rtt_id, at=instant)
+         record, request = self._prepare(rtt_id=rtt_id, at=instant)
+         if self._dispatch_mode == "INSTITUTIONAL_SANDBOX":
+             # Guard verifies the stored signed wrapper against trusted core state,
+diff --git a/railone_postgres/security.py b/railone_postgres/security.py
+index b55f5e3..3340f9d 100644
+--- a/railone_postgres/security.py
++++ b/railone_postgres/security.py
+@@ -18,19 +18,18 @@ class PostgresEncryptedSecretStore(EncryptedSecretStore):
+         with self._database.transaction() as connection, connection.cursor() as cursor:
+             cursor.execute(
+                 """INSERT INTO railone.encrypted_secrets
+-                   (vault_name, record_id, owner_id, envelope, plaintext_sha256,
++                   (vault_name, record_id, owner_id, envelope,
+                     encryption_key_id, envelope_version)
+-                   VALUES (%s,%s,%s,%s::jsonb,%s,%s,%s)
++                   VALUES (%s,%s,%s,%s::jsonb,%s,%s)
+                    ON CONFLICT (vault_name, record_id) DO NOTHING""",
+                 (
+                     record.vault_name, record.record_id, record.owner_id,
+-                    json_text(record.envelope.to_dict()), record.plaintext_sha256,
++                    json_text(record.envelope.to_dict()),
+                     record.envelope.key_id, record.envelope.version,
+                 ),
+             )
+             cursor.execute(
+-                """SELECT vault_name, record_id, owner_id, envelope,
+-                          plaintext_sha256
++                """SELECT vault_name, record_id, owner_id, envelope
+                    FROM railone.encrypted_secrets
+                    WHERE vault_name=%s AND record_id=%s""",
+                 (record.vault_name, record.record_id),
+@@ -46,8 +45,7 @@ class PostgresEncryptedSecretStore(EncryptedSecretStore):
+     def require(self, *, vault_name: str, record_id: str) -> EncryptedSecretRecord:
+         with self._database.transaction() as connection, connection.cursor() as cursor:
+             cursor.execute(
+-                """SELECT vault_name, record_id, owner_id, envelope,
+-                          plaintext_sha256
++                """SELECT vault_name, record_id, owner_id, envelope
+                    FROM railone.encrypted_secrets
+                    WHERE vault_name=%s AND record_id=%s""",
+                 (vault_name, record_id),
+@@ -63,5 +61,4 @@ def _record(row) -> EncryptedSecretRecord:
+         vault_name=str(row["vault_name"]), record_id=str(row["record_id"]),
+         owner_id=str(row["owner_id"]),
+         envelope=EncryptedEnvelope.from_dict(json_object(row["envelope"])),
+-        plaintext_sha256=str(row["plaintext_sha256"]),
+     )
+diff --git a/railone_sandbox/metrics.py b/railone_sandbox/metrics.py
+index 5b94a06..e0d76de 100644
+--- a/railone_sandbox/metrics.py
++++ b/railone_sandbox/metrics.py
+@@ -1,21 +1,64 @@
+-"""Small dependency-free metric surface for health and pilot assertions."""
++"""Bounded, low-cardinality sandbox counters (never transaction telemetry).
++
++Names and labels are intentionally closed. Never pass UTT, RTT, account,
++identity, endpoint, secret, or partner pricing material to this surface.
++"""
+ 
+ from __future__ import annotations
+ 
+ from threading import RLock
+ 
++from .models import EffectScenario
++
++# Each metric has exactly these label keys.  A typo cannot create a new series.
++_LABELS: dict[str, frozenset[str]] = {
++    "railone_sandbox_submit_replay_total": frozenset({"provider"}),
++    "railone_sandbox_submissions_total": frozenset({"provider", "outcome", "scenario"}),
++    "railone_sandbox_effects_total": frozenset({"provider", "effect_type"}),
++    "railone_sandbox_effect_requeues_total": frozenset(),
++    "railone_sandbox_worker_failures_total": frozenset({"provider", "effect_type"}),
++    "railone_sandbox_worker_applied_total": frozenset({"provider", "effect_type"}),
++}
++_OUTCOMES = frozenset({"ACCEPTED", "REJECTED", "UNKNOWN"})
++_EFFECT_TYPES = frozenset({"SETTLED", "TIMEOUT", "REJECTED"})
++_SCENARIOS = frozenset(s.value for s in EffectScenario)
++
+ 
+ class MetricsRegistry:
+-    def __init__(self) -> None:
++    """Confined to a synthetic sandbox with explicitly approved provider IDs."""
++
++    def __init__(self, *, allowed_providers: tuple[str, ...] = ("BANK-KE", "MPESA-KE"),
++                 max_series: int = 256) -> None:
++        if not isinstance(max_series, int) or isinstance(max_series, bool) or not 1 <= max_series <= 4096:
++            raise ValueError("metrics series budget is outside policy")
++        providers = frozenset(allowed_providers)
++        if not providers or len(providers) > 32 or any(
++            not isinstance(p, str) or p not in {"BANK-KE", "MPESA-KE"} for p in providers
++        ):
++            raise ValueError("sandbox metrics require approved synthetic providers")
++        self._allowed_providers = providers
++        self._max_series = max_series
+         self._lock = RLock()
+         self._counters: dict[tuple[str, tuple[tuple[str, str], ...]], int] = {}
+ 
+     def increment(self, name: str, **labels: str) -> None:
+-        if not name or any(not key or not value for key, value in labels.items()):
+-            raise ValueError("metric name and labels must be non-empty")
+-        key = (name, tuple(sorted(labels.items())))
++        expected_keys = _LABELS.get(name)
++        if expected_keys is None or set(labels) != expected_keys:
++            raise ValueError("unapproved metric name or label keys")
++        for key, value in labels.items():
++            approved = {
++                "provider": self._allowed_providers,
++                "outcome": _OUTCOMES,
++                "scenario": _SCENARIOS,
++                "effect_type": _EFFECT_TYPES,
++            }[key]
++            if not isinstance(value, str) or value not in approved:
++                raise ValueError("unapproved sandbox metric label value")
++        series = (name, tuple(sorted(labels.items())))
+         with self._lock:
+-            self._counters[key] = self._counters.get(key, 0) + 1
++            if series not in self._counters and len(self._counters) >= self._max_series:
++                raise ValueError("sandbox metrics series budget exhausted")
++            self._counters[series] = self._counters.get(series, 0) + 1
+ 
+     def snapshot(self) -> dict[str, int]:
+         with self._lock:
+diff --git a/railone_sandbox/workers.py b/railone_sandbox/workers.py
+index 23bf2e2..1b43e93 100644
+--- a/railone_sandbox/workers.py
++++ b/railone_sandbox/workers.py
+@@ -47,7 +47,7 @@ class SandboxEffectWorker:
+                 self._broker.reschedule(
+                     effect_id=effect.effect_id, worker_id=self._worker_id,
+                     delay_ticks=self._retry_delay,
+-                    error=f"{type(exc).__name__}: {exc}",
++                    error=type(exc).__name__,
+                     max_attempts=self._max_attempts,
+                 )
+                 self._metrics.increment(
+@@ -101,7 +101,7 @@ class WorkerSupervisor:
+             applied = self._worker.run_once()
+         except Exception as exc:
+             self._failures += 1
+-            self._last_error = f"{type(exc).__name__}: {exc}"[:1000]
++            self._last_error = type(exc).__name__
+             return ()
+         self._failures = 0
+         self._last_error = None
+diff --git a/railone_security/store.py b/railone_security/store.py
+index c6dbe3e..b7985df 100644
+--- a/railone_security/store.py
++++ b/railone_security/store.py
+@@ -15,7 +15,6 @@ class EncryptedSecretRecord:
+     record_id: str
+     owner_id: str
+     envelope: EncryptedEnvelope
+-    plaintext_sha256: str
+ 
+ 
+ class EncryptedSecretStore(Protocol):
+diff --git a/railone_security/vaults.py b/railone_security/vaults.py
+index 8e041a3..8a735e1 100644
+--- a/railone_security/vaults.py
++++ b/railone_security/vaults.py
+@@ -2,8 +2,6 @@
+ 
+ from __future__ import annotations
+ 
+-import hashlib
+-
+ from .envelope import EnvelopeEncryptionService
+ from .models import EncryptionPurpose
+ from .store import EncryptedSecretRecord, EncryptedSecretStore
+@@ -26,7 +24,6 @@ class EncryptedAccountEndpointVault:
+         self._store.put(EncryptedSecretRecord(
+             vault_name=self.VAULT, record_id=record_id, owner_id=institution_id,
+             envelope=envelope,
+-            plaintext_sha256=hashlib.sha256(provider_reference.encode("utf-8")).hexdigest(),
+         ))
+ 
+     def resolve(self, *, institution_id: str, account_binding_id: str) -> str:
+@@ -63,7 +60,6 @@ class EncryptedContactBindingVault:
+         self._store.put(EncryptedSecretRecord(
+             vault_name=self.VAULT, record_id=contact_binding_id, owner_id=owner_id,
+             envelope=envelope,
+-            plaintext_sha256=hashlib.sha256(sms_destination.encode("utf-8")).hexdigest(),
+         ))
+ 
+     def resolve_sms_destination(self, contact_binding_id: str) -> str:
+@@ -94,7 +90,6 @@ class EncryptedProviderCredentialVault:
+         self._store.put(EncryptedSecretRecord(
+             vault_name=self.VAULT, record_id=record_id, owner_id=provider_id,
+             envelope=envelope,
+-            plaintext_sha256=hashlib.sha256(secret.encode("utf-8")).hexdigest(),
+         ))
+ 
+     def resolve(self, *, provider_id: str, credential_name: str) -> str:
+diff --git a/scripts/check_repository_convergence.py b/scripts/check_repository_convergence.py
+index b5f040d..052f79f 100644
+--- a/scripts/check_repository_convergence.py
++++ b/scripts/check_repository_convergence.py
+@@ -64,6 +64,7 @@ EXPECTED_MIGRATIONS = [
+     "0011_currency_and_settlement_instruments.sql",
+     "0012_immutable_route_decision_records.sql",
+     "0013_signed_institution_dispatch_wrappers.sql",
++    "0014_drop_plaintext_secret_fingerprints.sql",
+ ]
+ 
+ 
+@@ -96,7 +97,7 @@ def validate() -> list[str]:
+     migrations = sorted(path.name for path in (ROOT / "migrations").glob("*.sql"))
+     if migrations != EXPECTED_MIGRATIONS:
+         errors.append(
+-            "migration chain differs from extended immutable 0001-0013 sequence: "
++            "migration chain differs from extended immutable 0001-0014 sequence: "
+             + ", ".join(migrations)
+         )
+ 
+diff --git a/tests/test_institution_admission_gateway.py b/tests/test_institution_admission_gateway.py
+index 01cafec..14686b9 100644
+--- a/tests/test_institution_admission_gateway.py
++++ b/tests/test_institution_admission_gateway.py
+@@ -200,6 +200,8 @@ class InstitutionalCoordinatorBoundaryTests(unittest.TestCase):
+     def test_institutional_mode_rejects_caller_adapter_and_direct_prepare(self):
+         from tests.test_provider_operations import FakeProviderAdapter
+         class StubGate:
++            def preflight(self, *, rtt_id, at):
++                pass
+             def admit(self, request, *, at):
+                 return FakeProviderAdapter()
+         coordinator = self.build(gate=StubGate())
+@@ -211,17 +213,21 @@ class InstitutionalCoordinatorBoundaryTests(unittest.TestCase):
+ 
+     def test_institutional_gate_runs_before_provider_effect(self):
+         class DenyGate:
++            def preflight(self, *, rtt_id, at):
++                raise PermissionError("admission rejected")
+             def admit(self, request, *, at):
+                 raise PermissionError("admission rejected")
+         coordinator = self.build(gate=DenyGate())
+         with self.assertRaises(PermissionError):
+             coordinator.dispatch(rtt_id=self.fixture.rtt_id, at=self.fixture.now + timedelta(seconds=22))
+-        record = self.fixture.operations.require_submission(self.fixture.rtt_id)
+-        self.assertEqual(record.dispatch_attempts, 0)
++        with self.assertRaises(LookupError):
++            self.fixture.operations.require_submission(self.fixture.rtt_id)
+ 
+     def test_institutional_mode_uses_only_gate_selected_adapter(self):
+         chosen = self.fake
+         class TrustedGate:
++            def preflight(self, *, rtt_id, at):
++                pass
+             def admit(self, request, *, at):
+                 return chosen
+         coordinator = self.build(gate=TrustedGate())
+diff --git a/tests/test_postgres_live.py b/tests/test_postgres_live.py
+index b09a73f..5f6f67c 100644
+--- a/tests/test_postgres_live.py
++++ b/tests/test_postgres_live.py
+@@ -121,6 +121,25 @@ class LivePostgresRuntimeTests(unittest.TestCase):
+         finally:
+             connection.close()
+ 
++    def test_sensitive_vault_schema_removes_plaintext_fingerprint(self):
++        from railone_postgres import PostgresEncryptedSecretStore
++        from railone_security import EncryptedAccountEndpointVault
++        from tests.test_envelope_encryption import encryption_fixture
++
++        database = PostgresDatabase(self.factory)
++        with database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute("""SELECT COUNT(*) AS n FROM information_schema.columns
++                           WHERE table_schema='railone' AND table_name='encrypted_secrets'
++                             AND column_name='plaintext_sha256'""")
++            self.assertEqual(cursor.fetchone()["n"], 0)
++        _, _, encryption = encryption_fixture()
++        store = PostgresEncryptedSecretStore(database)
++        vault = EncryptedAccountEndpointVault(encryption=encryption, store=store)
++        vault.register(institution_id="SYNTHETIC-INST", account_binding_id="SYNTHETIC-BIND",
++                       provider_reference="SYNTHETIC-ENDPOINT")
++        self.assertEqual(vault.resolve(institution_id="SYNTHETIC-INST",
++                                       account_binding_id="SYNTHETIC-BIND"), "SYNTHETIC-ENDPOINT")
++
+     def test_contract_execution_submission_and_projection_round_trip(self):
+         now = datetime(2026, 7, 14, 19, 0, tzinfo=timezone.utc)
+         keys = InMemoryEd25519KeyProvider()
+diff --git a/tests/test_security_boundaries.py b/tests/test_security_boundaries.py
+new file mode 100644
+index 0000000..daf3157
+--- /dev/null
++++ b/tests/test_security_boundaries.py
+@@ -0,0 +1,135 @@
++"""Regressions protecting sensitive metadata and dispatch boundaries."""
++from __future__ import annotations
++
++import hashlib
++import unittest
++from datetime import timedelta
++
++from railone_security import (
++    EncryptedAccountEndpointVault, EncryptedContactBindingVault,
++    EncryptedProviderCredentialVault, InMemoryEncryptedSecretStore,
++)
++from railone_sandbox.metrics import MetricsRegistry
++from tests.test_envelope_encryption import encryption_fixture
++from tests import test_institution_admission_gateway as admission_tests
++
++
++class VaultMetadataSecurityTests(unittest.TestCase):
++    def test_no_cleartext_fingerprint_is_persisted_for_any_vault_kind(self):
++        _, _, encryption = encryption_fixture()
++        store = InMemoryEncryptedSecretStore()
++        cases = (
++            (EncryptedAccountEndpointVault(encryption=encryption, store=store),
++             dict(institution_id="BANK-001", account_binding_id="acct-1",
++                  provider_reference="254700000111"), "ACCOUNT_ENDPOINT", "BANK-001:acct-1"),
++            (EncryptedContactBindingVault(encryption=encryption, store=store),
++             dict(contact_binding_id="contact-1", owner_id="owner-1",
++                  sms_destination="254700000112"), "CONTACT_DESTINATION", "contact-1"),
++            (EncryptedProviderCredentialVault(encryption=encryption, store=store),
++             dict(provider_id="BANK-001", credential_name="secret",
++                  secret="sensitive-token"), "PROVIDER_CREDENTIAL", "BANK-001:secret"),
++        )
++        for vault, kwargs, name, record_id in cases:
++            vault.register(**kwargs)
++            record = store.require(vault_name=name, record_id=record_id)
++            self.assertFalse(hasattr(record, "plaintext_sha256"))
++            self.assertTrue(record.envelope.ciphertext)
++            for cleartext in ("254700000111", "254700000112", "sensitive-token"):
++                self.assertNotIn(hashlib.sha256(cleartext.encode()).hexdigest(), repr(record))
++
++    def test_plaintext_hash_column_removed_only_in_forward_migration(self):
++        from pathlib import Path
++        root = Path(__file__).resolve().parents[1]
++        text = (root / "migrations/0014_drop_plaintext_secret_fingerprints.sql").read_text()
++        self.assertIn("DROP COLUMN plaintext_sha256", text)
++        self.assertIn("ALTER TABLE railone.encrypted_secrets", text)
++
++
++class SafeMetricLabelTests(unittest.TestCase):
++    def test_trusted_bounded_labels_still_work(self):
++        metrics = MetricsRegistry()
++        metrics.increment("railone_sandbox_submissions_total", provider="BANK-KE",
++                          outcome="ACCEPTED", scenario="SUCCESS")
++        self.assertEqual(sum(metrics.snapshot().values()), 1)
++
++    def test_rejects_raw_account_ids_unapproved_metric_labels(self):
++        metrics = MetricsRegistry()
++        for labels in (
++            {"account_number": "123456789"},
++            {"provider": "254700000111"},
++            {"provider": "BANK-KE", "utt_id": "UTT-ABC"},
++        ):
++            with self.subTest(labels=labels), self.assertRaises(ValueError):
++                metrics.increment("railone_sandbox_effects_total", **labels)
++        self.assertEqual(metrics.snapshot(), {})
++
++    def test_series_budget_is_bounded(self):
++        with self.assertRaises(ValueError):
++            MetricsRegistry(max_series=0)
++        metrics = MetricsRegistry(max_series=1)
++        metrics.increment("railone_sandbox_effects_total", provider="BANK-KE",
++                          effect_type="SETTLED")
++        with self.assertRaises(ValueError):
++            metrics.increment("railone_sandbox_effects_total", provider="MPESA-KE",
++                              effect_type="SETTLED")
++
++
++class WorkerErrorRedactionTests(unittest.TestCase):
++    def test_supervisor_does_not_publish_exception_payload(self):
++        from railone_sandbox.workers import WorkerSupervisor
++        class FailingWorker:
++            def run_once(self):
++                raise RuntimeError("PASSWORD=highly-sensitive-provider-secret")
++        supervisor = WorkerSupervisor(FailingWorker(), failure_threshold=1)
++        self.assertEqual(supervisor.tick(), ())
++        self.assertEqual(supervisor.status().last_error, "RuntimeError")
++
++
++class PreflightSecurityTests(unittest.TestCase):
++    def test_denied_preflight_performs_no_account_decryption_or_preparation(self):
++        from tests.test_provider_operations import ProviderOperationsTests
++        from railone_operations import ProviderSubmissionCoordinator
++
++        fixture = ProviderOperationsTests("test_preparation_is_idempotent_and_uses_stable_provider_key")
++        fixture.setUp()
++        class AuditResolver:
++            calls = 0
++            def resolve(self, *, institution_id, account_binding_id):
++                self.calls += 1
++                raise AssertionError("account endpoint must not be resolved")
++        class RejectGate:
++            def preflight(self, *, rtt_id, at):
++                raise PermissionError("no independent fence authorization")
++            def admit(self, request, *, at):
++                raise AssertionError("admit must not run")
++        resolver = AuditResolver()
++        coordinator = ProviderSubmissionCoordinator(
++            signatures=fixture.signatures, contracts=fixture.contracts,
++            executions=fixture.executions, operations=fixture.operations,
++            endpoint_resolver=resolver, event_signing_key_id="R1CORE:execution:2026-01",
++            dispatch_mode="INSTITUTIONAL_SANDBOX", institutional_admission=RejectGate(),
++        )
++        with self.assertRaises(PermissionError):
++            coordinator.dispatch(rtt_id=fixture.rtt_id, at=fixture.now + timedelta(seconds=22))
++        self.assertEqual(resolver.calls, 0)
++        with self.assertRaises(LookupError):
++            fixture.operations.require_submission(fixture.rtt_id)
++
++    def test_expired_wrapper_rejected_preflight_without_raw_endpoint_access(self):
++        fixture = admission_tests.InstitutionalAdmissionGatewayTests("test_signed_wrapper_and_verified_adapter_are_admitted")
++        fixture.setUp()
++        with self.assertRaises(PermissionError):
++            fixture.gateway.preflight(rtt_id=fixture.request.rtt_id,
++                                      at=admission_tests.NOW + timedelta(seconds=61))
++        self.assertEqual(fixture.fence.calls, 0)
++
++    def test_wrong_fence_rejected_preflight(self):
++        fixture = admission_tests.InstitutionalAdmissionGatewayTests("test_signed_wrapper_and_verified_adapter_are_admitted")
++        fixture.setUp()
++        fixture.fence.epoch += 1
++        with self.assertRaises(PermissionError):
++            fixture.gateway.preflight(rtt_id=fixture.request.rtt_id, at=admission_tests.NOW)
++
++
++if __name__ == "__main__":
++    unittest.main()
