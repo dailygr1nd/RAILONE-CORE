@@ -113,8 +113,19 @@ class LivePostgresRuntimeTests(unittest.TestCase):
         ).apply_all()
 
     def test_institutional_dispatch_reserves_before_adapter_and_blocks_replay(self):
+        self.setUpClass()
         from tests.institutional_live_support import exercise_institutional_dispatch
         exercise_institutional_dispatch(self, PostgresDatabase(self.factory))
+
+    def test_institutional_timeout_retains_hold_and_blocks_replay(self):
+        self.setUpClass()
+        from tests.institutional_live_support import exercise_institutional_dispatch
+        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="timeout")
+
+    def test_institutional_crash_retains_hold_and_blocks_replay(self):
+        self.setUpClass()
+        from tests.institutional_live_support import exercise_institutional_dispatch
+        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="crash")
 
     def test_migrations_are_checksum_idempotent(self):
         results = MigrationRunner(

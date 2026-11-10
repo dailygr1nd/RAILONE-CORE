@@ -28,7 +28,14 @@ from tests.test_envelope_encryption import encryption_fixture
 from tests.test_institution_dispatch_wrapper import sections
 
 
-def exercise_institutional_dispatch(test, database):
+class SimulatedWorkerCrash(BaseException):
+    """Test-only process interruption after the committed reservation."""
+
+
+def exercise_institutional_dispatch(test, database, *, scenario="accepted", report=None):
+    if scenario not in {"accepted", "timeout", "crash"}:
+        raise ValueError("unsupported synthetic scenario")
+    emit = report or (lambda message: None)
     fixture = fixtures.ProviderOperationsTests("test_preparation_is_idempotent_and_uses_stable_provider_key")
     _, _, encryption = encryption_fixture()
     vault = EncryptedAccountEndpointVault(
@@ -48,6 +55,8 @@ def exercise_institutional_dispatch(test, database):
     at = fixture.now + timedelta(seconds=22)
     attempt = fixture.executions.require_attempt(fixture.rtt_id)
     utt = fixture.contracts.require_utt(attempt.utt_id).payload
+    emit(f"Accepted synthetic P2P instruction {attempt.utt_id}")
+    emit(f"Selected route {attempt.route_id}; created attempt {fixture.rtt_id}")
     identities = PostgresIdentityRepository(database)
     partners = PostgresPartnerDirectory(database)
     for number, actor in enumerate((utt["payer"], utt["beneficiary"]), 1):
@@ -120,6 +129,10 @@ def exercise_institutional_dispatch(test, database):
                 )
                 row = cursor.fetchone()
             observed.append((row["state"], row["current_rtt_id"]))
+            if scenario == "timeout":
+                raise TimeoutError("synthetic provider timeout")
+            if scenario == "crash":
+                raise SimulatedWorkerCrash()
             return super().submit(instruction)
 
     registry = InstitutionAdapterRegistry(signer)
@@ -144,6 +157,7 @@ def exercise_institutional_dispatch(test, database):
     PostgresDispatchWrapperStore(database, verifier).put(
         verifier.issue(wrapper, expected=expected, at=at), expected=expected, at=at,
     )
+    emit("Persisted bilateral authorities, encrypted endpoints, and signed dispatch wrapper")
     config = DeployedSandboxConfig(
         database_url="postgresql://synthetic",
         migrations_directory=Path(__file__).resolve().parents[1]/"migrations",
@@ -161,9 +175,17 @@ def exercise_institutional_dispatch(test, database):
         wrapper_signing_key_id=key, trusted_no_effect_signing_keys=frozenset({"synthetic-unused"}),
         core_owner_id="RAILONE",
     )
-    result = dispatcher.dispatch(rtt_id=fixture.rtt_id, at=at)
-    test.assertEqual(result.state.value, "ACCEPTED")
+    if scenario == "crash":
+        with test.assertRaises(SimulatedWorkerCrash):
+            dispatcher.dispatch(rtt_id=fixture.rtt_id, at=at)
+        emit("Simulated worker interruption after reservation")
+    else:
+        result = dispatcher.dispatch(rtt_id=fixture.rtt_id, at=at)
+        expected_state = "ACCEPTED" if scenario == "accepted" else "UNKNOWN"
+        test.assertEqual(result.state.value, expected_state)
+        emit(f"Provider submission state {expected_state}")
     test.assertEqual(observed, [("HELD", fixture.rtt_id)])
+    emit("Verified committed economic hold through a separate database connection")
     # Recompose to prove replay protection survives coordinator recreation.
     restarted = runtime.institutional_dispatcher(
         signatures=fixture.signatures, registry=registry, event_signing_key_id=key,
@@ -173,7 +195,18 @@ def exercise_institutional_dispatch(test, database):
     with test.assertRaises(EconomicFenceViolation):
         restarted.dispatch(rtt_id=fixture.rtt_id, at=at)
     test.assertEqual(len(observed), 1)
+    emit("Recreated dispatcher; duplicate attempt blocked; adapter invoked once")
     with database.transaction() as connection, connection.cursor() as cursor:
         cursor.execute("SELECT state FROM railone.rtt_operational_fences WHERE rtt_id=%s",
                        (fixture.rtt_id,))
-        test.assertEqual(cursor.fetchone()["state"], "ACCEPTED_FOR_PROCESSING")
+        expected_fence = {
+            "accepted": "ACCEPTED_FOR_PROCESSING", "timeout": "UNKNOWN", "crash": "RESERVED",
+        }[scenario]
+        test.assertEqual(cursor.fetchone()["state"], expected_fence)
+        cursor.execute("SELECT state FROM railone.utt_economic_fences WHERE utt_id=%s",
+                       (attempt.utt_id,))
+        test.assertEqual(cursor.fetchone()["state"], "HELD")
+        cursor.execute("SELECT count(*) AS total FROM railone.settlement_evidence WHERE utt_id=%s",
+                       (attempt.utt_id,))
+        test.assertEqual(cursor.fetchone()["total"], 0)
+    emit(f"RTT state {expected_fence}; economic hold HELD; settlement evidence count 0")
