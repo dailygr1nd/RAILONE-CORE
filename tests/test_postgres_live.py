@@ -60,6 +60,15 @@ _RESET_ALLOWED = os.environ.get("RAILONE_ALLOW_TEST_SCHEMA_RESET") == "1"
 _LIVE_REQUIRED = os.environ.get("RAILONE_REQUIRE_LIVE_POSTGRES") == "1"
 
 
+def _attempt_reserve(action) -> str:
+    from railone_postgres import EconomicFenceViolation
+    try:
+        action()
+        return "RESERVED"
+    except EconomicFenceViolation:
+        return "DENIED"
+
+
 class AcceptedAdapter:
     provider_id = "MPESA-KE"
     supports_idempotency = True
@@ -92,6 +101,7 @@ class LivePostgresRuntimeTests(unittest.TestCase):
             ) from None
         try:
             with connection.cursor() as cursor:
+                cursor.execute("DROP SCHEMA IF EXISTS railone_bank CASCADE")
                 cursor.execute("DROP SCHEMA IF EXISTS railone CASCADE")
             connection.commit()
         finally:
@@ -108,7 +118,7 @@ class LivePostgresRuntimeTests(unittest.TestCase):
             migrations_directory=self.migrations,
         ).apply_all()
         self.assertTrue(all(result.already_applied for result in results))
-        self.assertIn("0013", {result.version for result in results})
+        self.assertIn("0015", {result.version for result in results})
         connection = self.factory()
         try:
             with connection.cursor() as cursor:
@@ -236,12 +246,77 @@ class LivePostgresRuntimeTests(unittest.TestCase):
             institution_id="MNO-001", account_binding_id="BIND-LIVE-PAYEE",
             provider_reference="PAYEE-REF",
         )
-        submission = ProviderSubmissionCoordinator(
+        from railone_postgres import PostgresEconomicEffectFence, EconomicFenceViolation
+        from railone_crypto.signature_service import ArtifactType
+        keys.generate(
+            key_id="R1CORE:no-effect:live-test", owner_id="R1CORE",
+            purpose=KeyPurpose.SETTLEMENT_SIGNING,
+            not_before=now - timedelta(days=1), not_after=now + timedelta(days=30),
+        )
+        coordinator = ProviderSubmissionCoordinator(
             signatures=signatures, contracts=contracts, executions=executions,
-            operations=operations,
-            endpoint_resolver=endpoint_resolver,
+            operations=operations, endpoint_resolver=endpoint_resolver,
             event_signing_key_id="R1CORE:execution:live",
-        ).dispatch(rtt_id=attempt.rtt_id, adapter=AcceptedAdapter(), at=now + timedelta(seconds=4))
+        )
+        prepared, request = coordinator.prepare(rtt_id=attempt.rtt_id, at=now + timedelta(seconds=4))
+        fence = PostgresEconomicEffectFence(
+            database, signatures=signatures,
+            trusted_no_effect_signing_keys=frozenset({"R1CORE:no-effect:live-test"}),
+        )
+        fence.assert_dispatch_safe(
+            utt_id=contract.utt_id, rtt_id=attempt.rtt_id, fence_epoch=1,
+            release_evidence_ref=None, at=now + timedelta(seconds=4),
+        )
+        # Two workers racing the same UTT must create ONE durable reservation.
+        from concurrent.futures import ThreadPoolExecutor
+        def reserve_once():
+            return fence.reserve_dispatch(
+                utt_id=contract.utt_id, rtt_id=attempt.rtt_id, fence_epoch=1,
+                release_evidence_ref=None, request_sha256=request.request_sha256,
+                at=now + timedelta(seconds=4),
+            )
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: _attempt_reserve(reserve_once), range(2)))
+        self.assertEqual(results.count("RESERVED"), 1)
+        self.assertEqual(results.count("DENIED"), 1)
+        with self.assertRaises(EconomicFenceViolation):
+            reserve_once()
+        submission = coordinator.dispatch(
+            rtt_id=attempt.rtt_id, adapter=AcceptedAdapter(), at=now + timedelta(seconds=4)
+        )
+        fence.record_provider_outcome(
+            utt_id=contract.utt_id, rtt_id=attempt.rtt_id,
+            outcome="ACCEPTED", at=now + timedelta(seconds=5),
+        )
+        with self.assertRaises(EconomicFenceViolation):
+            fence.assert_dispatch_safe(
+                utt_id=contract.utt_id, rtt_id=attempt.rtt_id,
+                fence_epoch=1, release_evidence_ref=None,
+                at=now + timedelta(seconds=5),
+            )
+        # Synthetic no-effect assertion tests transition mechanics only; the
+        # real signer must first verify actual authenticated provider evidence.
+        evidence = signatures.sign_artifact(
+            artifact_type=ArtifactType.NO_EFFECT_EVIDENCE,
+            key_id="R1CORE:no-effect:live-test", issued_at=now + timedelta(seconds=6),
+            payload={
+                "evidence_id":"EVID-DISPOSABLE-001", "utt_id":contract.utt_id,
+                "rtt_id":attempt.rtt_id, "provider_id":"MPESA-KE",
+                "finding":"NO_ECONOMIC_EFFECT", "source_evidence_digest":"f" * 64,
+                "observed_at_epoch":int((now + timedelta(seconds=6)).timestamp()),
+            },
+        )
+        self.assertEqual(fence.release_verified_no_effect(
+            evidence=evidence, at=now + timedelta(seconds=7)), 2)
+        with database.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT state,fence_epoch,last_release_evidence_id "
+                "FROM railone.utt_economic_fences WHERE utt_id=%s", (contract.utt_id,)
+            )
+            hold = cursor.fetchone()
+            self.assertEqual(hold["state"], "OPEN")
+            self.assertEqual(hold["fence_epoch"], 2)
+            self.assertEqual(hold["last_release_evidence_id"], "EVID-DISPOSABLE-001")
 
         outcome_store = PostgresProviderOutcomeProjectionStore(database)
         projector = SignedProviderOutcomeProjector(signatures=signatures, store=outcome_store)
@@ -250,6 +325,101 @@ class LivePostgresRuntimeTests(unittest.TestCase):
         projected = outcome_store.get(submission.submission_id)
         self.assertEqual(projected.state, ProviderProgressState.ACCEPTED_FOR_PROCESSING)
         self.assertEqual(projected.submission_version, 3)
+
+    def test_bank_analytics_schema_is_allowlisted_and_private(self):
+        from railone_postgres import BankMetric, PostgresBankMetricsPublisher
+        from datetime import timedelta
+        database = PostgresDatabase(self.factory)
+        with database.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT to_regclass('railone_bank.metrics') AS relation")
+            self.assertIsNotNone(cursor.fetchone()["relation"])
+            cursor.execute("""SELECT relrowsecurity,relforcerowsecurity
+                           FROM pg_class WHERE oid='railone.bank_analytics_publications'::regclass""")
+            row = cursor.fetchone()
+            self.assertTrue(row["relrowsecurity"])
+            self.assertTrue(row["relforcerowsecurity"])
+            cursor.execute("SELECT COUNT(*) AS n FROM railone.bank_analytics_publications")
+            self.assertEqual(cursor.fetchone()["n"], 0)
+        # Unmapped login (and even the privileged migration login) is not
+        # mapped to a bank by the public view. RLS and view scope both fail closed.
+        with database.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) AS n FROM railone_bank.metrics")
+            self.assertEqual(cursor.fetchone()["n"], 0)
+
+    def test_bank_metrics_are_isolated_for_distinct_database_logins(self):
+        """Live RLS/view access gate: two real DB logins must never cross-read."""
+        from uuid import uuid4
+        from secrets import token_urlsafe
+        from psycopg import sql
+        from psycopg.conninfo import make_conninfo
+        from railone_postgres import BankMetric, PostgresBankMetricsPublisher, PostgresBankMetricsReader
+
+        token = uuid4().hex[:12]
+        read_role = "r1bank_read_" + token
+        a_login = "r1bank_a_" + token
+        b_login = "r1bank_b_" + token
+        a_id = "BANK-TEST-A-" + token.upper()
+        b_id = "BANK-TEST-B-" + token.upper()
+        password_a, password_b = token_urlsafe(24), token_urlsafe(24)
+        database = PostgresDatabase(self.factory)
+        try:
+            with database.transaction() as connection, connection.cursor() as cursor:
+                cursor.execute(sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(read_role)))
+                for name, password in ((a_login, password_a), (b_login, password_b)):
+                    cursor.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
+                        sql.Identifier(name), sql.Literal(password)))
+                    cursor.execute(sql.SQL("GRANT {} TO {}").format(
+                        sql.Identifier(read_role), sql.Identifier(name)))
+                cursor.execute(sql.SQL("GRANT USAGE ON SCHEMA railone_bank TO {}").format(
+                    sql.Identifier(read_role)))
+                cursor.execute(sql.SQL("GRANT EXECUTE ON FUNCTION railone_bank.current_institution_id() TO {}").format(
+                    sql.Identifier(read_role)))
+                cursor.execute(sql.SQL("GRANT SELECT ON railone_bank.metrics TO {}").format(
+                    sql.Identifier(read_role)))
+                for bank_id, login in ((a_id, a_login), (b_id, b_login)):
+                    cursor.execute(
+                        """INSERT INTO railone.partner_institutions
+                           (institution_id,display_name,country_codes,currencies,
+                            supported_roles,status,created_at,updated_at)
+                           VALUES (%s,%s,%s,%s,%s,'ACTIVE',now(),now())""",
+                        (bank_id, bank_id, ["TZ"], ["TZS"], ["SOURCE","DESTINATION"]),
+                    )
+                    cursor.execute(
+                        """INSERT INTO railone.bank_analytics_principals
+                           (login_role,institution_id,enabled) VALUES (%s,%s,true)""",
+                        (login, bank_id),
+                    )
+            metric = BankMetric("OWN_UTT_SETTLED_TOTAL",
+                                datetime(2026, 11, 1, tzinfo=timezone.utc),
+                                datetime(2026, 11, 2, tzinfo=timezone.utc),
+                                25, 50)
+            publisher = PostgresBankMetricsPublisher(database)
+            publisher.publish(institution_id=a_id, metric=metric, approved_by="TEST-SYSTEM")
+            metric_b = BankMetric(metric.metric_name, metric.period_start,
+                                  metric.period_end, 99, 100)
+            publisher.publish(institution_id=b_id, metric=metric_b, approved_by="TEST-SYSTEM")
+            for bank_login, password, expected_value in (
+                (a_login, password_a, 25), (b_login, password_b, 99)
+            ):
+                bank_dsn = make_conninfo(_DSN, user=bank_login, password=password)
+                bank_db = PostgresDatabase(psycopg_connection_factory(bank_dsn))
+                metrics = PostgresBankMetricsReader(bank_db).list_metrics()
+                self.assertEqual([m.metric_value for m in metrics], [expected_value])
+                with self.assertRaises(Exception):
+                    with bank_db.transaction() as connection, connection.cursor() as cursor:
+                        cursor.execute("SELECT * FROM railone.route_decision_records LIMIT 1")
+        finally:
+            # Role setup is restricted to a disposable CI database with a
+            # privileged migrator; remove test role grants and mappings afterward.
+            with database.transaction() as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM railone.bank_analytics_principals WHERE login_role IN (%s,%s)",
+                    (a_login, b_login),
+                )
+                for name in (a_login, b_login):
+                    cursor.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(name)))
+                cursor.execute(sql.SQL("DROP OWNED BY {}").format(sql.Identifier(read_role)))
+                cursor.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(read_role)))
 
     def test_api_security_stores_round_trip(self):
         from railone_api import (

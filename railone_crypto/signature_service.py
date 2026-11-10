@@ -32,6 +32,7 @@ class ArtifactType(StrEnum):
     INSTITUTION_CAPABILITY_MANIFEST = "railone.institution_capability_manifest"
     PARTNER_CERTIFICATION_REPORT = "railone.partner_certification_report"
     INSTITUTION_DISPATCH_WRAPPER = "railone.institution_dispatch_wrapper"
+    NO_EFFECT_EVIDENCE = "railone.no_effect_evidence"
 
 
 _PURPOSE_BY_ARTIFACT = {
@@ -48,6 +49,7 @@ _PURPOSE_BY_ARTIFACT = {
     ArtifactType.INSTITUTION_CAPABILITY_MANIFEST: KeyPurpose.EXECUTION_SIGNING,
     ArtifactType.PARTNER_CERTIFICATION_REPORT: KeyPurpose.EXECUTION_SIGNING,
     ArtifactType.INSTITUTION_DISPATCH_WRAPPER: KeyPurpose.EXECUTION_SIGNING,
+    ArtifactType.NO_EFFECT_EVIDENCE: KeyPurpose.SETTLEMENT_SIGNING,
 }
 
 _DOMAIN_PREFIX = b"RAILONE-SIGNED-ARTIFACT-V1\x00"

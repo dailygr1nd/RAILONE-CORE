@@ -37,6 +37,15 @@ class FixedFence:
     def __init__(self, *, epoch=1):
         self.epoch = epoch
         self.calls = 0
+        self.reservations = []
+        self.outcomes = []
+
+    def reserve_dispatch(self, *, utt_id, rtt_id, fence_epoch,
+                         release_evidence_ref, request_sha256, at):
+        self.reservations.append((utt_id, rtt_id, fence_epoch, request_sha256))
+
+    def record_provider_outcome(self, *, utt_id, rtt_id, outcome, at):
+        self.outcomes.append((utt_id, rtt_id, outcome))
 
     def assert_dispatch_safe(self, *, utt_id, rtt_id, fence_epoch, release_evidence_ref, at):
         self.calls += 1
@@ -107,6 +116,7 @@ class InstitutionalAdmissionGatewayTests(unittest.TestCase):
         bridge = self.gateway.admit(self.request, at=NOW)
         self.assertEqual(bridge.binding_ref, "synthetic.mtn-crdb@1.0.0")
         self.assertEqual(self.fence.calls, 1)
+        self.assertEqual(len(self.fence.reservations), 1)
         # Return value is the registry-selected adapter; submission remains processing-only.
         self.assertEqual(bridge.provider_id, self.request.provider_id)
 
@@ -230,6 +240,8 @@ class InstitutionalCoordinatorBoundaryTests(unittest.TestCase):
                 pass
             def admit(self, request, *, at):
                 return chosen
+            def record_provider_outcome(self, *, utt_id, rtt_id, outcome, at):
+                self.observed = outcome
         coordinator = self.build(gate=TrustedGate())
         record = coordinator.dispatch(
             rtt_id=self.fixture.rtt_id, at=self.fixture.now + timedelta(seconds=22)

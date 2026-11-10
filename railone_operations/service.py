@@ -45,6 +45,10 @@ class InstitutionalAdmissionGate(Protocol):
 
     def admit(self, request: ProviderExecutionRequest, *, at: datetime) -> ProviderAdapter: ...
 
+    def record_provider_outcome(
+        self, *, utt_id: str, rtt_id: str, outcome: str, at: datetime,
+    ) -> None: ...
+
 
 class SubmissionNotDispatchableError(RuntimeError):
     pass
@@ -282,7 +286,16 @@ class ProviderSubmissionCoordinator:
                 outcome=ProviderOutcome.UNKNOWN,
                 code="ADAPTER_EXCEPTION_OUTCOME_UNKNOWN",
             )
-        return self._complete(record=dispatching, result=result, at=instant)
+        completed = self._complete(record=dispatching, result=result, at=instant)
+        if self._dispatch_mode == "INSTITUTIONAL_SANDBOX":
+            # Observation is operational evidence, NOT release of the UTT hold.
+            # Failed observation recording leaves a conservative durable hold.
+            assert self._institutional_admission is not None
+            self._institutional_admission.record_provider_outcome(
+                utt_id=completed.utt_id, rtt_id=completed.rtt_id,
+                outcome=completed.state.value, at=instant,
+            )
+        return completed
 
     def _complete(
         self,

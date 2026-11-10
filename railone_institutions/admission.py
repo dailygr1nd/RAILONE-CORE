@@ -32,6 +32,15 @@ class EconomicEffectFenceReader(Protocol):
         release_evidence_ref: str | None, at: datetime,
     ) -> None: ...
 
+    def reserve_dispatch(
+        self, *, utt_id: str, rtt_id: str, fence_epoch: int,
+        release_evidence_ref: str | None, request_sha256: str, at: datetime,
+    ) -> None: ...
+
+    def record_provider_outcome(
+        self, *, utt_id: str, rtt_id: str, outcome: str, at: datetime,
+    ) -> None: ...
+
 
 class InstitutionalDispatchAdmissionGateway:
     """The only adapter selection path for INSTITUTIONAL_SANDBOX mode.
@@ -150,4 +159,22 @@ class InstitutionalDispatchAdmissionGateway:
             release_evidence_ref=fence["release_evidence_ref"],
             at=instant,
         )
+        # The read-only preflight is not permission to send. Reserve atomically
+        # in PostgreSQL after final wrapper and adapter checks, and BEFORE the
+        # network call. A crash leaves the hold in place until reconciliation.
+        self._fences.reserve_dispatch(
+            utt_id=request.utt_id,
+            rtt_id=request.rtt_id,
+            fence_epoch=fence["economic_effect_fence_epoch"],
+            release_evidence_ref=fence["release_evidence_ref"],
+            request_sha256=request.request_sha256,
+            at=instant,
+        )
         return InstitutionAdapterBridge(adapter)
+
+    def record_provider_outcome(
+        self, *, utt_id: str, rtt_id: str, outcome: str, at: datetime,
+    ) -> None:
+        self._fences.record_provider_outcome(
+            utt_id=utt_id, rtt_id=rtt_id, outcome=outcome, at=at
+        )
