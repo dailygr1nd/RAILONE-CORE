@@ -15,7 +15,6 @@ class EncryptedSecretRecord:
     record_id: str
     owner_id: str
     envelope: EncryptedEnvelope
-    plaintext_sha256: str
 
 
 class EncryptedSecretStore(Protocol):

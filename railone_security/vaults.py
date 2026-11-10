@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-
 from .envelope import EnvelopeEncryptionService
 from .models import EncryptionPurpose
 from .store import EncryptedSecretRecord, EncryptedSecretStore
@@ -26,7 +24,6 @@ class EncryptedAccountEndpointVault:
         self._store.put(EncryptedSecretRecord(
             vault_name=self.VAULT, record_id=record_id, owner_id=institution_id,
             envelope=envelope,
-            plaintext_sha256=hashlib.sha256(provider_reference.encode("utf-8")).hexdigest(),
         ))
 
     def resolve(self, *, institution_id: str, account_binding_id: str) -> str:
@@ -63,7 +60,6 @@ class EncryptedContactBindingVault:
         self._store.put(EncryptedSecretRecord(
             vault_name=self.VAULT, record_id=contact_binding_id, owner_id=owner_id,
             envelope=envelope,
-            plaintext_sha256=hashlib.sha256(sms_destination.encode("utf-8")).hexdigest(),
         ))
 
     def resolve_sms_destination(self, contact_binding_id: str) -> str:
@@ -94,7 +90,6 @@ class EncryptedProviderCredentialVault:
         self._store.put(EncryptedSecretRecord(
             vault_name=self.VAULT, record_id=record_id, owner_id=provider_id,
             envelope=envelope,
-            plaintext_sha256=hashlib.sha256(secret.encode("utf-8")).hexdigest(),
         ))
 
     def resolve(self, *, provider_id: str, credential_name: str) -> str:

@@ -18,19 +18,18 @@ class PostgresEncryptedSecretStore(EncryptedSecretStore):
         with self._database.transaction() as connection, connection.cursor() as cursor:
             cursor.execute(
                 """INSERT INTO railone.encrypted_secrets
-                   (vault_name, record_id, owner_id, envelope, plaintext_sha256,
+                   (vault_name, record_id, owner_id, envelope,
                     encryption_key_id, envelope_version)
-                   VALUES (%s,%s,%s,%s::jsonb,%s,%s,%s)
+                   VALUES (%s,%s,%s,%s::jsonb,%s,%s)
                    ON CONFLICT (vault_name, record_id) DO NOTHING""",
                 (
                     record.vault_name, record.record_id, record.owner_id,
-                    json_text(record.envelope.to_dict()), record.plaintext_sha256,
+                    json_text(record.envelope.to_dict()),
                     record.envelope.key_id, record.envelope.version,
                 ),
             )
             cursor.execute(
-                """SELECT vault_name, record_id, owner_id, envelope,
-                          plaintext_sha256
+                """SELECT vault_name, record_id, owner_id, envelope
                    FROM railone.encrypted_secrets
                    WHERE vault_name=%s AND record_id=%s""",
                 (record.vault_name, record.record_id),
@@ -46,8 +45,7 @@ class PostgresEncryptedSecretStore(EncryptedSecretStore):
     def require(self, *, vault_name: str, record_id: str) -> EncryptedSecretRecord:
         with self._database.transaction() as connection, connection.cursor() as cursor:
             cursor.execute(
-                """SELECT vault_name, record_id, owner_id, envelope,
-                          plaintext_sha256
+                """SELECT vault_name, record_id, owner_id, envelope
                    FROM railone.encrypted_secrets
                    WHERE vault_name=%s AND record_id=%s""",
                 (vault_name, record_id),
@@ -63,5 +61,4 @@ def _record(row) -> EncryptedSecretRecord:
         vault_name=str(row["vault_name"]), record_id=str(row["record_id"]),
         owner_id=str(row["owner_id"]),
         envelope=EncryptedEnvelope.from_dict(json_object(row["envelope"])),
-        plaintext_sha256=str(row["plaintext_sha256"]),
     )

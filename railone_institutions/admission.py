@@ -53,6 +53,44 @@ class InstitutionalDispatchAdmissionGateway:
         self._snapshots = snapshot_reader
         self._fences = fence_reader
 
+    def preflight(self, *, rtt_id: str, at: datetime) -> None:
+        """Verify trusted instruction, adapter and economic fence BEFORE decrypting endpoints.
+
+        This is NOT a durable dispatch reservation. admit() independently
+        rechecks the fence immediately before adapter submission, and live
+        deployment remains disabled until atomic PostgreSQL fencing exists.
+        """
+        if not isinstance(at, datetime) or at.tzinfo is None:
+            raise ValueError("institutional dispatch time must be timezone-aware")
+        instant = at.astimezone(timezone.utc)
+        expected = self._snapshots.load(rtt_id=rtt_id)
+        signed = self._wrappers.require(rtt_id)
+        body = self._verifier.verify(signed, expected=expected, at=instant).to_payload()
+        trace, binding = body["trace_identifiers"], body["execution_binding"]
+        if trace["rtt_id"] != rtt_id:
+            raise PermissionError("preflight RTT does not match persisted wrapper")
+        _adapter, signed_manifest = self._registry.resolve_with_manifest(
+            binding["adapter_binding_ref"], at=instant
+        )
+        manifest = signed_manifest.manifest
+        if manifest.descriptor.environment not in {AdapterEnvironment.SANDBOX, AdapterEnvironment.PILOT}:
+            raise PermissionError("production institutional dispatch is not enabled")
+        if manifest.descriptor.certification_status not in {
+            AdapterCertificationStatus.CONFORMANCE, AdapterCertificationStatus.CERTIFIED
+        }:
+            raise PermissionError("institution adapter certification status is ineligible")
+        if not hmac.compare_digest(
+            str(signed_manifest.signature.protected.get("payload_sha256", "")),
+            binding["adapter_manifest_digest"],
+        ) or manifest.descriptor.provider_id != binding["provider_id"]:
+            raise PermissionError("pinned signed adapter manifest does not match wrapper")
+        fence = body["fencing_controls"]
+        self._fences.assert_dispatch_safe(
+            utt_id=trace["utt_id"], rtt_id=rtt_id,
+            fence_epoch=fence["economic_effect_fence_epoch"],
+            release_evidence_ref=fence["release_evidence_ref"], at=instant,
+        )
+
     def admit(self, request: ProviderExecutionRequest, *, at: datetime) -> InstitutionAdapterBridge:
         if not isinstance(at, datetime) or at.tzinfo is None:
             raise ValueError("institutional dispatch time must be timezone-aware")
