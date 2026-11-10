@@ -26,7 +26,7 @@ class TrustedReader:
     def __init__(self, expected):
         self.expected = expected
 
-    def load(self, *, rtt_id):
+    def load(self, *, rtt_id, at):
         if rtt_id != self.expected.rtt_id:
             raise LookupError("unknown RTT in trusted state")
         return self.expected

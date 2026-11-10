@@ -119,17 +119,34 @@ class ProviderOperationsTests(unittest.TestCase):
             event_signing_key_id="R1CORE:execution:2026-01",
         )
 
-    def _create_current_rtt(self) -> str:
+    def _create_current_rtt(self, *, institutional=False) -> str:
+        payer_id = "CUID-" + "A" * 32 if institutional else "MER002"
+        beneficiary_id = "CUID-" + "B" * 32 if institutional else "SUP001"
+        purpose = PaymentPurpose.PERSON_TO_PERSON if institutional else PaymentPurpose.SUPPLIER_PAYMENT
+        origin = (
+            OriginContext(
+                origin_system="RAILONE", origin_intent_id="P2P-OPS-001",
+                context_type=ContextType.P2P, purpose=purpose, continuity_uid=payer_id,
+            )
+            if institutional else
+            OriginContext(
+                origin_system="AVIA", origin_intent_id="AVIA-SUPPLIER-OPS-001",
+                context_type=ContextType.MERCHANT, purpose=purpose,
+                merchant_id=payer_id, branch_id="BR001",
+            )
+        )
         quote = quote_service(self.signatures).issue_quote(
             terms=QuoteTerms(
                 request_id="REQ-OPS-001",
                 payer=ActorReference(
-                    "MERCHANT", "MER002", endpoint("BIND-PAYER-OPS", AccountRole.DEBIT)
+                    "PERSON" if institutional else "MERCHANT", payer_id,
+                    endpoint("acctbind_payer_ops" if institutional else "BIND-PAYER-OPS", AccountRole.DEBIT),
                 ),
                 beneficiary=ActorReference(
-                    "SUPPLIER", "SUP001", endpoint("BIND-BEN-OPS", AccountRole.CREDIT)
+                    "PERSON" if institutional else "SUPPLIER", beneficiary_id,
+                    endpoint("acctbind_ben_ops" if institutional else "BIND-BEN-OPS", AccountRole.CREDIT),
                 ),
-                purpose=PaymentPurpose.SUPPLIER_PAYMENT,
+                purpose=purpose,
                 amount_minor=250_000,
                 currency_from="KES",
                 receive_amount_minor=247_500,
@@ -155,14 +172,7 @@ class ProviderOperationsTests(unittest.TestCase):
         ).accept(
             QuoteAcceptanceCommand(
                 signed_quote=quote,
-                origin=OriginContext(
-                    origin_system="AVIA",
-                    origin_intent_id="AVIA-SUPPLIER-OPS-001",
-                    context_type=ContextType.MERCHANT,
-                    purpose=PaymentPurpose.SUPPLIER_PAYMENT,
-                    merchant_id="MER002",
-                    branch_id="BR001",
-                ),
+                origin=origin,
                 authorization_method="MERCHANT_ACTOR_ATTESTATION",
                 authorization_reference="AUTH-OPS-001",
                 idempotency_key="IDEM-OPS-001",
@@ -175,7 +185,7 @@ class ProviderOperationsTests(unittest.TestCase):
             destination_institution_id="INST-DEST",
             rail="MOBILE_MONEY",
             provider="PROVIDER-FAST",
-            adapter="provider-fast-v1",
+            adapter="provider-fast@1.0.0" if institutional else "provider-fast-v1",
             currency_from="KES",
             currency_to="KES",
             min_amount_minor=100,

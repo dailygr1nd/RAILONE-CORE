@@ -41,7 +41,7 @@ class ProviderAdapter(Protocol):
 class InstitutionalAdmissionGate(Protocol):
     """Trusted, registry-backed institutional admission; never caller-supplied policy data."""
 
-    def preflight(self, *, rtt_id: str, at: datetime) -> None: ...
+    def preflight(self, *, rtt_id: str, at: datetime) -> str: ...
 
     def admit(self, request: ProviderExecutionRequest, *, at: datetime) -> ProviderAdapter: ...
 
@@ -69,6 +69,14 @@ def _instant(at: datetime | None) -> datetime:
 def _content_id(prefix: str, payload: object) -> str:
     digest = hashlib.sha256(canonical_json_bytes(payload)).hexdigest().upper()
     return f"{prefix}-{digest[:32]}"
+
+
+def provider_idempotency_key(*, provider_id: str, rtt_id: str) -> str:
+    return _content_id("R1IDEM", {
+        "domain": "RAILONE-PROVIDER-SUBMISSION-V1",
+        "provider_id": provider_id,
+        "rtt_id": rtt_id,
+    })
 
 
 class ProviderSubmissionCoordinator:
@@ -113,7 +121,8 @@ class ProviderSubmissionCoordinator:
         return self._prepare(rtt_id=rtt_id, at=at)
 
     def _prepare(
-        self, *, rtt_id: str, at: datetime | None = None
+        self, *, rtt_id: str, at: datetime | None = None,
+        expected_request_sha256: str | None = None,
     ) -> tuple[ProviderSubmissionRecord, ProviderExecutionRequest]:
         instant = _instant(at)
         attempt = self._executions.require_attempt(require_text("rtt_id", rtt_id))
@@ -143,12 +152,7 @@ class ProviderSubmissionCoordinator:
 
         route = signed_rtt.payload["route"]
         provider_id = require_text("provider", route["provider"]).upper()
-        idempotency_material = {
-            "domain": "RAILONE-PROVIDER-SUBMISSION-V1",
-            "provider_id": provider_id,
-            "rtt_id": rtt_id,
-        }
-        idempotency_key = _content_id("R1IDEM", idempotency_material)
+        idempotency_key = provider_idempotency_key(provider_id=provider_id, rtt_id=rtt_id)
         utt = signed_utt.payload
         payer_endpoint = utt["payer"]["endpoint"]
         beneficiary_endpoint = utt["beneficiary"]["endpoint"]
@@ -180,6 +184,8 @@ class ProviderSubmissionCoordinator:
         request_sha256 = hashlib.sha256(
             canonical_json_bytes(request_material)
         ).hexdigest()
+        if expected_request_sha256 is not None and request_sha256 != expected_request_sha256:
+            raise PermissionError("resolved provider request disagrees with the signed wrapper")
         request = ProviderExecutionRequest(
             **request_material,
             request_sha256=request_sha256,
@@ -229,12 +235,15 @@ class ProviderSubmissionCoordinator:
             raise PermissionError("institutional adapter must be selected by the trusted registry")
         if self._dispatch_mode == "SIMULATED_PILOT" and adapter is None:
             raise SubmissionNotDispatchableError("simulation requires an explicit adapter")
+        expected_request_sha256 = None
         if self._dispatch_mode == "INSTITUTIONAL_SANDBOX":
             # Deny before creating a prepared submission or resolving protected
             # bank account endpoints. The final admit() revalidates the fence.
             assert self._institutional_admission is not None
-            self._institutional_admission.preflight(rtt_id=rtt_id, at=instant)
-        record, request = self._prepare(rtt_id=rtt_id, at=instant)
+            expected_request_sha256 = self._institutional_admission.preflight(rtt_id=rtt_id, at=instant)
+        record, request = self._prepare(
+            rtt_id=rtt_id, at=instant, expected_request_sha256=expected_request_sha256,
+        )
         if self._dispatch_mode == "INSTITUTIONAL_SANDBOX":
             # Guard verifies the stored signed wrapper against trusted core state,
             # active adapter manifest, request bytes, and economic-effect fence.
