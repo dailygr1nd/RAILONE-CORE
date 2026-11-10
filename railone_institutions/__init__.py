@@ -1,5 +1,9 @@
 """Institution-agnostic integration boundary for RailOne execution providers."""
 
+from .admission import (
+    AuthoritativeSnapshotReader, EconomicEffectFenceReader,
+    InstitutionalDispatchAdmissionGateway,
+)
 from .manifest import CapabilityManifestSigner
 from .models import (
     AdapterCertificationStatus,
@@ -25,6 +29,9 @@ from .wrapper import (
 )
 
 __all__ = [
+    "AuthoritativeSnapshotReader",
+    "EconomicEffectFenceReader",
+    "InstitutionalDispatchAdmissionGateway",
     "AdapterCertificationStatus",
     "AdapterDescriptor",
     "AdapterEligibilityQuery",
