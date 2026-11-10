@@ -1,0 +1,1412 @@
+diff --git a/docs/ADR-021-durable-fencing-and-institution-intelligence-isolation.md b/docs/ADR-021-durable-fencing-and-institution-intelligence-isolation.md
+new file mode 100644
+index 0000000..ea985d6
+--- /dev/null
++++ b/docs/ADR-021-durable-fencing-and-institution-intelligence-isolation.md
+@@ -0,0 +1,58 @@
++# ADR-021 — Durable Economic Fencing and Bank Intelligence Isolation
++
++**Status:** Sandbox integration candidate. **Requires disposable PostgreSQL test, external proof validation, and deployment review before use.**
++
++## Security invariants
++
++1. The accepted UTT is the economic-effect boundary; one UTT permits at most one potentially effective dispatch at a time. One RTT is only an operational attempt, not a new charge.
++2. Reserve a UTT hold under a PostgreSQL row lock *before* calling the institution. A reserved RTT is never automatically re-dispatched: crash, timeout, expired worker lease, provider acceptance, and `UNKNOWN` all retain the hold.
++3. Per-RTT operational state is persisted separately from the UTT economic hold. One uncertain RTT does not block unrelated UTTs. The network does not have a global mutex.
++4. An independent, purpose-separated Ed25519-signed `railone.no_effect_evidence` from an explicitly trusted settlement/reconciliation key is required to release a held UTT. The issuing service must verify authenticated provider/bank evidence and the absence of settlement before signing. A syntactically valid signature is not proof the original bank outcome was examined.
++5. Release advances the epoch. The next signed wrapper must pin the new epoch and exact release evidence ID; an older wrapper is invalid. Definitive settlement evidence finalizes the fence; no replay.
++6. An accepted-for-processing provider response is not settlement finality. Provider `REJECTED` is not an automatic no-effect release. A late contradictory settlement is an incident requiring operator escalation, never automatic retry.
++7. Legacy `SIMULATED_PILOT` behavior remains test-only; production mode is still rejected. Signatures alone do not grant live-bank execution authority.
++8. The protected `railone` schema holds raw route snapshots, alternate routes, costs, and signed evidence. Bank-specific PostgreSQL logins only access `railone_bank.metrics`, a security-barrier view backed by RLS and a server-side `SESSION_USER` map. Never rely on an API-supplied bank ID or writable session setting to determine access.
++9. Bank analytics is a reviewed publication workflow, not a dynamic query over raw routing tables. Only four allowlisted own-bank metrics are accepted; publication windows must span at least one day and cohorts include at least 20 samples. No raw UTTs, RTTs, counterparties, alternate routes, pricing or competitor performance is published.
++
++## Atomic reservation and recovery
++
++`PostgresEconomicEffectFence.reserve_dispatch` locks the existing `accepted_utts` row, validates the current active RTT and prepared request hash, and creates both UTT/RTT fence records in one transaction. Concurrent workers for the same UTT serialize. Another UTT is unaffected. A second reservation, even for the same RTT, is denied rather than risking a duplicate effect. The adapter call remains outside SQL transaction; its outcome is recorded afterward and **does not clear** the hold. A crash between reservation and the provider request may require manual investigation, deliberately prioritizing safety over liveness.
++
++`release_verified_no_effect` verifies the trusted signature, checks RTT/UTT/provider linkage and absence of persisted settlement evidence, stores the signed attestation, advances the epoch and releases the operational RTT in one transaction. This is only as strong as the trusted external reconciliation/signing pipeline and consistency of all settlement sources. No application-level release endpoint should be exposed until that pipeline is certified.
++
++## Bank access provisioning
++
++Create a separate PostgreSQL LOGIN per bank in an isolated deployment through an administrator. Example placeholders only (never commit passwords):
++
++```sql
++-- Run as a privileged DB administrator after migration 0015.
++CREATE ROLE railone_bank_reader NOLOGIN;
++-- Separate analytics publisher LOGIN, credentials issued through a secrets manager.
++-- CREATE ROLE railone_analytics_publisher LOGIN PASSWORD '<provisioned-out-of-band>';
++-- GRANT USAGE ON SCHEMA railone TO railone_analytics_publisher;
++-- GRANT INSERT ON railone.bank_analytics_publications TO railone_analytics_publisher;
++-- GRANT INSERT ON railone.bank_analytics_withdrawals TO railone_analytics_publisher;
++GRANT USAGE ON SCHEMA railone_bank TO railone_bank_reader;
++GRANT EXECUTE ON FUNCTION railone_bank.current_institution_id()
++    TO railone_bank_reader;
++GRANT SELECT ON railone_bank.metrics TO railone_bank_reader;
++
++-- Individual bank login and credentials provisioned through secrets management.
++-- CREATE ROLE bank_example_login LOGIN PASSWORD '<provided-out-of-band>';
++-- GRANT railone_bank_reader TO bank_example_login;
++-- INSERT INTO railone.bank_analytics_principals(login_role,institution_id,enabled)
++-- VALUES ('bank_example_login','BANK-TZ-ALPHA',true);
++```
++
++Do not grant `USAGE ON SCHEMA railone` or `SELECT` on the raw operational tables to the reader role. Validate two distinct bank logins; test that A cannot read B even after `SET ROLE`, and that an unmapped login receives no rows. `SESSION_USER` is the authenticated login; `SET ROLE` changes `CURRENT_USER` but not `SESSION_USER`. Use **session pooling keyed by bank login** or fresh connections. Never share an authenticated bank DB login between customers.
++
++## Required release gates
++
++- Execute migrations `0001`–`0015` on a disposable PostgreSQL 17 instance; verify checksum idempotency and tenant access with distinct real LOGIN roles.
++- Race two workers for the same UTT (only one reserve succeeds), two different UTTs (both independent), crash immediately after reserve, duplicate/late callbacks and release-vs-settlement races.
++- Build the trusted authoritative snapshot reader and prove dispatch cannot bypass the gateway through another adapter path.
++- Verify the *external* signed no-effect claims against bank/provider evidence before issuance; enforce dual-control for manual exceptions, revocation and signing key rotation.
++- Authenticate bank APIs with a production-grade token/mTLS gateway. Do not expose direct SQL to banks without reviewed credential and connection isolation.
++- Implement purpose-specific least-privilege database roles for execution, reconciliation, analytics publishing, operational reporting, secrets and migrations; audit every grant and membership.
++- Ensure analytics publication approvals are authenticated, dual-controlled where necessary, and privacy tested against inference/correlation; establish retention rules.
++- Run all PostgreSQL tests with no skips and verify CI, backup/restore, disaster recovery, secret scanning and independent security assessment.
+diff --git a/migrations/0015_durable_effect_fences_and_bank_analytics.sql b/migrations/0015_durable_effect_fences_and_bank_analytics.sql
+new file mode 100644
+index 0000000..939d71d
+--- /dev/null
++++ b/migrations/0015_durable_effect_fences_and_bank_analytics.sql
+@@ -0,0 +1,249 @@
++-- Phase 6. Forward-only; do not amend previously checksum-locked migrations.
++-- This schema models a UTT-wide economic hold and independently tracked RTT work.
++-- A lease timeout MUST NOT clear a potential provider financial effect.
++BEGIN;
++
++CREATE TABLE railone.utt_economic_fences (
++    utt_id text PRIMARY KEY REFERENCES railone.accepted_utts (utt_id),
++    fence_epoch bigint NOT NULL CHECK (fence_epoch >= 1),
++    state text NOT NULL CHECK (state IN ('OPEN','HELD','FINALIZED')),
++    current_rtt_id text REFERENCES railone.rtt_attempts (rtt_id),
++    last_release_evidence_id text,
++    version bigint NOT NULL DEFAULT 1 CHECK (version >= 1),
++    created_at timestamptz NOT NULL,
++    updated_at timestamptz NOT NULL,
++    CHECK ((state = 'OPEN' AND current_rtt_id IS NULL)
++        OR (state IN ('HELD','FINALIZED') AND current_rtt_id IS NOT NULL))
++);
++
++CREATE TABLE railone.rtt_operational_fences (
++    rtt_id text PRIMARY KEY REFERENCES railone.rtt_attempts (rtt_id),
++    utt_id text NOT NULL REFERENCES railone.accepted_utts (utt_id),
++    fence_epoch bigint NOT NULL CHECK (fence_epoch >= 1),
++    request_sha256 char(64) NOT NULL CHECK (request_sha256 ~ '^[0-9a-f]{64}$'),
++    state text NOT NULL CHECK (state IN (
++        'RESERVED','ACCEPTED_FOR_PROCESSING','REJECTED','UNKNOWN',
++        'RELEASED_NO_EFFECT','SETTLED'
++    )),
++    created_at timestamptz NOT NULL,
++    updated_at timestamptz NOT NULL,
++    UNIQUE (utt_id, fence_epoch),
++    FOREIGN KEY (utt_id, rtt_id) REFERENCES railone.rtt_attempts (utt_id, rtt_id)
++);
++
++CREATE TABLE railone.economic_fence_no_effect_evidence (
++    evidence_id text PRIMARY KEY,
++    utt_id text NOT NULL REFERENCES railone.accepted_utts (utt_id),
++    rtt_id text NOT NULL REFERENCES railone.rtt_operational_fences (rtt_id),
++    signed_evidence jsonb NOT NULL,
++    evidence_sha256 char(64) NOT NULL CHECK (evidence_sha256 ~ '^[0-9a-f]{64}$'),
++    signing_key_id text NOT NULL,
++    recorded_at timestamptz NOT NULL,
++    UNIQUE (utt_id, rtt_id),
++    CHECK (signed_evidence->'protected'->>'typ' = 'railone.no_effect_evidence'),
++    CHECK (signed_evidence->'protected'->>'payload_sha256' = evidence_sha256),
++    CHECK (signed_evidence->'payload'->>'evidence_id' = evidence_id)
++);
++
++-- A released epoch must reference stored signed no-effect proof.
++ALTER TABLE railone.utt_economic_fences
++ADD CONSTRAINT utt_fence_release_evidence_fk
++FOREIGN KEY (last_release_evidence_id)
++REFERENCES railone.economic_fence_no_effect_evidence (evidence_id);
++
++CREATE FUNCTION railone.guard_utt_economic_fence_update() RETURNS trigger
++LANGUAGE plpgsql AS $$
++BEGIN
++    IF NEW.utt_id <> OLD.utt_id OR NEW.created_at <> OLD.created_at
++       OR NEW.version <> OLD.version + 1 THEN
++        RAISE EXCEPTION 'economic fence identity/version mismatch';
++    END IF;
++    IF OLD.state = 'OPEN' AND NEW.state = 'HELD'
++       AND NEW.fence_epoch = OLD.fence_epoch
++       AND NEW.current_rtt_id IS NOT NULL
++       AND NEW.last_release_evidence_id IS NOT DISTINCT FROM OLD.last_release_evidence_id THEN
++        RETURN NEW;
++    END IF;
++    IF OLD.state = 'HELD' AND NEW.state = 'OPEN'
++       AND NEW.fence_epoch = OLD.fence_epoch + 1
++       AND NEW.current_rtt_id IS NULL
++       AND NEW.last_release_evidence_id IS NOT NULL
++       AND EXISTS (
++           SELECT 1 FROM railone.economic_fence_no_effect_evidence e
++           WHERE e.evidence_id = NEW.last_release_evidence_id
++             AND e.utt_id = OLD.utt_id AND e.rtt_id = OLD.current_rtt_id
++       ) THEN
++        RETURN NEW;
++    END IF;
++    IF OLD.state = 'HELD' AND NEW.state = 'FINALIZED'
++       AND NEW.current_rtt_id = OLD.current_rtt_id
++       AND NEW.fence_epoch = OLD.fence_epoch
++       AND NEW.last_release_evidence_id IS NOT DISTINCT FROM OLD.last_release_evidence_id THEN
++        RETURN NEW;
++    END IF;
++    RAISE EXCEPTION 'unsafe UTT economic fence transition';
++END;
++$$;
++CREATE TRIGGER utt_economic_fence_update_guard
++BEFORE UPDATE ON railone.utt_economic_fences
++FOR EACH ROW EXECUTE FUNCTION railone.guard_utt_economic_fence_update();
++
++CREATE FUNCTION railone.guard_rtt_operational_fence_update() RETURNS trigger
++LANGUAGE plpgsql AS $$
++BEGIN
++    IF NEW.rtt_id <> OLD.rtt_id OR NEW.utt_id <> OLD.utt_id
++       OR NEW.fence_epoch <> OLD.fence_epoch
++       OR NEW.request_sha256 <> OLD.request_sha256
++       OR NEW.created_at <> OLD.created_at THEN
++        RAISE EXCEPTION 'RTT operational fence identity cannot change';
++    END IF;
++    IF OLD.state = 'RESERVED'
++       AND NEW.state IN ('ACCEPTED_FOR_PROCESSING','REJECTED','UNKNOWN') THEN
++        RETURN NEW;
++    END IF;
++    IF OLD.state IN ('RESERVED','ACCEPTED_FOR_PROCESSING','REJECTED','UNKNOWN')
++       AND NEW.state = 'RELEASED_NO_EFFECT'
++       AND EXISTS (
++           SELECT 1 FROM railone.economic_fence_no_effect_evidence e
++           WHERE e.utt_id = OLD.utt_id AND e.rtt_id = OLD.rtt_id
++       ) THEN
++        RETURN NEW;
++    END IF;
++    IF OLD.state IN ('RESERVED','ACCEPTED_FOR_PROCESSING','REJECTED','UNKNOWN')
++       AND NEW.state = 'SETTLED'
++       AND EXISTS (
++           SELECT 1 FROM railone.settlement_evidence e
++           JOIN railone.provider_submissions s
++             ON s.provider_id = e.provider_id
++            AND s.external_reference = e.provider_transaction_id
++           WHERE e.utt_id = OLD.utt_id AND s.rtt_id = OLD.rtt_id
++       ) THEN
++        RETURN NEW;
++    END IF;
++    RAISE EXCEPTION 'unsafe RTT operational fence transition';
++END;
++$$;
++CREATE TRIGGER rtt_operational_fence_update_guard
++BEFORE UPDATE ON railone.rtt_operational_fences
++FOR EACH ROW EXECUTE FUNCTION railone.guard_rtt_operational_fence_update();
++
++-- Settlement writers and fence writers lock the same immutable UTT row. A
++-- release cannot race a concurrent settlement-evidence insertion unnoticed.
++CREATE FUNCTION railone.lock_utt_before_settlement_evidence() RETURNS trigger
++LANGUAGE plpgsql AS $$
++BEGIN
++    PERFORM 1 FROM railone.accepted_utts WHERE utt_id = NEW.utt_id FOR UPDATE;
++    IF NOT FOUND THEN
++        RAISE EXCEPTION 'settlement evidence refers to unknown UTT';
++    END IF;
++    RETURN NEW;
++END;
++$$;
++CREATE TRIGGER settlement_evidence_utt_lock
++BEFORE INSERT ON railone.settlement_evidence
++FOR EACH ROW EXECUTE FUNCTION railone.lock_utt_before_settlement_evidence();
++
++CREATE TABLE railone.economic_fence_events (
++    event_number bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
++    utt_id text NOT NULL REFERENCES railone.accepted_utts (utt_id),
++    rtt_id text NOT NULL REFERENCES railone.rtt_attempts (rtt_id),
++    fence_epoch bigint NOT NULL,
++    event_type text NOT NULL CHECK (event_type IN (
++        'RESERVED','PROVIDER_ACCEPTED','PROVIDER_REJECTED','PROVIDER_UNKNOWN',
++        'VERIFIED_NO_EFFECT','SETTLED'
++    )),
++    evidence_id text,
++    recorded_at timestamptz NOT NULL
++);
++CREATE INDEX economic_fence_events_utt_idx
++    ON railone.economic_fence_events (utt_id, event_number);
++
++CREATE TRIGGER economic_fence_evidence_immutable
++BEFORE UPDATE OR DELETE ON railone.economic_fence_no_effect_evidence
++FOR EACH ROW EXECUTE FUNCTION railone.reject_append_only_mutation();
++CREATE TRIGGER economic_fence_events_immutable
++BEFORE UPDATE OR DELETE ON railone.economic_fence_events
++FOR EACH ROW EXECUTE FUNCTION railone.reject_append_only_mutation();
++
++-- A bank principal maps an authenticated PostgreSQL login (session_user) to
++-- one institution. The map is managed only by database security administrators.
++CREATE TABLE railone.bank_analytics_principals (
++    login_role name PRIMARY KEY,
++    institution_id text NOT NULL REFERENCES railone.partner_institutions (institution_id),
++    enabled boolean NOT NULL DEFAULT false,
++    created_at timestamptz NOT NULL DEFAULT now()
++);
++
++-- Explicitly approved, low-resolution, bank-owned performance publications.
++-- No route alternatives, rival-institution fields, pricing, raw identifiers or
++-- source JSON may be placed in this structure.
++CREATE TABLE railone.bank_analytics_publications (
++    publication_id text PRIMARY KEY,
++    institution_id text NOT NULL REFERENCES railone.partner_institutions (institution_id),
++    metric_name text NOT NULL CHECK (metric_name IN (
++        'OWN_UTT_SUBMITTED_TOTAL','OWN_UTT_SETTLED_TOTAL',
++        'OWN_SETTLEMENT_LATENCY_P95_MS','OWN_PROVIDER_ACCEPTANCE_RATE_BPS'
++    )),
++    period_start timestamptz NOT NULL,
++    period_end timestamptz NOT NULL,
++    metric_value bigint NOT NULL CHECK (metric_value >= 0),
++    sample_count bigint NOT NULL CHECK (sample_count >= 20),
++    approved_by text NOT NULL CHECK (length(approved_by) BETWEEN 3 AND 128),
++    published_at timestamptz NOT NULL DEFAULT now(),
++    CHECK (period_end - period_start >= interval '1 day'),
++    CHECK (metric_name <> 'OWN_PROVIDER_ACCEPTANCE_RATE_BPS' OR metric_value <= 10000),
++    UNIQUE (institution_id, metric_name, period_start, period_end)
++);
++CREATE INDEX bank_analytics_publications_scope_idx
++    ON railone.bank_analytics_publications (institution_id, period_end DESC);
++CREATE TABLE railone.bank_analytics_withdrawals (
++    publication_id text PRIMARY KEY REFERENCES railone.bank_analytics_publications (publication_id),
++    reason_code text NOT NULL CHECK (reason_code IN ('CORRECTION','PRIVACY','POLICY')),
++    withdrawn_at timestamptz NOT NULL DEFAULT now()
++);
++CREATE TRIGGER bank_analytics_publications_immutable
++BEFORE UPDATE OR DELETE ON railone.bank_analytics_publications
++FOR EACH ROW EXECUTE FUNCTION railone.reject_append_only_mutation();
++CREATE TRIGGER bank_analytics_withdrawals_immutable
++BEFORE UPDATE OR DELETE ON railone.bank_analytics_withdrawals
++FOR EACH ROW EXECUTE FUNCTION railone.reject_append_only_mutation();
++
++CREATE SCHEMA railone_bank;
++REVOKE ALL ON SCHEMA railone_bank FROM PUBLIC;
++-- SECURITY DEFINER function does not accept caller-supplied institution IDs or GUCs.
++-- SESSION_USER remains the actual DB login when a shared role is SET ROLE'd.
++CREATE FUNCTION railone_bank.current_institution_id() RETURNS text
++LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog
++AS $$
++    SELECT p.institution_id
++    FROM railone.bank_analytics_principals AS p
++    WHERE p.login_role = session_user::name AND p.enabled IS TRUE
++$$;
++REVOKE ALL ON FUNCTION railone_bank.current_institution_id() FROM PUBLIC;
++
++ALTER TABLE railone.bank_analytics_publications ENABLE ROW LEVEL SECURITY;
++ALTER TABLE railone.bank_analytics_publications FORCE ROW LEVEL SECURITY;
++CREATE POLICY bank_analytics_self_only ON railone.bank_analytics_publications
++FOR SELECT USING (institution_id = railone_bank.current_institution_id());
++-- A dedicated, authenticated publishing LOGIN is required. Membership in a
++-- shared writer role is insufficient; a bank cannot SET ROLE to spoof SESSION_USER.
++CREATE POLICY bank_analytics_publisher_insert ON railone.bank_analytics_publications
++FOR INSERT WITH CHECK (session_user::text = 'railone_analytics_publisher');
++
++CREATE VIEW railone_bank.metrics WITH (security_barrier=true) AS
++SELECT p.metric_name, p.period_start, p.period_end,
++       p.metric_value, p.sample_count
++FROM railone.bank_analytics_publications AS p
++WHERE p.institution_id = railone_bank.current_institution_id()
++  AND NOT EXISTS (
++      SELECT 1 FROM railone.bank_analytics_withdrawals AS w
++      WHERE w.publication_id = p.publication_id
++  );
++REVOKE ALL ON railone_bank.metrics FROM PUBLIC;
++-- Never grant raw railone schema access to any bank login.
++REVOKE ALL ON SCHEMA railone FROM PUBLIC;
++REVOKE ALL ON ALL TABLES IN SCHEMA railone FROM PUBLIC;
++-- Deployment administrators must deliberately grant only USAGE on railone_bank,
++-- EXECUTE on current_institution_id(), and SELECT on railone_bank.metrics.
++
++COMMIT;
+diff --git a/railone_crypto/signature_service.py b/railone_crypto/signature_service.py
+index a770612..49871aa 100644
+--- a/railone_crypto/signature_service.py
++++ b/railone_crypto/signature_service.py
+@@ -32,6 +32,7 @@ class ArtifactType(StrEnum):
+     INSTITUTION_CAPABILITY_MANIFEST = "railone.institution_capability_manifest"
+     PARTNER_CERTIFICATION_REPORT = "railone.partner_certification_report"
+     INSTITUTION_DISPATCH_WRAPPER = "railone.institution_dispatch_wrapper"
++    NO_EFFECT_EVIDENCE = "railone.no_effect_evidence"
+ 
+ 
+ _PURPOSE_BY_ARTIFACT = {
+@@ -48,6 +49,7 @@ _PURPOSE_BY_ARTIFACT = {
+     ArtifactType.INSTITUTION_CAPABILITY_MANIFEST: KeyPurpose.EXECUTION_SIGNING,
+     ArtifactType.PARTNER_CERTIFICATION_REPORT: KeyPurpose.EXECUTION_SIGNING,
+     ArtifactType.INSTITUTION_DISPATCH_WRAPPER: KeyPurpose.EXECUTION_SIGNING,
++    ArtifactType.NO_EFFECT_EVIDENCE: KeyPurpose.SETTLEMENT_SIGNING,
+ }
+ 
+ _DOMAIN_PREFIX = b"RAILONE-SIGNED-ARTIFACT-V1\x00"
+diff --git a/railone_institutions/admission.py b/railone_institutions/admission.py
+index a8de560..57cc4ca 100644
+--- a/railone_institutions/admission.py
++++ b/railone_institutions/admission.py
+@@ -32,6 +32,15 @@ class EconomicEffectFenceReader(Protocol):
+         release_evidence_ref: str | None, at: datetime,
+     ) -> None: ...
+ 
++    def reserve_dispatch(
++        self, *, utt_id: str, rtt_id: str, fence_epoch: int,
++        release_evidence_ref: str | None, request_sha256: str, at: datetime,
++    ) -> None: ...
++
++    def record_provider_outcome(
++        self, *, utt_id: str, rtt_id: str, outcome: str, at: datetime,
++    ) -> None: ...
++
+ 
+ class InstitutionalDispatchAdmissionGateway:
+     """The only adapter selection path for INSTITUTIONAL_SANDBOX mode.
+@@ -150,4 +159,22 @@ class InstitutionalDispatchAdmissionGateway:
+             release_evidence_ref=fence["release_evidence_ref"],
+             at=instant,
+         )
++        # The read-only preflight is not permission to send. Reserve atomically
++        # in PostgreSQL after final wrapper and adapter checks, and BEFORE the
++        # network call. A crash leaves the hold in place until reconciliation.
++        self._fences.reserve_dispatch(
++            utt_id=request.utt_id,
++            rtt_id=request.rtt_id,
++            fence_epoch=fence["economic_effect_fence_epoch"],
++            release_evidence_ref=fence["release_evidence_ref"],
++            request_sha256=request.request_sha256,
++            at=instant,
++        )
+         return InstitutionAdapterBridge(adapter)
++
++    def record_provider_outcome(
++        self, *, utt_id: str, rtt_id: str, outcome: str, at: datetime,
++    ) -> None:
++        self._fences.record_provider_outcome(
++            utt_id=utt_id, rtt_id=rtt_id, outcome=outcome, at=at
++        )
+diff --git a/railone_operations/service.py b/railone_operations/service.py
+index e36aff0..8b1b3f9 100644
+--- a/railone_operations/service.py
++++ b/railone_operations/service.py
+@@ -45,6 +45,10 @@ class InstitutionalAdmissionGate(Protocol):
+ 
+     def admit(self, request: ProviderExecutionRequest, *, at: datetime) -> ProviderAdapter: ...
+ 
++    def record_provider_outcome(
++        self, *, utt_id: str, rtt_id: str, outcome: str, at: datetime,
++    ) -> None: ...
++
+ 
+ class SubmissionNotDispatchableError(RuntimeError):
+     pass
+@@ -282,7 +286,16 @@ class ProviderSubmissionCoordinator:
+                 outcome=ProviderOutcome.UNKNOWN,
+                 code="ADAPTER_EXCEPTION_OUTCOME_UNKNOWN",
+             )
+-        return self._complete(record=dispatching, result=result, at=instant)
++        completed = self._complete(record=dispatching, result=result, at=instant)
++        if self._dispatch_mode == "INSTITUTIONAL_SANDBOX":
++            # Observation is operational evidence, NOT release of the UTT hold.
++            # Failed observation recording leaves a conservative durable hold.
++            assert self._institutional_admission is not None
++            self._institutional_admission.record_provider_outcome(
++                utt_id=completed.utt_id, rtt_id=completed.rtt_id,
++                outcome=completed.state.value, at=instant,
++            )
++        return completed
+ 
+     def _complete(
+         self,
+diff --git a/railone_postgres/__init__.py b/railone_postgres/__init__.py
+index 377b0c5..8266543 100644
+--- a/railone_postgres/__init__.py
++++ b/railone_postgres/__init__.py
+@@ -20,6 +20,8 @@ from .security import PostgresEncryptedSecretStore
+ from .sandbox import PostgresSandboxEffectStore
+ from .institutions import PostgresInstitutionManifestStore
+ from .dispatch_wrappers import PostgresDispatchWrapperStore
++from .fencing import PostgresEconomicEffectFence, EconomicFenceViolation
++from .bank_analytics import BankMetric, PostgresBankMetricsPublisher, PostgresBankMetricsReader
+ from .certification import (
+     PostgresCertificationReportStore, PostgresCertificationRunRecorder,
+ )
+@@ -42,6 +44,11 @@ __all__ = [
+     "PostgresSandboxEffectStore",
+     "PostgresInstitutionManifestStore",
+     "PostgresDispatchWrapperStore",
++    "PostgresEconomicEffectFence",
++    "EconomicFenceViolation",
++    "BankMetric",
++    "PostgresBankMetricsPublisher",
++    "PostgresBankMetricsReader",
+     "PostgresCertificationReportStore",
+     "PostgresCertificationRunRecorder",
+     "PostgresIdentityRepository",
+diff --git a/railone_postgres/bank_analytics.py b/railone_postgres/bank_analytics.py
+new file mode 100644
+index 0000000..dc4c0d4
+--- /dev/null
++++ b/railone_postgres/bank_analytics.py
+@@ -0,0 +1,110 @@
++"""Publication-only bank analytics: no access to private route-decision data.
++
++Writer and reader MUST use different DB credentials. Bank reads must connect as
++an individually authenticated PostgreSQL LOGIN mapped by the security admin in
++railone.bank_analytics_principals. The SQL view scopes by SESSION_USER, not a
++client-supplied institution ID or writable application setting.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from uuid import uuid4
++
++from .runtime import PostgresDatabase
++
++_ALLOWED = frozenset({
++    "OWN_UTT_SUBMITTED_TOTAL", "OWN_UTT_SETTLED_TOTAL",
++    "OWN_SETTLEMENT_LATENCY_P95_MS", "OWN_PROVIDER_ACCEPTANCE_RATE_BPS",
++})
++
++
++def _time(value: datetime) -> datetime:
++    if not isinstance(value, datetime) or value.tzinfo is None:
++        raise ValueError("metric reporting period requires aware UTC times")
++    return value.astimezone(timezone.utc)
++
++
++@dataclass(frozen=True, slots=True)
++class BankMetric:
++    metric_name: str
++    period_start: datetime
++    period_end: datetime
++    metric_value: int
++    sample_count: int
++
++    def __post_init__(self) -> None:
++        if self.metric_name not in _ALLOWED:
++            raise ValueError("metric is not approved for bank publication")
++        if (_time(self.period_end) - _time(self.period_start)).total_seconds() < 86400:
++            raise ValueError("bank publications cannot expose sub-day windows")
++        for name in ("metric_value", "sample_count"):
++            value = getattr(self, name)
++            if type(value) is not int or value < 0 or value >= 2**63:
++                raise ValueError(f"{name} must be a nonnegative bounded integer")
++        if self.sample_count < 20:
++            raise ValueError("insufficient cohort size for bank publication")
++        if (self.metric_name == "OWN_PROVIDER_ACCEPTANCE_RATE_BPS"
++                and self.metric_value > 10_000):
++            raise ValueError("acceptance rate must be expressed in basis points")
++
++
++class PostgresBankMetricsPublisher:
++    """Trusted batch-only service; DB principal must NOT be bank read-only."""
++
++    def __init__(self, database: PostgresDatabase) -> None:
++        self._database = database
++
++    def publish(self, *, institution_id: str, metric: BankMetric,
++                approved_by: str) -> str:
++        # Caller/approval authentication belongs to the trusted publishing job;
++        # source data MUST be aggregated from the institution's own transactions.
++        if not isinstance(institution_id, str) or not 3 <= len(institution_id) <= 128:
++            raise ValueError("institution id is invalid")
++        if not isinstance(approved_by, str) or not 3 <= len(approved_by) <= 128:
++            raise ValueError("approval identity required")
++        publication_id = "PUB-" + uuid4().hex.upper()
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                """INSERT INTO railone.bank_analytics_publications
++                   (publication_id,institution_id,metric_name,period_start,period_end,
++                    metric_value,sample_count,approved_by)
++                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
++                (publication_id, institution_id, metric.metric_name,
++                 _time(metric.period_start), _time(metric.period_end),
++                 metric.metric_value, metric.sample_count, approved_by),
++            )
++        return publication_id
++
++    def withdraw(self, *, publication_id: str, reason_code: str) -> None:
++        if reason_code not in {"CORRECTION", "PRIVACY", "POLICY"}:
++            raise ValueError("publication withdrawal reason must be allowlisted")
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                """INSERT INTO railone.bank_analytics_withdrawals
++                   (publication_id,reason_code) VALUES (%s,%s)""",
++                (publication_id, reason_code),
++            )
++
++
++class PostgresBankMetricsReader:
++    """Read only the pre-approved security-barrier view, never operational tables.
++
++    Use a dedicated bank-specific DB login. No caller-supplied institution filter
++    is accepted. The database itself is the bank identity and access boundary.
++    """
++
++    def __init__(self, database: PostgresDatabase) -> None:
++        self._database = database
++
++    def list_metrics(self, *, limit: int = 100) -> tuple[BankMetric, ...]:
++        if type(limit) is not int or not 1 <= limit <= 365:
++            raise ValueError("metric read limit must be between 1 and 365")
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                """SELECT metric_name,period_start,period_end,metric_value,sample_count
++                   FROM railone_bank.metrics ORDER BY period_end DESC,metric_name
++                   LIMIT %s""", (limit,),
++            )
++            rows = cursor.fetchall()
++        return tuple(BankMetric(**dict(row)) for row in rows)
+diff --git a/railone_postgres/fencing.py b/railone_postgres/fencing.py
+new file mode 100644
+index 0000000..7a86c24
+--- /dev/null
++++ b/railone_postgres/fencing.py
+@@ -0,0 +1,339 @@
++"""Durable, conservative UTT economic-effect fencing with per-RTT lineage.
++
++A reservation is a financial-effect *possibility*, not a lease. A process crash,
++provider timeout, or an accepted-for-processing response NEVER releases it.
++Release requires an independently signed NO_ECONOMIC_EFFECT attestation from a
++specifically trusted settlement/reconciliation signing key. The signer must
++verify the original provider evidence before issuing an attestation.
++
++This repository is for INSTITUTIONAL_SANDBOX only. It does not grant live access.
++"""
++
++from __future__ import annotations
++
++import re
++from datetime import datetime, timezone
++
++from railone_crypto.signature_service import ArtifactType, SignatureEnvelope, SignatureService
++from .codec import json_text
++from .runtime import PostgresDatabase
++
++_HEX = re.compile(r"^[0-9a-f]{64}$")
++_OPAQUE = re.compile(r"^[A-Za-z0-9._:-]{3,128}$")
++_ALLOWED_OUTCOMES = {
++    "ACCEPTED": ("ACCEPTED_FOR_PROCESSING", "PROVIDER_ACCEPTED"),
++    "REJECTED": ("REJECTED", "PROVIDER_REJECTED"),
++    "UNKNOWN": ("UNKNOWN", "PROVIDER_UNKNOWN"),
++}
++
++
++class EconomicFenceViolation(PermissionError):
++    """Dispatch or release lacks durable proof of economic safety."""
++
++
++def _time(value: datetime) -> datetime:
++    if not isinstance(value, datetime) or value.tzinfo is None:
++        raise ValueError("fence timestamp must be timezone-aware")
++    return value.astimezone(timezone.utc)
++
++
++def _epoch(value: int) -> int:
++    if type(value) is not int or not 1 <= value < 2**63:
++        raise ValueError("economic fence epoch must be a positive integer")
++    return value
++
++
++class PostgresEconomicEffectFence:
++    """Enforces a UTT-wide hold and RTT-specific operational state using row locks.
++
++    reserve_dispatch() is the only authorization-changing operation. The UTT row
++    is locked before checking the attempt, plan, and current fence. No expired
++    lease, HTTP retry, or process restart can implicitly release a reservation.
++    """
++
++    def __init__(
++        self, database: PostgresDatabase, *, signatures: SignatureService,
++        trusted_no_effect_signing_keys: frozenset[str],
++    ) -> None:
++        if not trusted_no_effect_signing_keys:
++            raise ValueError("at least one trusted no-effect signer is required")
++        self._database = database
++        self._signatures = signatures
++        self._trusted_keys = frozenset(trusted_no_effect_signing_keys)
++
++    @staticmethod
++    def _assert_epoch(row, *, epoch: int, release_ref: str | None) -> None:
++        if row is None:
++            if epoch != 1 or release_ref is not None:
++                raise EconomicFenceViolation("first dispatch requires epoch 1 and no release")
++        elif (row["state"] != "OPEN" or row["fence_epoch"] != epoch
++              or row["last_release_evidence_id"] != release_ref):
++            raise EconomicFenceViolation("economic effect is held, final, or at a different epoch")
++
++    def assert_dispatch_safe(
++        self, *, utt_id: str, rtt_id: str, fence_epoch: int,
++        release_evidence_ref: str | None, at: datetime,
++    ) -> None:
++        _time(at)
++        _epoch(fence_epoch)
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                "SELECT fence_epoch,state,last_release_evidence_id "
++                "FROM railone.utt_economic_fences WHERE utt_id=%s", (utt_id,)
++            )
++            row = cursor.fetchone()
++            self._assert_epoch(row, epoch=fence_epoch, release_ref=release_evidence_ref)
++            cursor.execute(
++                "SELECT 1 FROM railone.settlement_evidence WHERE utt_id=%s", (utt_id,)
++            )
++            if cursor.fetchone() is not None:
++                raise EconomicFenceViolation("existing settlement prohibits admission")
++            cursor.execute(
++                """SELECT a.rtt_id FROM railone.rtt_attempts AS a
++                   JOIN railone.execution_plans AS p ON p.plan_id=a.plan_id
++                   WHERE a.rtt_id=%s AND a.utt_id=%s AND a.state='CREATED'
++                   AND p.utt_id=%s AND p.current_rtt_id=a.rtt_id
++                   AND p.status='ACTIVE'""",
++                (rtt_id, utt_id, utt_id),
++            )
++            if cursor.fetchone() is None:
++                raise EconomicFenceViolation("RTT is not the current eligible attempt")
++
++    def reserve_dispatch(
++        self, *, utt_id: str, rtt_id: str, fence_epoch: int,
++        release_evidence_ref: str | None, request_sha256: str, at: datetime,
++    ) -> None:
++        """Atomically reserve the UTT economic effect for exactly this RTT.
++
++        The reservation commits BEFORE a network call. Crash after commit is
++        deliberately fail-closed, requiring reconciliation before another RTT.
++        """
++        instant = _time(at)
++        _epoch(fence_epoch)
++        if not isinstance(request_sha256, str) or not _HEX.fullmatch(request_sha256):
++            raise ValueError("invalid prepared provider-request digest")
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            # Every contender locks the same already-existing accepted UTT row,
++            # including when the fence row has not yet been initialized.
++            cursor.execute(
++                "SELECT utt_id FROM railone.accepted_utts WHERE utt_id=%s FOR UPDATE", (utt_id,)
++            )
++            if cursor.fetchone() is None:
++                raise EconomicFenceViolation("accepted UTT not found")
++            cursor.execute(
++                "SELECT 1 FROM railone.settlement_evidence WHERE utt_id=%s", (utt_id,)
++            )
++            if cursor.fetchone() is not None:
++                raise EconomicFenceViolation("existing settlement prohibits any new dispatch")
++            cursor.execute(
++                """SELECT a.rtt_id FROM railone.rtt_attempts AS a
++                   JOIN railone.execution_plans AS p ON p.plan_id=a.plan_id
++                   JOIN railone.provider_submissions AS s ON s.rtt_id=a.rtt_id
++                   WHERE a.rtt_id=%s AND a.utt_id=%s AND a.state='CREATED'
++                   AND p.utt_id=%s AND p.current_rtt_id=a.rtt_id
++                   AND p.status='ACTIVE' AND s.state='PREPARED'
++                   AND s.request_sha256=%s""",
++                (rtt_id, utt_id, utt_id, request_sha256),
++            )
++            if cursor.fetchone() is None:
++                raise EconomicFenceViolation("RTT, plan or prepared request changed before reservation")
++            cursor.execute(
++                """SELECT fence_epoch,state,last_release_evidence_id
++                   FROM railone.utt_economic_fences WHERE utt_id=%s FOR UPDATE""", (utt_id,)
++            )
++            existing = cursor.fetchone()
++            self._assert_epoch(existing, epoch=fence_epoch, release_ref=release_evidence_ref)
++            if existing is None:
++                cursor.execute(
++                    """INSERT INTO railone.utt_economic_fences
++                       (utt_id,fence_epoch,state,current_rtt_id,last_release_evidence_id,
++                        created_at,updated_at) VALUES (%s,%s,'HELD',%s,NULL,%s,%s)""",
++                    (utt_id, fence_epoch, rtt_id, instant, instant),
++                )
++            else:
++                cursor.execute(
++                    """UPDATE railone.utt_economic_fences
++                       SET state='HELD',current_rtt_id=%s,version=version+1,updated_at=%s
++                       WHERE utt_id=%s AND state='OPEN' AND fence_epoch=%s""",
++                    (rtt_id, instant, utt_id, fence_epoch),
++                )
++                if cursor.rowcount != 1:
++                    raise EconomicFenceViolation("economic fence changed concurrently")
++            cursor.execute(
++                """INSERT INTO railone.rtt_operational_fences
++                   (rtt_id,utt_id,fence_epoch,request_sha256,state,created_at,updated_at)
++                   VALUES (%s,%s,%s,%s,'RESERVED',%s,%s)""",
++                (rtt_id, utt_id, fence_epoch, request_sha256, instant, instant),
++            )
++            self._event(cursor, utt_id, rtt_id, fence_epoch, "RESERVED", None, instant)
++
++    def record_provider_outcome(
++        self, *, utt_id: str, rtt_id: str, outcome: str, at: datetime,
++    ) -> None:
++        """Record provider observation; NEVER clear the UTT economic hold."""
++        instant = _time(at)
++        if outcome not in _ALLOWED_OUTCOMES:
++            raise ValueError("unsupported provider outcome")
++        state, event = _ALLOWED_OUTCOMES[outcome]
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                """SELECT fence_epoch FROM railone.utt_economic_fences
++                   WHERE utt_id=%s AND current_rtt_id=%s AND state='HELD' FOR UPDATE""",
++                (utt_id, rtt_id),
++            )
++            row = cursor.fetchone()
++            if row is None:
++                raise EconomicFenceViolation("provider outcome cannot change a released fence")
++            cursor.execute(
++                """UPDATE railone.rtt_operational_fences SET state=%s,updated_at=%s
++                   WHERE rtt_id=%s AND utt_id=%s AND state IN
++                   ('RESERVED','UNKNOWN','ACCEPTED_FOR_PROCESSING','REJECTED')""",
++                (state, instant, rtt_id, utt_id),
++            )
++            if cursor.rowcount != 1:
++                raise EconomicFenceViolation("RTT operational fence cannot change state")
++            self._event(cursor, utt_id, rtt_id, row["fence_epoch"], event, None, instant)
++
++    def release_verified_no_effect(
++        self, *, evidence: SignatureEnvelope, at: datetime,
++    ) -> int:
++        """Advance epoch only after signed evidence is validated and stored.
++
++        Trust of the signer is necessary but not sufficient: the *external*
++        reconciliation service must independently verify the bank/provider proof
++        before issuing this purpose-separated attestation.
++        """
++        instant = _time(at)
++        result = self._signatures.verify_artifact(
++            evidence, expected_artifact_type=ArtifactType.NO_EFFECT_EVIDENCE
++        )
++        if not result.valid or result.key_id not in self._trusted_keys:
++            raise EconomicFenceViolation("no-effect evidence signature or signer is not trusted")
++        p = evidence.payload
++        if set(p) != {"evidence_id","utt_id","rtt_id","provider_id","finding",
++                      "source_evidence_digest","observed_at_epoch"}:
++            raise EconomicFenceViolation("no-effect attestation has unexpected fields")
++        if p["finding"] != "NO_ECONOMIC_EFFECT":
++            raise EconomicFenceViolation("attestation is not proof of no effect")
++        if any(not isinstance(p[k], str) or not _OPAQUE.fullmatch(p[k])
++               for k in ("evidence_id","utt_id","rtt_id","provider_id")):
++            raise EconomicFenceViolation("invalid no-effect evidence reference")
++        if not isinstance(p["source_evidence_digest"], str) or not _HEX.fullmatch(p["source_evidence_digest"]):
++            raise EconomicFenceViolation("no-effect source artifact must be digest-bound")
++        if type(p["observed_at_epoch"]) is not int or p["observed_at_epoch"] > int(instant.timestamp()):
++            raise EconomicFenceViolation("no-effect evidence observation time is invalid")
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            # Use the same UTT lock order as reservation and settlement insertion,
++            # so releases cannot race a newly persisted settlement record.
++            cursor.execute(
++                "SELECT utt_id FROM railone.accepted_utts WHERE utt_id=%s FOR UPDATE",
++                (p["utt_id"],),
++            )
++            if cursor.fetchone() is None:
++                raise EconomicFenceViolation("attested UTT does not exist")
++            cursor.execute(
++                """SELECT fence_epoch,current_rtt_id FROM railone.utt_economic_fences
++                   WHERE utt_id=%s AND state='HELD' FOR UPDATE""", (p["utt_id"],)
++            )
++            row = cursor.fetchone()
++            if row is None or row["current_rtt_id"] != p["rtt_id"]:
++                raise EconomicFenceViolation("attestation does not match active economic hold")
++            if row["fence_epoch"] >= 2**63 - 1:
++                raise EconomicFenceViolation("economic fence epoch exhausted")
++            cursor.execute(
++                """SELECT 1 FROM railone.provider_submissions
++                   WHERE rtt_id=%s AND utt_id=%s AND provider_id=%s""",
++                (p["rtt_id"], p["utt_id"], p["provider_id"]),
++            )
++            if cursor.fetchone() is None:
++                raise EconomicFenceViolation("attested provider does not match submission")
++            cursor.execute(
++                """SELECT 1 FROM railone.settlement_evidence
++                   WHERE utt_id=%s""", (p["utt_id"],)
++            )
++            if cursor.fetchone() is not None:
++                raise EconomicFenceViolation("existing settlement evidence prohibits release")
++            cursor.execute(
++                """INSERT INTO railone.economic_fence_no_effect_evidence
++                   (evidence_id,utt_id,rtt_id,signed_evidence,evidence_sha256,
++                    signing_key_id,recorded_at)
++                   VALUES (%s,%s,%s,%s::jsonb,%s,%s,%s)""",
++                (p["evidence_id"], p["utt_id"], p["rtt_id"],
++                 json_text(evidence.to_dict()), evidence.protected["payload_sha256"],
++                 result.key_id, instant),
++            )
++            cursor.execute(
++                """UPDATE railone.rtt_operational_fences
++                   SET state='RELEASED_NO_EFFECT',updated_at=%s
++                   WHERE rtt_id=%s AND state IN
++                   ('RESERVED','UNKNOWN','REJECTED','ACCEPTED_FOR_PROCESSING')""",
++                (instant, p["rtt_id"]),
++            )
++            if cursor.rowcount != 1:
++                raise EconomicFenceViolation("RTT operational fence cannot be released")
++            next_epoch = row["fence_epoch"] + 1
++            cursor.execute(
++                """UPDATE railone.utt_economic_fences
++                   SET fence_epoch=%s,state='OPEN',current_rtt_id=NULL,
++                       last_release_evidence_id=%s,version=version+1,updated_at=%s
++                   WHERE utt_id=%s AND state='HELD'""",
++                (next_epoch, p["evidence_id"], instant, p["utt_id"]),
++            )
++            self._event(cursor, p["utt_id"], p["rtt_id"], row["fence_epoch"],
++                        "VERIFIED_NO_EFFECT", p["evidence_id"], instant)
++            return next_epoch
++
++    def mark_settled_from_verified_evidence(
++        self, *, utt_id: str, rtt_id: str, evidence_id: str, at: datetime,
++    ) -> None:
++        """Finalize only a matching, independently persisted settlement proof."""
++        instant = _time(at)
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                "SELECT utt_id FROM railone.accepted_utts WHERE utt_id=%s FOR UPDATE",
++                (utt_id,),
++            )
++            if cursor.fetchone() is None:
++                raise EconomicFenceViolation("settlement UTT is not recognized")
++            cursor.execute(
++                """SELECT fence_epoch FROM railone.utt_economic_fences
++                   WHERE utt_id=%s AND current_rtt_id=%s AND state='HELD' FOR UPDATE""",
++                (utt_id, rtt_id),
++            )
++            row = cursor.fetchone()
++            if row is None:
++                raise EconomicFenceViolation("late or mismatched settlement needs operator escalation")
++            cursor.execute(
++                """SELECT 1 FROM railone.settlement_evidence AS e
++                   JOIN railone.provider_submissions AS s ON
++                       s.provider_id=e.provider_id AND
++                       s.external_reference=e.provider_transaction_id
++                   WHERE e.evidence_id=%s AND e.utt_id=%s AND s.rtt_id=%s""",
++                (evidence_id, utt_id, rtt_id),
++            )
++            if cursor.fetchone() is None:
++                raise EconomicFenceViolation("settlement evidence is not correlated to reserved RTT")
++            cursor.execute(
++                """UPDATE railone.utt_economic_fences
++                   SET state='FINALIZED',version=version+1,updated_at=%s
++                   WHERE utt_id=%s AND state='HELD'""", (instant, utt_id),
++            )
++            cursor.execute(
++                """UPDATE railone.rtt_operational_fences SET state='SETTLED',updated_at=%s
++                   WHERE rtt_id=%s AND state IN ('RESERVED','UNKNOWN','ACCEPTED_FOR_PROCESSING','REJECTED')""",
++                (instant, rtt_id),
++            )
++            if cursor.rowcount != 1:
++                raise EconomicFenceViolation("cannot finalize RTT operational fence")
++            self._event(cursor, utt_id, rtt_id, row["fence_epoch"],
++                        "SETTLED", evidence_id, instant)
++
++    @staticmethod
++    def _event(cursor, utt_id: str, rtt_id: str, epoch: int, kind: str,
++               evidence_id: str | None, instant: datetime) -> None:
++        cursor.execute(
++            """INSERT INTO railone.economic_fence_events
++               (utt_id,rtt_id,fence_epoch,event_type,evidence_id,recorded_at)
++               VALUES (%s,%s,%s,%s,%s,%s)""",
++            (utt_id, rtt_id, epoch, kind, evidence_id, instant),
++        )
+diff --git a/scripts/check_repository_convergence.py b/scripts/check_repository_convergence.py
+index 052f79f..c1f21cd 100644
+--- a/scripts/check_repository_convergence.py
++++ b/scripts/check_repository_convergence.py
+@@ -65,6 +65,7 @@ EXPECTED_MIGRATIONS = [
+     "0012_immutable_route_decision_records.sql",
+     "0013_signed_institution_dispatch_wrappers.sql",
+     "0014_drop_plaintext_secret_fingerprints.sql",
++    "0015_durable_effect_fences_and_bank_analytics.sql",
+ ]
+ 
+ 
+@@ -97,7 +98,7 @@ def validate() -> list[str]:
+     migrations = sorted(path.name for path in (ROOT / "migrations").glob("*.sql"))
+     if migrations != EXPECTED_MIGRATIONS:
+         errors.append(
+-            "migration chain differs from extended immutable 0001-0014 sequence: "
++            "migration chain differs from extended immutable 0001-0015 sequence: "
+             + ", ".join(migrations)
+         )
+ 
+diff --git a/tests/test_durable_economic_fencing.py b/tests/test_durable_economic_fencing.py
+new file mode 100644
+index 0000000..adbff56
+--- /dev/null
++++ b/tests/test_durable_economic_fencing.py
+@@ -0,0 +1,226 @@
++"""Fail-closed fencing and bank-publication contract tests (no live DB required)."""
++from __future__ import annotations
++
++import unittest
++from contextlib import contextmanager
++import hashlib
++from datetime import datetime, timedelta, timezone
++from pathlib import Path
++
++from railone_crypto import InMemoryEd25519KeyProvider, KeyPurpose, SignatureService
++from railone_crypto.signature_service import ArtifactType
++from railone_postgres.bank_analytics import (
++    BankMetric, PostgresBankMetricsReader, PostgresBankMetricsPublisher,
++)
++from railone_postgres.fencing import EconomicFenceViolation, PostgresEconomicEffectFence
++
++NOW = datetime(2026, 11, 10, 8, 0, tzinfo=timezone.utc)
++
++
++class FakeCursor:
++    def __init__(self, selected):
++        self.selected = list(selected)
++        self.executed = []
++        self.rowcount = 1
++
++    def execute(self, query, params=()):
++        self.executed.append((query, params))
++        return self
++
++    def fetchone(self):
++        return self.selected.pop(0) if self.selected else None
++
++    def fetchall(self):
++        return self.selected.pop(0) if self.selected else []
++
++    def __enter__(self):
++        return self
++
++    def __exit__(self, *exc):
++        return False
++
++
++class FakeDatabase:
++    def __init__(self, selected=()):
++        self._cursor = FakeCursor(selected)
++        self.commits = 0
++        self.rollbacks = 0
++
++    def cursor(self):
++        return self._cursor
++
++    @contextmanager
++    def transaction(self):
++        try:
++            yield self
++            self.commits += 1
++        except BaseException:
++            self.rollbacks += 1
++            raise
++
++
++def signed_no_effect(signatures, *, key_id="fence-signer", rtt="RTT-TEST", utt="UTT-TEST",
++                     provider="PROVIDER-ONE", finding="NO_ECONOMIC_EFFECT"):
++    return signatures.sign_artifact(
++        artifact_type=ArtifactType.NO_EFFECT_EVIDENCE, key_id=key_id,
++        payload={
++            "evidence_id": "EVID-TEST", "utt_id": utt, "rtt_id": rtt,
++            "provider_id": provider, "finding": finding,
++            "source_evidence_digest": hashlib.sha256(b"SYNTHETIC-SIGNED-PROVIDER-EVIDENCE").hexdigest(),
++            "observed_at_epoch": int(NOW.timestamp()),
++        }, issued_at=NOW,
++    )
++
++
++def signer_fixture():
++    keys = InMemoryEd25519KeyProvider()
++    for key_id, purpose in (("fence-signer", KeyPurpose.SETTLEMENT_SIGNING),
++                            ("other-settlement-key", KeyPurpose.SETTLEMENT_SIGNING)):
++        keys.generate(key_id=key_id, owner_id="RAILONE-RECONCILIATION",
++                      purpose=purpose,
++                      not_before=NOW - timedelta(days=1),
++                      not_after=NOW + timedelta(days=1))
++    return SignatureService(keys)
++
++
++class EconomicFenceTests(unittest.TestCase):
++    def setUp(self):
++        self.signatures = signer_fixture()
++
++    def fence(self, database):
++        return PostgresEconomicEffectFence(
++            database, signatures=self.signatures,
++            trusted_no_effect_signing_keys=frozenset({"fence-signer"}),
++        )
++
++    def test_reservation_locks_utt_before_dispatch_and_writes_per_rtt(self):
++        db = FakeDatabase(selected=({"utt_id":"UTT-TEST"}, None, {"rtt_id":"RTT-TEST"}, None))
++        self.fence(db).reserve_dispatch(
++            utt_id="UTT-TEST", rtt_id="RTT-TEST", fence_epoch=1,
++            release_evidence_ref=None, request_sha256="a" * 64, at=NOW,
++        )
++        sql = [query for query, _ in db._cursor.executed]
++        self.assertIn("FOR UPDATE", sql[0])
++        self.assertIn("accepted_utts", sql[0])
++        self.assertIn("INSERT INTO railone.utt_economic_fences", sql[4])
++        self.assertIn("INSERT INTO railone.rtt_operational_fences", sql[5])
++        self.assertIn("INSERT INTO railone.economic_fence_events", sql[6])
++        self.assertEqual(db.commits, 1)
++
++    def test_held_utt_rejects_second_rtt_even_on_new_process(self):
++        db = FakeDatabase(selected=({"utt_id":"UTT-TEST"}, None, {"rtt_id":"RTT-OTHER"},
++                                    {"state":"HELD","fence_epoch":1,
++                                     "last_release_evidence_id":None}))
++        with self.assertRaises(EconomicFenceViolation):
++            self.fence(db).reserve_dispatch(
++                utt_id="UTT-TEST", rtt_id="RTT-OTHER", fence_epoch=1,
++                release_evidence_ref=None, request_sha256="a" * 64, at=NOW,
++            )
++        self.assertEqual(db.commits, 0)
++        self.assertEqual(db.rollbacks, 1)
++        self.assertEqual(len(db._cursor.executed), 4)
++
++    def test_stale_epoch_and_unproven_release_denied(self):
++        for row, epoch, release in (
++            (None, 2, None),
++            ({"state":"OPEN","fence_epoch":2,"last_release_evidence_id":"EVID-1"}, 1, None),
++            ({"state":"OPEN","fence_epoch":2,"last_release_evidence_id":"EVID-1"}, 2, "EVID-WRONG"),
++        ):
++            with self.subTest(row=row):
++                with self.assertRaises(EconomicFenceViolation):
++                    PostgresEconomicEffectFence._assert_epoch(
++                        row, epoch=epoch, release_ref=release
++                    )
++
++    def test_release_requires_verified_purpose_specific_signer(self):
++        db = FakeDatabase()
++        fence = self.fence(db)
++        with self.assertRaises(EconomicFenceViolation):
++            fence.release_verified_no_effect(
++                evidence=signed_no_effect(self.signatures, key_id="other-settlement-key"),
++                at=NOW,
++            )
++        with self.assertRaises(EconomicFenceViolation):
++            fence.release_verified_no_effect(
++                evidence=signed_no_effect(self.signatures, finding="SETTLED"),
++                at=NOW,
++            )
++        self.assertFalse(db._cursor.executed)
++
++    def test_verified_no_effect_advances_epoch_and_keeps_signed_proof(self):
++        db = FakeDatabase(selected=(
++            {"utt_id":"UTT-TEST"},
++            {"fence_epoch":1,"current_rtt_id":"RTT-TEST"},
++            {"provider_id":"PROVIDER-ONE"}, None,
++        ))
++        epoch = self.fence(db).release_verified_no_effect(
++            evidence=signed_no_effect(self.signatures), at=NOW,
++        )
++        self.assertEqual(epoch, 2)
++        sql = "\n".join(query for query, _ in db._cursor.executed)
++        self.assertIn("INSERT INTO railone.economic_fence_no_effect_evidence", sql)
++        self.assertIn("state='OPEN'", sql)
++        self.assertIn("VERIFIED_NO_EFFECT", str(db._cursor.executed))
++        self.assertEqual(db.commits, 1)
++
++    def test_provider_acceptance_is_not_release(self):
++        db = FakeDatabase(selected=({"fence_epoch":1},))
++        self.fence(db).record_provider_outcome(
++            utt_id="UTT-TEST", rtt_id="RTT-TEST", outcome="ACCEPTED", at=NOW
++        )
++        sql = "\n".join(query for query, _ in db._cursor.executed)
++        self.assertIn("ACCEPTED_FOR_PROCESSING", str(db._cursor.executed))
++        self.assertNotIn("state='OPEN'", sql)
++        self.assertEqual(db.commits, 1)
++
++
++class BankAnalyticsTests(unittest.TestCase):
++    def test_bank_metrics_reject_small_cohort_and_subday_windows(self):
++        with self.assertRaises(ValueError):
++            BankMetric("OWN_UTT_SETTLED_TOTAL", NOW, NOW + timedelta(days=1), 1, 19)
++        with self.assertRaises(ValueError):
++            BankMetric("OWN_UTT_SETTLED_TOTAL", NOW, NOW + timedelta(hours=1), 1, 20)
++        with self.assertRaises(ValueError):
++            BankMetric("RAW_ROUTE_COST", NOW, NOW + timedelta(days=1), 1, 20)
++        with self.assertRaises(ValueError):
++            BankMetric("OWN_PROVIDER_ACCEPTANCE_RATE_BPS", NOW, NOW + timedelta(days=1), 10001, 20)
++
++    def test_bank_reader_never_requests_institution_or_raw_route_table(self):
++        metric = BankMetric("OWN_UTT_SETTLED_TOTAL", NOW, NOW + timedelta(days=1), 40, 100)
++        db = FakeDatabase(selected=([dict(metric_name=metric.metric_name,
++                                         period_start=metric.period_start,
++                                         period_end=metric.period_end,
++                                         metric_value=metric.metric_value,
++                                         sample_count=metric.sample_count)],))
++        self.assertEqual(PostgresBankMetricsReader(db).list_metrics(), (metric,))
++        query, params = db._cursor.executed[0]
++        self.assertIn("railone_bank.metrics", query)
++        self.assertNotIn("route_decision_records", query)
++        self.assertNotIn("institution_id", query)
++        self.assertEqual(params, (100,))
++
++    def test_publisher_accepts_only_structured_approved_metrics(self):
++        metric = BankMetric("OWN_UTT_SETTLED_TOTAL", NOW, NOW + timedelta(days=1), 20, 20)
++        db = FakeDatabase()
++        pub = PostgresBankMetricsPublisher(db)
++        self.assertTrue(pub.publish(institution_id="BANK-001",metric=metric,
++                                    approved_by="SECURITY-REVIEWER").startswith("PUB-"))
++        sql = db._cursor.executed[0][0]
++        self.assertIn("railone.bank_analytics_publications", sql)
++        self.assertNotIn("route_decision_records", sql)
++
++    def test_migration_declares_rls_and_no_shared_bank_role_read_access(self):
++        root = Path(__file__).resolve().parents[1]
++        sql = (root / "migrations/0015_durable_effect_fences_and_bank_analytics.sql").read_text()
++        for marker in (
++            "FORCE ROW LEVEL SECURITY", "security_barrier=true", "session_user",
++            "REVOKE ALL ON SCHEMA railone FROM PUBLIC",
++            "CREATE TABLE railone.utt_economic_fences",
++            "CREATE TABLE railone.rtt_operational_fences",
++        ):
++            self.assertIn(marker, sql)
++        self.assertNotIn("GRANT SELECT ON railone.route_decision_records", sql)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_institution_admission_gateway.py b/tests/test_institution_admission_gateway.py
+index 14686b9..76172c9 100644
+--- a/tests/test_institution_admission_gateway.py
++++ b/tests/test_institution_admission_gateway.py
+@@ -37,6 +37,15 @@ class FixedFence:
+     def __init__(self, *, epoch=1):
+         self.epoch = epoch
+         self.calls = 0
++        self.reservations = []
++        self.outcomes = []
++
++    def reserve_dispatch(self, *, utt_id, rtt_id, fence_epoch,
++                         release_evidence_ref, request_sha256, at):
++        self.reservations.append((utt_id, rtt_id, fence_epoch, request_sha256))
++
++    def record_provider_outcome(self, *, utt_id, rtt_id, outcome, at):
++        self.outcomes.append((utt_id, rtt_id, outcome))
+ 
+     def assert_dispatch_safe(self, *, utt_id, rtt_id, fence_epoch, release_evidence_ref, at):
+         self.calls += 1
+@@ -107,6 +116,7 @@ class InstitutionalAdmissionGatewayTests(unittest.TestCase):
+         bridge = self.gateway.admit(self.request, at=NOW)
+         self.assertEqual(bridge.binding_ref, "synthetic.mtn-crdb@1.0.0")
+         self.assertEqual(self.fence.calls, 1)
++        self.assertEqual(len(self.fence.reservations), 1)
+         # Return value is the registry-selected adapter; submission remains processing-only.
+         self.assertEqual(bridge.provider_id, self.request.provider_id)
+ 
+@@ -230,6 +240,8 @@ class InstitutionalCoordinatorBoundaryTests(unittest.TestCase):
+                 pass
+             def admit(self, request, *, at):
+                 return chosen
++            def record_provider_outcome(self, *, utt_id, rtt_id, outcome, at):
++                self.observed = outcome
+         coordinator = self.build(gate=TrustedGate())
+         record = coordinator.dispatch(
+             rtt_id=self.fixture.rtt_id, at=self.fixture.now + timedelta(seconds=22)
+diff --git a/tests/test_postgres_live.py b/tests/test_postgres_live.py
+index 5f6f67c..19de296 100644
+--- a/tests/test_postgres_live.py
++++ b/tests/test_postgres_live.py
+@@ -60,6 +60,15 @@ _RESET_ALLOWED = os.environ.get("RAILONE_ALLOW_TEST_SCHEMA_RESET") == "1"
+ _LIVE_REQUIRED = os.environ.get("RAILONE_REQUIRE_LIVE_POSTGRES") == "1"
+ 
+ 
++def _attempt_reserve(action) -> str:
++    from railone_postgres import EconomicFenceViolation
++    try:
++        action()
++        return "RESERVED"
++    except EconomicFenceViolation:
++        return "DENIED"
++
++
+ class AcceptedAdapter:
+     provider_id = "MPESA-KE"
+     supports_idempotency = True
+@@ -92,6 +101,7 @@ class LivePostgresRuntimeTests(unittest.TestCase):
+             ) from None
+         try:
+             with connection.cursor() as cursor:
++                cursor.execute("DROP SCHEMA IF EXISTS railone_bank CASCADE")
+                 cursor.execute("DROP SCHEMA IF EXISTS railone CASCADE")
+             connection.commit()
+         finally:
+@@ -108,7 +118,7 @@ class LivePostgresRuntimeTests(unittest.TestCase):
+             migrations_directory=self.migrations,
+         ).apply_all()
+         self.assertTrue(all(result.already_applied for result in results))
+-        self.assertIn("0013", {result.version for result in results})
++        self.assertIn("0015", {result.version for result in results})
+         connection = self.factory()
+         try:
+             with connection.cursor() as cursor:
+@@ -236,12 +246,77 @@ class LivePostgresRuntimeTests(unittest.TestCase):
+             institution_id="MNO-001", account_binding_id="BIND-LIVE-PAYEE",
+             provider_reference="PAYEE-REF",
+         )
+-        submission = ProviderSubmissionCoordinator(
++        from railone_postgres import PostgresEconomicEffectFence, EconomicFenceViolation
++        from railone_crypto.signature_service import ArtifactType
++        keys.generate(
++            key_id="R1CORE:no-effect:live-test", owner_id="R1CORE",
++            purpose=KeyPurpose.SETTLEMENT_SIGNING,
++            not_before=now - timedelta(days=1), not_after=now + timedelta(days=30),
++        )
++        coordinator = ProviderSubmissionCoordinator(
+             signatures=signatures, contracts=contracts, executions=executions,
+-            operations=operations,
+-            endpoint_resolver=endpoint_resolver,
++            operations=operations, endpoint_resolver=endpoint_resolver,
+             event_signing_key_id="R1CORE:execution:live",
+-        ).dispatch(rtt_id=attempt.rtt_id, adapter=AcceptedAdapter(), at=now + timedelta(seconds=4))
++        )
++        prepared, request = coordinator.prepare(rtt_id=attempt.rtt_id, at=now + timedelta(seconds=4))
++        fence = PostgresEconomicEffectFence(
++            database, signatures=signatures,
++            trusted_no_effect_signing_keys=frozenset({"R1CORE:no-effect:live-test"}),
++        )
++        fence.assert_dispatch_safe(
++            utt_id=contract.utt_id, rtt_id=attempt.rtt_id, fence_epoch=1,
++            release_evidence_ref=None, at=now + timedelta(seconds=4),
++        )
++        # Two workers racing the same UTT must create ONE durable reservation.
++        from concurrent.futures import ThreadPoolExecutor
++        def reserve_once():
++            return fence.reserve_dispatch(
++                utt_id=contract.utt_id, rtt_id=attempt.rtt_id, fence_epoch=1,
++                release_evidence_ref=None, request_sha256=request.request_sha256,
++                at=now + timedelta(seconds=4),
++            )
++        with ThreadPoolExecutor(max_workers=2) as pool:
++            results = list(pool.map(lambda _: _attempt_reserve(reserve_once), range(2)))
++        self.assertEqual(results.count("RESERVED"), 1)
++        self.assertEqual(results.count("DENIED"), 1)
++        with self.assertRaises(EconomicFenceViolation):
++            reserve_once()
++        submission = coordinator.dispatch(
++            rtt_id=attempt.rtt_id, adapter=AcceptedAdapter(), at=now + timedelta(seconds=4)
++        )
++        fence.record_provider_outcome(
++            utt_id=contract.utt_id, rtt_id=attempt.rtt_id,
++            outcome="ACCEPTED", at=now + timedelta(seconds=5),
++        )
++        with self.assertRaises(EconomicFenceViolation):
++            fence.assert_dispatch_safe(
++                utt_id=contract.utt_id, rtt_id=attempt.rtt_id,
++                fence_epoch=1, release_evidence_ref=None,
++                at=now + timedelta(seconds=5),
++            )
++        # Synthetic no-effect assertion tests transition mechanics only; the
++        # real signer must first verify actual authenticated provider evidence.
++        evidence = signatures.sign_artifact(
++            artifact_type=ArtifactType.NO_EFFECT_EVIDENCE,
++            key_id="R1CORE:no-effect:live-test", issued_at=now + timedelta(seconds=6),
++            payload={
++                "evidence_id":"EVID-DISPOSABLE-001", "utt_id":contract.utt_id,
++                "rtt_id":attempt.rtt_id, "provider_id":"MPESA-KE",
++                "finding":"NO_ECONOMIC_EFFECT", "source_evidence_digest":"f" * 64,
++                "observed_at_epoch":int((now + timedelta(seconds=6)).timestamp()),
++            },
++        )
++        self.assertEqual(fence.release_verified_no_effect(
++            evidence=evidence, at=now + timedelta(seconds=7)), 2)
++        with database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                "SELECT state,fence_epoch,last_release_evidence_id "
++                "FROM railone.utt_economic_fences WHERE utt_id=%s", (contract.utt_id,)
++            )
++            hold = cursor.fetchone()
++            self.assertEqual(hold["state"], "OPEN")
++            self.assertEqual(hold["fence_epoch"], 2)
++            self.assertEqual(hold["last_release_evidence_id"], "EVID-DISPOSABLE-001")
+ 
+         outcome_store = PostgresProviderOutcomeProjectionStore(database)
+         projector = SignedProviderOutcomeProjector(signatures=signatures, store=outcome_store)
+@@ -251,6 +326,101 @@ class LivePostgresRuntimeTests(unittest.TestCase):
+         self.assertEqual(projected.state, ProviderProgressState.ACCEPTED_FOR_PROCESSING)
+         self.assertEqual(projected.submission_version, 3)
+ 
++    def test_bank_analytics_schema_is_allowlisted_and_private(self):
++        from railone_postgres import BankMetric, PostgresBankMetricsPublisher
++        from datetime import timedelta
++        database = PostgresDatabase(self.factory)
++        with database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute("SELECT to_regclass('railone_bank.metrics') AS relation")
++            self.assertIsNotNone(cursor.fetchone()["relation"])
++            cursor.execute("""SELECT relrowsecurity,relforcerowsecurity
++                           FROM pg_class WHERE oid='railone.bank_analytics_publications'::regclass""")
++            row = cursor.fetchone()
++            self.assertTrue(row["relrowsecurity"])
++            self.assertTrue(row["relforcerowsecurity"])
++            cursor.execute("SELECT COUNT(*) AS n FROM railone.bank_analytics_publications")
++            self.assertEqual(cursor.fetchone()["n"], 0)
++        # Unmapped login (and even the privileged migration login) is not
++        # mapped to a bank by the public view. RLS and view scope both fail closed.
++        with database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute("SELECT COUNT(*) AS n FROM railone_bank.metrics")
++            self.assertEqual(cursor.fetchone()["n"], 0)
++
++    def test_bank_metrics_are_isolated_for_distinct_database_logins(self):
++        """Live RLS/view access gate: two real DB logins must never cross-read."""
++        from uuid import uuid4
++        from secrets import token_urlsafe
++        from psycopg import sql
++        from psycopg.conninfo import make_conninfo
++        from railone_postgres import BankMetric, PostgresBankMetricsPublisher, PostgresBankMetricsReader
++
++        token = uuid4().hex[:12]
++        read_role = "r1bank_read_" + token
++        a_login = "r1bank_a_" + token
++        b_login = "r1bank_b_" + token
++        a_id = "BANK-TEST-A-" + token.upper()
++        b_id = "BANK-TEST-B-" + token.upper()
++        password_a, password_b = token_urlsafe(24), token_urlsafe(24)
++        database = PostgresDatabase(self.factory)
++        try:
++            with database.transaction() as connection, connection.cursor() as cursor:
++                cursor.execute(sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(read_role)))
++                for name, password in ((a_login, password_a), (b_login, password_b)):
++                    cursor.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
++                        sql.Identifier(name), sql.Literal(password)))
++                    cursor.execute(sql.SQL("GRANT {} TO {}").format(
++                        sql.Identifier(read_role), sql.Identifier(name)))
++                cursor.execute(sql.SQL("GRANT USAGE ON SCHEMA railone_bank TO {}").format(
++                    sql.Identifier(read_role)))
++                cursor.execute(sql.SQL("GRANT EXECUTE ON FUNCTION railone_bank.current_institution_id() TO {}").format(
++                    sql.Identifier(read_role)))
++                cursor.execute(sql.SQL("GRANT SELECT ON railone_bank.metrics TO {}").format(
++                    sql.Identifier(read_role)))
++                for bank_id, login in ((a_id, a_login), (b_id, b_login)):
++                    cursor.execute(
++                        """INSERT INTO railone.partner_institutions
++                           (institution_id,display_name,country_codes,currencies,
++                            supported_roles,status,created_at,updated_at)
++                           VALUES (%s,%s,%s,%s,%s,'ACTIVE',now(),now())""",
++                        (bank_id, bank_id, ["TZ"], ["TZS"], ["SOURCE","DESTINATION"]),
++                    )
++                    cursor.execute(
++                        """INSERT INTO railone.bank_analytics_principals
++                           (login_role,institution_id,enabled) VALUES (%s,%s,true)""",
++                        (login, bank_id),
++                    )
++            metric = BankMetric("OWN_UTT_SETTLED_TOTAL",
++                                datetime(2026, 11, 1, tzinfo=timezone.utc),
++                                datetime(2026, 11, 2, tzinfo=timezone.utc),
++                                25, 50)
++            publisher = PostgresBankMetricsPublisher(database)
++            publisher.publish(institution_id=a_id, metric=metric, approved_by="TEST-SYSTEM")
++            metric_b = BankMetric(metric.metric_name, metric.period_start,
++                                  metric.period_end, 99, 100)
++            publisher.publish(institution_id=b_id, metric=metric_b, approved_by="TEST-SYSTEM")
++            for bank_login, password, expected_value in (
++                (a_login, password_a, 25), (b_login, password_b, 99)
++            ):
++                bank_dsn = make_conninfo(_DSN, user=bank_login, password=password)
++                bank_db = PostgresDatabase(psycopg_connection_factory(bank_dsn))
++                metrics = PostgresBankMetricsReader(bank_db).list_metrics()
++                self.assertEqual([m.metric_value for m in metrics], [expected_value])
++                with self.assertRaises(Exception):
++                    with bank_db.transaction() as connection, connection.cursor() as cursor:
++                        cursor.execute("SELECT * FROM railone.route_decision_records LIMIT 1")
++        finally:
++            # Role setup is restricted to a disposable CI database with a
++            # privileged migrator; remove test role grants and mappings afterward.
++            with database.transaction() as connection, connection.cursor() as cursor:
++                cursor.execute(
++                    "DELETE FROM railone.bank_analytics_principals WHERE login_role IN (%s,%s)",
++                    (a_login, b_login),
++                )
++                for name in (a_login, b_login):
++                    cursor.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(name)))
++                cursor.execute(sql.SQL("DROP OWNED BY {}").format(sql.Identifier(read_role)))
++                cursor.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(read_role)))
++
+     def test_api_security_stores_round_trip(self):
+         from railone_api import (
+             AccessTokenError,

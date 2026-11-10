@@ -20,6 +20,8 @@ from .security import PostgresEncryptedSecretStore
 from .sandbox import PostgresSandboxEffectStore
 from .institutions import PostgresInstitutionManifestStore
 from .dispatch_wrappers import PostgresDispatchWrapperStore
+from .fencing import PostgresEconomicEffectFence, EconomicFenceViolation
+from .bank_analytics import BankMetric, PostgresBankMetricsPublisher, PostgresBankMetricsReader
 from .certification import (
     PostgresCertificationReportStore, PostgresCertificationRunRecorder,
 )
@@ -42,6 +44,11 @@ __all__ = [
     "PostgresSandboxEffectStore",
     "PostgresInstitutionManifestStore",
     "PostgresDispatchWrapperStore",
+    "PostgresEconomicEffectFence",
+    "EconomicFenceViolation",
+    "BankMetric",
+    "PostgresBankMetricsPublisher",
+    "PostgresBankMetricsReader",
     "PostgresCertificationReportStore",
     "PostgresCertificationRunRecorder",
     "PostgresIdentityRepository",
