@@ -121,6 +121,25 @@ class LivePostgresRuntimeTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_sensitive_vault_schema_removes_plaintext_fingerprint(self):
+        from railone_postgres import PostgresEncryptedSecretStore
+        from railone_security import EncryptedAccountEndpointVault
+        from tests.test_envelope_encryption import encryption_fixture
+
+        database = PostgresDatabase(self.factory)
+        with database.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute("""SELECT COUNT(*) AS n FROM information_schema.columns
+                           WHERE table_schema='railone' AND table_name='encrypted_secrets'
+                             AND column_name='plaintext_sha256'""")
+            self.assertEqual(cursor.fetchone()["n"], 0)
+        _, _, encryption = encryption_fixture()
+        store = PostgresEncryptedSecretStore(database)
+        vault = EncryptedAccountEndpointVault(encryption=encryption, store=store)
+        vault.register(institution_id="SYNTHETIC-INST", account_binding_id="SYNTHETIC-BIND",
+                       provider_reference="SYNTHETIC-ENDPOINT")
+        self.assertEqual(vault.resolve(institution_id="SYNTHETIC-INST",
+                                       account_binding_id="SYNTHETIC-BIND"), "SYNTHETIC-ENDPOINT")
+
     def test_contract_execution_submission_and_projection_round_trip(self):
         now = datetime(2026, 7, 14, 19, 0, tzinfo=timezone.utc)
         keys = InMemoryEd25519KeyProvider()

@@ -47,7 +47,7 @@ class SandboxEffectWorker:
                 self._broker.reschedule(
                     effect_id=effect.effect_id, worker_id=self._worker_id,
                     delay_ticks=self._retry_delay,
-                    error=f"{type(exc).__name__}: {exc}",
+                    error=type(exc).__name__,
                     max_attempts=self._max_attempts,
                 )
                 self._metrics.increment(
@@ -101,7 +101,7 @@ class WorkerSupervisor:
             applied = self._worker.run_once()
         except Exception as exc:
             self._failures += 1
-            self._last_error = f"{type(exc).__name__}: {exc}"[:1000]
+            self._last_error = type(exc).__name__
             return ()
         self._failures = 0
         self._last_error = None

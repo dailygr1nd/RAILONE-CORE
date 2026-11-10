@@ -200,6 +200,8 @@ class InstitutionalCoordinatorBoundaryTests(unittest.TestCase):
     def test_institutional_mode_rejects_caller_adapter_and_direct_prepare(self):
         from tests.test_provider_operations import FakeProviderAdapter
         class StubGate:
+            def preflight(self, *, rtt_id, at):
+                pass
             def admit(self, request, *, at):
                 return FakeProviderAdapter()
         coordinator = self.build(gate=StubGate())
@@ -211,17 +213,21 @@ class InstitutionalCoordinatorBoundaryTests(unittest.TestCase):
 
     def test_institutional_gate_runs_before_provider_effect(self):
         class DenyGate:
+            def preflight(self, *, rtt_id, at):
+                raise PermissionError("admission rejected")
             def admit(self, request, *, at):
                 raise PermissionError("admission rejected")
         coordinator = self.build(gate=DenyGate())
         with self.assertRaises(PermissionError):
             coordinator.dispatch(rtt_id=self.fixture.rtt_id, at=self.fixture.now + timedelta(seconds=22))
-        record = self.fixture.operations.require_submission(self.fixture.rtt_id)
-        self.assertEqual(record.dispatch_attempts, 0)
+        with self.assertRaises(LookupError):
+            self.fixture.operations.require_submission(self.fixture.rtt_id)
 
     def test_institutional_mode_uses_only_gate_selected_adapter(self):
         chosen = self.fake
         class TrustedGate:
+            def preflight(self, *, rtt_id, at):
+                pass
             def admit(self, request, *, at):
                 return chosen
         coordinator = self.build(gate=TrustedGate())

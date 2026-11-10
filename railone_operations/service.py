@@ -41,6 +41,8 @@ class ProviderAdapter(Protocol):
 class InstitutionalAdmissionGate(Protocol):
     """Trusted, registry-backed institutional admission; never caller-supplied policy data."""
 
+    def preflight(self, *, rtt_id: str, at: datetime) -> None: ...
+
     def admit(self, request: ProviderExecutionRequest, *, at: datetime) -> ProviderAdapter: ...
 
 
@@ -223,6 +225,11 @@ class ProviderSubmissionCoordinator:
             raise PermissionError("institutional adapter must be selected by the trusted registry")
         if self._dispatch_mode == "SIMULATED_PILOT" and adapter is None:
             raise SubmissionNotDispatchableError("simulation requires an explicit adapter")
+        if self._dispatch_mode == "INSTITUTIONAL_SANDBOX":
+            # Deny before creating a prepared submission or resolving protected
+            # bank account endpoints. The final admit() revalidates the fence.
+            assert self._institutional_admission is not None
+            self._institutional_admission.preflight(rtt_id=rtt_id, at=instant)
         record, request = self._prepare(rtt_id=rtt_id, at=instant)
         if self._dispatch_mode == "INSTITUTIONAL_SANDBOX":
             # Guard verifies the stored signed wrapper against trusted core state,
