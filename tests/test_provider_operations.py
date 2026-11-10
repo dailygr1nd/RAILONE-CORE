@@ -84,14 +84,14 @@ class ProviderOperationsTests(unittest.TestCase):
         keys = InMemoryEd25519KeyProvider()
         keys.generate(
             key_id="R1CORE:quote:2026-01",
-            owner_id="R1CORE",
+            owner_id=getattr(self, "core_owner_id", "R1CORE"),
             purpose=KeyPurpose.QUOTE_SIGNING,
             not_before=self.now - timedelta(days=1),
             not_after=self.now + timedelta(days=90),
         )
         keys.generate(
             key_id="R1CORE:execution:2026-01",
-            owner_id="R1CORE",
+            owner_id=getattr(self, "core_owner_id", "R1CORE"),
             purpose=KeyPurpose.EXECUTION_SIGNING,
             not_before=self.now - timedelta(days=1),
             not_after=self.now + timedelta(days=90),

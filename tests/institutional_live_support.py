@@ -1,0 +1,179 @@
+"""Synthetic provisioning and full PostgreSQL institutional dispatch exercise."""
+from dataclasses import replace
+from datetime import timedelta
+from pathlib import Path
+
+from railone_authority import ExecutionAuthorityService
+from railone_authority.models import ReceiverParticipationMode
+from railone_contracts import AccountRole
+from railone_identity.models import (
+    IdentityBundle, IdentityGenesis, IdentityObject, IdentityRevision, IdentityStatus, TrustTier,
+)
+from railone_institutions import CapabilityManifestSigner, InstitutionAdapterRegistry
+from railone_institutions.reference import DOMESTIC_BANK_PROFILE, ReferenceInstitutionAdapter, reference_manifest
+from railone_institutions.wrapper import CanonicalDispatchWrapper, DispatchWrapperService
+from railone_postgres import (
+    PostgresContractStore, PostgresExecutionStore, PostgresOperationsStore,
+    PostgresIdentityRepository, PostgresPartnerDirectory, PostgresInstitutionManifestStore,
+    PostgresEncryptedSecretStore, PostgresDispatchWrapperStore, EconomicFenceViolation,
+)
+from railone_postgres.codec import json_text
+from railone_postgres.dispatch_snapshot import PostgresDispatchSnapshotReader
+from railone_partners import PartnerInstitution, AccountBinding
+from railone_security import EncryptedAccountEndpointVault
+from railone_sandbox.deployment import DeployedSandboxConfig, compose_deployed_sandbox
+from tests import test_provider_operations as fixtures
+from tests.test_deployed_sandbox_composition import NoopKeyClient, NoopConsumer
+from tests.test_envelope_encryption import encryption_fixture
+from tests.test_institution_dispatch_wrapper import sections
+
+
+def exercise_institutional_dispatch(test, database):
+    fixture = fixtures.ProviderOperationsTests("test_preparation_is_idempotent_and_uses_stable_provider_key")
+    _, _, encryption = encryption_fixture()
+    vault = EncryptedAccountEndpointVault(
+        encryption=encryption, store=PostgresEncryptedSecretStore(database),
+    )
+
+    def create():
+        fixture.contracts = PostgresContractStore(database)
+        fixture.executions = PostgresExecutionStore(database)
+        fixture.operations = PostgresOperationsStore(database)
+        fixture.endpoint_resolver = vault
+        return fixtures.ProviderOperationsTests._create_current_rtt(fixture, institutional=True)
+
+    fixture._create_current_rtt = create
+    fixture.core_owner_id = "RAILONE"
+    fixture.setUp()
+    at = fixture.now + timedelta(seconds=22)
+    attempt = fixture.executions.require_attempt(fixture.rtt_id)
+    utt = fixture.contracts.require_utt(attempt.utt_id).payload
+    identities = PostgresIdentityRepository(database)
+    partners = PostgresPartnerDirectory(database)
+    for number, actor in enumerate((utt["payer"], utt["beneficiary"]), 1):
+        uid = actor["actor_id"]
+        prefix = f"LIVE-DISPATCH-{number}"
+        identities.save(IdentityBundle(
+            IdentityGenesis(prefix+"-GEN", uid, "synthetic-continuity",
+                            str(number)*64, "SYNTHETIC-KYC", prefix+"-VERIFY",
+                            str(number)*64, prefix+"-ATTEST", fixture.now),
+            IdentityObject(prefix+"-OBJ", prefix+"-RID", uid, prefix+"-GEN",
+                           prefix+"-REV", "EA", IdentityStatus.ACTIVE, fixture.now),
+            IdentityRevision(prefix+"-REV", prefix+"-OBJ", uid, 1, TrustTier.T2,
+                             IdentityStatus.ACTIVE, "SYNTHETIC_TEST", prefix+"-ATTEST",
+                             fixture.now),
+        ))
+        endpoint = actor["endpoint"]
+        role = AccountRole(endpoint["role"])
+        partners.add_institution(PartnerInstitution(
+            endpoint["institution_id"], endpoint["institution_display_name"],
+            ("KE",), ("KES",), (role,),
+        ), at=fixture.now)
+        from railone_contracts import AccountType
+        partners.add_binding(AccountBinding(
+            endpoint["account_binding_id"], uid, endpoint["institution_id"],
+            role, AccountType(endpoint["account_type"]), "KES",
+            endpoint["display_hint"], endpoint["contact_binding_id"],
+            endpoint["attestation_reference"],
+        ), at=fixture.now)
+        vault.register(
+            institution_id=endpoint["institution_id"],
+            account_binding_id=endpoint["account_binding_id"],
+            provider_reference=prefix+"-SYNTHETIC-ACCOUNT",
+        )
+
+    accepted = fixture.contracts.resolve_idempotency("IDEM-OPS-001", utt["acceptance_request_sha256"])
+    key = "R1CORE:execution:2026-01"
+    receiver = ExecutionAuthorityService(fixture.signatures).issue_receiver_participation(
+        sender_authority=accepted.sender_authority, receiver_actor_type="PERSON",
+        receiver_reference=utt["beneficiary"]["actor_id"],
+        participation_mode=ReceiverParticipationMode.ACTIVE_ACCEPTANCE,
+        evidence_reference="SYNTHETIC-LIVE-ACCEPTANCE", signing_key_id=key,
+        attested_at=fixture.now+timedelta(seconds=11),
+        expires_at=fixture.now+timedelta(minutes=1),
+    )
+    with database.transaction() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """INSERT INTO railone.execution_authorities
+               (authority_id, authority_type, utt_id, payload_sha256, signed_envelope, created_at)
+               VALUES (%s,'ETK_R',%s,%s,%s::jsonb,%s)""",
+            (receiver.payload["etk_r_id"], attempt.utt_id,
+             receiver.protected["payload_sha256"], json_text(receiver.to_dict()), at),
+        )
+
+    signer = CapabilityManifestSigner(fixture.signatures, signing_key_id=key)
+    profile = replace(DOMESTIC_BANK_PROFILE, adapter_id="provider-fast",
+                      provider_id="PROVIDER-FAST", rails=("MOBILE_MONEY",))
+    manifest = reference_manifest(profile, source_institution_ids=("INST-SOURCE",),
+                                  destination_institution_ids=("INST-DEST",), now=fixture.now)
+    signed_manifest = signer.sign(manifest, issued_at=fixture.now)
+    PostgresInstitutionManifestStore(database).put(signed_manifest)
+    observed = []
+
+    class ObservedAdapter(ReferenceInstitutionAdapter):
+        def submit(self, instruction):
+            # A separate connection must see the committed hold before submission.
+            with database.transaction() as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT state,current_rtt_id FROM railone.utt_economic_fences WHERE utt_id=%s",
+                    (instruction.utt_id,),
+                )
+                row = cursor.fetchone()
+            observed.append((row["state"], row["current_rtt_id"]))
+            return super().submit(instruction)
+
+    registry = InstitutionAdapterRegistry(signer)
+    registry.register(ObservedAdapter(manifest), signed_manifest)
+
+    # Trusted synthetic provisioning prepares the digest and issues the stored wrapper.
+    _, request = fixture.coordinator.prepare(rtt_id=fixture.rtt_id, at=at)
+    expected = PostgresDispatchSnapshotReader(
+        database, signatures=fixture.signatures, core_owner_id="RAILONE",
+    ).load(rtt_id=fixture.rtt_id, at=at)
+    expected = replace(expected, request_sha256=request.request_sha256)
+    body = sections()
+    for section in body.values():
+        for field in section:
+            if hasattr(expected, field):
+                section[field] = getattr(expected, field)
+    verifier = DispatchWrapperService(fixture.signatures, signing_key_id=key,
+                                      expected_core_owner_id="RAILONE")
+    wrapper = CanonicalDispatchWrapper.build(
+        issued_at_epoch=int(at.timestamp()), expires_at_epoch=int(at.timestamp())+30, **body,
+    )
+    PostgresDispatchWrapperStore(database, verifier).put(
+        verifier.issue(wrapper, expected=expected, at=at), expected=expected, at=at,
+    )
+    config = DeployedSandboxConfig(
+        database_url="postgresql://synthetic",
+        migrations_directory=Path(__file__).resolve().parents[1]/"migrations",
+        account_endpoint_key_id="test-account", contact_destination_key_id="test-contact",
+        provider_credential_key_id="test-provider", notification_body_key_id="test-notification",
+        worker_id="live-test",
+    )
+    runtime = compose_deployed_sandbox(
+        config=config, key_client=NoopKeyClient(), effect_consumer=NoopConsumer(),
+        connection_factory=test.factory,
+    )
+    runtime = replace(runtime, account_endpoints=vault)
+    dispatcher = runtime.institutional_dispatcher(
+        signatures=fixture.signatures, registry=registry, event_signing_key_id=key,
+        wrapper_signing_key_id=key, trusted_no_effect_signing_keys=frozenset({"synthetic-unused"}),
+        core_owner_id="RAILONE",
+    )
+    result = dispatcher.dispatch(rtt_id=fixture.rtt_id, at=at)
+    test.assertEqual(result.state.value, "ACCEPTED")
+    test.assertEqual(observed, [("HELD", fixture.rtt_id)])
+    # Recompose to prove replay protection survives coordinator recreation.
+    restarted = runtime.institutional_dispatcher(
+        signatures=fixture.signatures, registry=registry, event_signing_key_id=key,
+        wrapper_signing_key_id=key, trusted_no_effect_signing_keys=frozenset({"synthetic-unused"}),
+        core_owner_id="RAILONE",
+    )
+    with test.assertRaises(EconomicFenceViolation):
+        restarted.dispatch(rtt_id=fixture.rtt_id, at=at)
+    test.assertEqual(len(observed), 1)
+    with database.transaction() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT state FROM railone.rtt_operational_fences WHERE rtt_id=%s",
+                       (fixture.rtt_id,))
+        test.assertEqual(cursor.fetchone()["state"], "ACCEPTED_FOR_PROCESSING")
