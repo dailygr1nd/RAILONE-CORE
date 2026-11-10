@@ -28,6 +28,7 @@ from .models import (
     require_aware,
 )
 from .scoring import DeterministicRouteScorer
+from .decisions import RouteDecisionRecord
 from .store import ExecutionStore
 
 
@@ -111,7 +112,17 @@ class ExecutionPlanningService:
             created_at=instant,
             updated_at=instant,
         )
-        return self._executions.create_plan(plan)
+        decision = RouteDecisionRecord.create(
+            plan=plan, utt_payload_sha256=signed_utt.protected["payload_sha256"],
+            routing_policy_id=utt["routing_policy_id"], scorer=self._scorer,
+            candidates=candidates, amount_minor=utt["amount_minor"],
+            currency_from=utt["currency_from"], currency_to=utt["currency_to"],
+            routing_budget_minor=utt["routing_budget_minor"],
+            source_institution_id=utt["payer"]["endpoint"]["institution_id"],
+            destination_institution_id=utt["beneficiary"]["endpoint"]["institution_id"],
+            at=instant,
+        )
+        return self._executions.create_plan_with_decision(plan, decision)
 
 
 class RttAttemptService:

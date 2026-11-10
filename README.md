@@ -1,106 +1,75 @@
-# RailOne Core
+# RailOne v0.16 Alpha — Phase 4: Institutional Sandbox Admission
 
-RailOne is a non-custodial execution-continuity engine. It accepts a signed
-financial intent, selects an eligible route, submits an execution request to an
-existing financial rail, and preserves deterministic evidence through finality
-or reconciliation.
+## Baseline
 
-This repository is the cumulative Step 11E pilot baseline. It adds a signed
-partner certification harness to Step 11D's version-pinned institution adapter
-SPI. Partner sandbox executions produce canonical traces that RailOne evaluates
-for execution ordering, replay safety, evidence finality, history authorization,
-notification gating, adapter pinning and sensitive-data minimization. The
-package is safe to overlay without deleting legacy files.
+Apply **after** Phase 3 (ADR-018 / migration 0013). This is a source-only control extension:
+**no migration 0014 yet**. The patch was built and clean-applied against the
+v0.15.1 + Phase 1 + Phase 2 + Phase 3 baseline in the supplied snapshot.
 
-## Core invariants
+## Scope
 
-- P2P transfers are first-class RailOne intents.
-- Avia and other commerce systems enter through merchant, branch, or partner
-  contexts rather than being coerced into human ContUIDs.
-- A quote is a signed, expiring commercial offer.
-- Explicit quote acceptance creates one immutable UTT and sender authority.
-- RTTs are signed immutable attempt-birth artifacts; operational state is
-  versioned separately.
-- Unknown provider outcomes block blind retry and require reconciliation.
-- RailOne resolves provider-ready account endpoints only at dispatch.
-- Provider acceptance is never described as settlement.
-- Every RTT pins one exact adapter id and semantic version; a retry cannot
-  silently change adapter implementation.
-- Adapter capability manifests are Ed25519-signed and append-only.
-- Institution adapters normalize external evidence; RailOne core owns UTT/RTT,
-  retry, finality and transaction-history truth.
-- Synthetic harness self-tests are never signable as partner evidence.
-- Only a verified, active adapter manifest and partner-sandbox trace driver can
-  produce an Ed25519-signed certification report.
-- Sender and receiver SMS records are created only from signed settlement
-  evidence.
-- RailOne never takes custody of customer funds.
+- Adds `railone_institutions/admission.py` with a trusted gateway protocol.
+- Revalidates exact signed and active adapter manifests at admission.
+- Adds `INSTITUTIONAL_SANDBOX` coordinator mode requiring the admission gate.
+- Rejects caller-selected adapters and public provider-ready `prepare()` in this mode.
+- Verifies the persisted signed wrapper against a trusted core snapshot and
+  the prepared provider request, including idempotency, amount, provider and adapter.
+- Requires a separate, authoritative economic-effect fence decision before dispatch.
+- Preserves `SIMULATED_PILOT` mode for existing tests and synthetic demonstrations.
+- Rejects production/live dispatch modes. **NOT live-funds ready.**
 
-## Repository map
+## What is NOT implemented
 
-| Area | Responsibility |
-|---|---|
-| `railone_identity/` | ContUID, immutable identity genesis, and mutable trust revisions |
-| `railone_authority/` | ETK-S and ETK-R execution authority |
-| `railone_contracts/` | Quote acceptance and immutable UTT contracts |
-| `railone_execution/` | Deterministic plans, RTT lineage, retry and reconciliation |
-| `railone_operations/` | Provider dispatch, idempotency and signed outbox |
-| `railone_institutions/` | Signed adapter SPI, registry, codecs, transport and reference profiles |
-| `railone_callbacks/` | M-PESA callback normalization and correlation |
-| `railone_certification/` | Capability-aware partner scenarios, trace evaluation and signed reports |
-| `railone_partners/` | Partner institutions and opaque account bindings |
-| `railone_notifications/` | Settlement evidence and finality-gated SMS |
-| `railone_postgres/` | Durable PostgreSQL repository adapters |
-| `railone_api/` | Authenticated visibility boundary |
-| `railone_security/` | AES-256-GCM envelopes and isolated key-service boundary |
-| `railone_sandbox/` | Deterministic bank/M-PESA synthetic effects and readiness |
-| `migrations/` | Immutable forward database history |
-| `docs/` | ADRs, runbooks and security profile |
+No production-grade snapshot reader, SQL-backed economic fence authorization,
+license enforcement, or distributed dispatch reservation. Mock/fixture readers
+in tests are not permission to connect real funds. Existing PostgreSQL tests
+remain environment-gated.
 
-## Local verification
+## Windows PowerShell application
 
-From the repository root:
+From your repository root after completing and committing Phase 3:
 
 ```powershell
-python -m pip install -e ".[pilot]"
-python .\scripts\check_repository_convergence.py
-python .\scripts\check_no_secrets.py
-python .\run_tests.py
+git status --short
+git switch feat/v0.16-signed-dispatch-wrapper
+git pull --ff-only origin feat/v0.16-signed-dispatch-wrapper
+git switch -c feat/v0.16-institutional-admission
 ```
 
-For the live PostgreSQL gates, use a disposable database only:
+Place `RailOne_v0.16.0_phase4_trusted_admission.patch` in the root.
 
 ```powershell
-$env:RAILONE_TEST_DATABASE_URL = "postgresql://railone_test:railone_test@localhost:5432/railone_test"
-$env:RAILONE_ALLOW_TEST_SCHEMA_RESET = "1"
-$env:RAILONE_REQUIRE_LIVE_POSTGRES = "1"
-python .\run_tests.py
+git apply --check .\RailOne_v0.16.0_phase4_trusted_admission.patch
+git apply .\RailOne_v0.16.0_phase4_trusted_admission.patch
+$env:PYTHONDONTWRITEBYTECODE = '1'
+python -m unittest tests.test_institution_admission_gateway -v
+python run_tests.py
+python scripts/check_repository_convergence.py
+python scripts/check_no_secrets.py
+git diff --check
 ```
 
-The live test resets the `railone` schema. Never point it at a persistent or
-shared database.
+Expected on the supplied baseline: **222 tests total, 219 passed, 3 skipped**.
+The skipped tests need disposable PostgreSQL configuration. Do not assume the
+same results for a divergent working branch until tests run there.
 
-## Security boundary
+```powershell
+git add railone_operations/service.py railone_institutions/registry.py railone_institutions/__init__.py
+git add railone_institutions/admission.py docs/ADR-019-trusted-institutional-dispatch-admission.md
+git add tests/test_institution_admission_gateway.py
+git diff --cached --check
+git commit -m "feat(institutions): enforce sandbox admission before dispatch"
+git push -u origin feat/v0.16-institutional-admission
+```
 
-Ed25519 signs RailOne artifacts; it does not encrypt data. The pilot security
-profile is defined in `docs/SECURITY-PROFILE-R1-PILOT-SEC-1.md`.
+If the branch already exists, `git switch feat/v0.16-institutional-admission`
+instead of `git switch -c`. If the patch check fails, **do not force it**;
+inspect `git status` and compare with the forthcoming latest repository snapshot.
 
-The repository contains only test in-memory key providers. A deployed sandbox
-must supply isolated signing, continuity-secret, and envelope-key services.
-Private keys,
-provider credentials, access tokens, contact endpoints, and real account
-identifiers must never be committed.
+## Key review items
 
-Any key previously stored under the legacy `crypto/keys/` or `keys/` paths is
-compromised and must be revoked, rotated, and purged from Git history.
-
-## Current release status
-
-The codebase is an architecture-convergent prototype with deployable simulated-
-pilot security and provider-effect boundaries. It is eligible for a simulated
-integration pilot only after CI executes all tests without skips, including the
-optional HTTP and disposable PostgreSQL gates. It is not a live-funds or
-production deployment profile.
-
-The detailed Step 10 baseline remains available at
-`docs/STEP-10-BASELINE.md`.
+- Security review of `AuthoritativeSnapshotReader` and `EconomicEffectFenceReader`
+  implementations when wired to trusted SQL stores.
+- Atomic dispatch authorization / concurrent workers and crash recovery.
+- Partner cert and contract authority gates; license checks in Phase 5.
+- No institutional real-money endpoints until all gates pass.

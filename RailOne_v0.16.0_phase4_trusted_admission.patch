@@ -1,0 +1,570 @@
+diff --git a/docs/ADR-019-trusted-institutional-dispatch-admission.md b/docs/ADR-019-trusted-institutional-dispatch-admission.md
+new file mode 100644
+index 0000000..b102808
+--- /dev/null
++++ b/docs/ADR-019-trusted-institutional-dispatch-admission.md
+@@ -0,0 +1,57 @@
++# ADR-019 — Trusted Institutional Dispatch Admission (Phase 4)
++
++- **Status:** Proposed, sandbox integration candidate only
++- **Predecessor:** ADR-018 and migrations through `0013`
++- **No new database migration:** uses existing signed wrapper, adapter registry, UTT/RTT, and signed outbox storage
++
++## Decision
++
++Introduce a mandatory admission check when `ProviderSubmissionCoordinator` is
++explicitly configured for `INSTITUTIONAL_SANDBOX` mode. In this mode:
++
++1. Caller-supplied provider adapters are rejected; the gateway resolves an exact
++   signed adapter version from the protected institution registry.
++2. The signed canonical wrapper must be persisted and valid within its short
++   lifetime; verification uses a trusted snapshot loaded from independent RailOne
++   source-of-truth stores rather than an API-supplied snapshot.
++3. Wrapper request digest, provider, UTT, RTT, idempotency key, currencies and
++   minor-unit amounts must match the actual prepared provider request.
++4. The signed capability manifest must remain active, unchanged, version-pinned,
++   and eligible for the declared sandbox or pilot environment.
++5. An independent *economic-effect fence reader* must approve each specific
++   attempt and epoch based on authoritative, durable state. A cancellation
++   token or wrapper `release_evidence_ref` alone is NOT proof of cancellation.
++6. The gate runs before setting the provider submission to `DISPATCHING`.
++   Existing CAS/outbox behavior and unknown-outcome replay blocks remain active.
++7. Direct `prepare()` access to provider-ready account references is blocked in
++   institutional mode. `SIMULATED_PILOT` retains existing interfaces to avoid
++   breaking historic tests and synthetic demos.
++
++## Explicit limitations and nonclaims
++
++- **Not enabled for live funds.** The coordinator rejects production/live mode.
++- The trustworthiness of snapshot/fence readers is critical. Their durable,
++  fail-closed implementations and security review are not delivered by Phase 4.
++- No distributed reservation or atomic dispatch authorization row is introduced;
++  additional transaction-level fencing and crash recovery are required before
++  a real institutional pilot. The adapter `submit()` call remains outside the
++  SQL transaction; it can have an unknown outcome.
++- InstitutionLicenseGrant and commercial entitlements remain Phase 5. Pilot
++  mode does not silently grant a license.
++- Caller-supplied `ProviderAdapter` remains available **only** in the explicit
++  simulated-pilot mode. Operators MUST NOT treat that default as production-safe.
++- Adapter conformance does not prove external institution approval.
++
++## Acceptance tests
++
++Valid signed wrapper + verified manifest + trusted fence permits a reference
++sandbox adapter. Missing or expired wrapper, changed amount, wrong manifest
++hash, unsupported corridor or route, stale fence, and caller-supplied adapter
++must fail before provider effect. Unknown outcomes must still block blind retry.
++
++## Next implementation gate
++
++Wire authoritative snapshot and fence readers to PostgreSQL with transaction
++isolation and audit evidence. Strengthen dispatch reservation/CAS and pass live
++PostgreSQL concurrency, recovery, and late-settlement tests. Add license checks
++before any controlled live-use consideration.
+diff --git a/railone_institutions/__init__.py b/railone_institutions/__init__.py
+index 08bc93a..4b4274f 100644
+--- a/railone_institutions/__init__.py
++++ b/railone_institutions/__init__.py
+@@ -1,5 +1,9 @@
+ """Institution-agnostic integration boundary for RailOne execution providers."""
+ 
++from .admission import (
++    AuthoritativeSnapshotReader, EconomicEffectFenceReader,
++    InstitutionalDispatchAdmissionGateway,
++)
+ from .manifest import CapabilityManifestSigner
+ from .models import (
+     AdapterCertificationStatus,
+@@ -25,6 +29,9 @@ from .wrapper import (
+ )
+ 
+ __all__ = [
++    "AuthoritativeSnapshotReader",
++    "EconomicEffectFenceReader",
++    "InstitutionalDispatchAdmissionGateway",
+     "AdapterCertificationStatus",
+     "AdapterDescriptor",
+     "AdapterEligibilityQuery",
+diff --git a/railone_institutions/admission.py b/railone_institutions/admission.py
+new file mode 100644
+index 0000000..d9546c3
+--- /dev/null
++++ b/railone_institutions/admission.py
+@@ -0,0 +1,115 @@
++"""Phase 4: fail-closed institutional SANDBOX dispatch admission.
++
++The gateway has no live-money authority. It independently verifies signed wrapper
++bytes and a registry-backed version-pinned adapter, but depends on a trusted
++core-backed snapshot reader and economic-fence verifier. Do NOT use self-asserted
++snapshots or mock fence services for actual institutional money movement.
++"""
++from __future__ import annotations
++
++import hmac
++from datetime import datetime, timezone
++from typing import Protocol
++
++from railone_operations.models import ProviderExecutionRequest
++
++from .models import AdapterCertificationStatus, AdapterEnvironment
++from .registry import InstitutionAdapterRegistry
++from .spi import InstitutionAdapterBridge
++from .wrapper import AuthoritativeDispatchSnapshot, DispatchWrapperService
++from .wrapper_store import DispatchWrapperStore
++
++
++class AuthoritativeSnapshotReader(Protocol):
++    """Must construct from independently verified, persisted RailOne records."""
++    def load(self, *, rtt_id: str) -> AuthoritativeDispatchSnapshot: ...
++
++
++class EconomicEffectFenceReader(Protocol):
++    """Must read durable/authoritative no-effect evidence and current fence epoch."""
++    def assert_dispatch_safe(
++        self, *, utt_id: str, rtt_id: str, fence_epoch: int,
++        release_evidence_ref: str | None, at: datetime,
++    ) -> None: ...
++
++
++class InstitutionalDispatchAdmissionGateway:
++    """The only adapter selection path for INSTITUTIONAL_SANDBOX mode.
++
++    No grant, status, digest, snapshot, or adapter may come from an API caller.
++    This is a sandbox integration candidate, NOT a production-authorization gate.
++    """
++
++    def __init__(
++        self, *, registry: InstitutionAdapterRegistry,
++        wrapper_store: DispatchWrapperStore,
++        wrapper_verifier: DispatchWrapperService,
++        snapshot_reader: AuthoritativeSnapshotReader,
++        fence_reader: EconomicEffectFenceReader,
++    ) -> None:
++        self._registry = registry
++        self._wrappers = wrapper_store
++        self._verifier = wrapper_verifier
++        self._snapshots = snapshot_reader
++        self._fences = fence_reader
++
++    def admit(self, request: ProviderExecutionRequest, *, at: datetime) -> InstitutionAdapterBridge:
++        if not isinstance(at, datetime) or at.tzinfo is None:
++            raise ValueError("institutional dispatch time must be timezone-aware")
++        instant = at.astimezone(timezone.utc)
++        expected = self._snapshots.load(rtt_id=request.rtt_id)
++        signed = self._wrappers.require(request.rtt_id)
++        wrapper = self._verifier.verify(signed, expected=expected, at=instant)
++        body = wrapper.to_payload()
++        trace = body["trace_identifiers"]
++        binding = body["execution_binding"]
++        terms = body["commercial_terms"]
++        checks = (
++            (trace["utt_id"], request.utt_id),
++            (trace["rtt_id"], request.rtt_id),
++            (trace["attempt_number"], request.attempt_number),
++            (binding["request_sha256"], request.request_sha256),
++            (binding["idempotency_key"], request.idempotency_key),
++            (binding["provider_id"], request.provider_id),
++            (binding["adapter_binding_ref"], request.adapter_binding_ref),
++            (terms["source_amount_minor"], request.amount_minor),
++            (terms["receive_amount_minor"], request.receive_amount_minor),
++            (terms["source_currency"], request.currency_from),
++            (terms["receive_currency"], request.currency_to),
++        )
++        if any(a != b for a, b in checks):
++            raise PermissionError("provider request conflicts with signed canonical wrapper")
++        adapter, signed_manifest = self._registry.resolve_with_manifest(
++            request.adapter_binding_ref, at=instant
++        )
++        manifest = signed_manifest.manifest
++        if manifest.descriptor.environment not in {AdapterEnvironment.SANDBOX, AdapterEnvironment.PILOT}:
++            raise PermissionError("production institutional dispatch is not enabled")
++        if manifest.descriptor.certification_status not in {
++            AdapterCertificationStatus.CONFORMANCE, AdapterCertificationStatus.CERTIFIED
++        }:
++            raise PermissionError("institution adapter certification status is ineligible")
++        if not hmac.compare_digest(
++            str(signed_manifest.signature.protected.get("payload_sha256", "")),
++            binding["adapter_manifest_digest"],
++        ):
++            raise PermissionError("signed wrapper adapter-manifest digest does not match the registry")
++        if (manifest.descriptor.provider_id != request.provider_id or
++            request.source_institution_id.upper() not in manifest.source_institution_ids or
++            request.destination_institution_id.upper() not in manifest.destination_institution_ids or
++            request.rail.upper() not in manifest.rails or
++            request.currency_from.upper() not in manifest.currencies_from or
++            request.currency_to.upper() not in manifest.currencies_to or
++            not manifest.min_amount_minor <= request.amount_minor <= manifest.max_amount_minor):
++            raise PermissionError("request is outside registered institution capabilities")
++        # A wrapper's self-asserted release ref is NEVER sufficient; the fence
++        # reader must independently prove no duplicate economic effect is possible.
++        fence = body["fencing_controls"]
++        self._fences.assert_dispatch_safe(
++            utt_id=request.utt_id,
++            rtt_id=request.rtt_id,
++            fence_epoch=fence["economic_effect_fence_epoch"],
++            release_evidence_ref=fence["release_evidence_ref"],
++            at=instant,
++        )
++        return InstitutionAdapterBridge(adapter)
+diff --git a/railone_institutions/registry.py b/railone_institutions/registry.py
+index 6384c68..14c0f09 100644
+--- a/railone_institutions/registry.py
++++ b/railone_institutions/registry.py
+@@ -44,18 +44,31 @@ class InstitutionAdapterRegistry:
+                 raise ValueError("binding reference already registered with different signed capabilities")
+             self._entries[ref] = (adapter, signed)
+ 
+-    def resolve(self, binding_ref: str, *, at: datetime | None = None) -> InstitutionAdapter:
++    def resolve_with_manifest(
++        self, binding_ref: str, *, at: datetime | None = None
++    ) -> tuple[InstitutionAdapter, SignedCapabilityManifest]:
+         instant = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
+         with self._lock:
+             entry = self._entries.get(binding_ref)
+         if entry is None:
+             raise KeyError(f"institution adapter binding not found: {binding_ref}")
+         adapter, signed = entry
++        # Re-verify at dispatch, not just at initial registration.
++        self._verifier.verify(signed)
++        if adapter.descriptor != signed.manifest.descriptor:
++            raise PermissionError("institution adapter descriptor changed since registration")
++        if adapter.capabilities().to_payload() != signed.manifest.to_payload():
++            raise PermissionError("institution adapter capabilities changed since registration")
+         if not signed.manifest.is_active_at(instant):
+             raise PermissionError("institution adapter manifest is inactive or expired")
+-        if signed.manifest.descriptor.certification_status is AdapterCertificationStatus.DRAFT:
+-            raise PermissionError("draft institution adapter cannot execute")
+-        return adapter
++        if signed.manifest.descriptor.certification_status in {
++            AdapterCertificationStatus.DRAFT, AdapterCertificationStatus.SUSPENDED
++        }:
++            raise PermissionError("institution adapter is not eligible for execution")
++        return adapter, signed
++
++    def resolve(self, binding_ref: str, *, at: datetime | None = None) -> InstitutionAdapter:
++        return self.resolve_with_manifest(binding_ref, at=at)[0]
+ 
+     def provider_bridge(
+         self, binding_ref: str, *, at: datetime | None = None
+diff --git a/railone_operations/service.py b/railone_operations/service.py
+index ab49889..3a12fe9 100644
+--- a/railone_operations/service.py
++++ b/railone_operations/service.py
+@@ -38,6 +38,12 @@ class ProviderAdapter(Protocol):
+         ...
+ 
+ 
++class InstitutionalAdmissionGate(Protocol):
++    """Trusted, registry-backed institutional admission; never caller-supplied policy data."""
++
++    def admit(self, request: ProviderExecutionRequest, *, at: datetime) -> ProviderAdapter: ...
++
++
+ class SubmissionNotDispatchableError(RuntimeError):
+     pass
+ 
+@@ -75,7 +81,17 @@ class ProviderSubmissionCoordinator:
+         operations: OperationsStore,
+         endpoint_resolver: AccountEndpointResolver,
+         event_signing_key_id: str,
++        dispatch_mode: str = "SIMULATED_PILOT",
++        institutional_admission: InstitutionalAdmissionGate | None = None,
+     ) -> None:
++        if dispatch_mode not in {"SIMULATED_PILOT", "INSTITUTIONAL_SANDBOX"}:
++            raise ValueError("unsupported dispatch mode; live funds are not enabled")
++        if dispatch_mode == "INSTITUTIONAL_SANDBOX" and institutional_admission is None:
++            raise ValueError("institutional sandbox requires a trusted admission gate")
++        if dispatch_mode == "SIMULATED_PILOT" and institutional_admission is not None:
++            raise ValueError("institutional gate cannot be silently bypassed by simulation mode")
++        self._dispatch_mode = dispatch_mode
++        self._institutional_admission = institutional_admission
+         self._signatures = signatures
+         self._contracts = contracts
+         self._executions = executions
+@@ -85,6 +101,13 @@ class ProviderSubmissionCoordinator:
+ 
+     def prepare(
+         self, *, rtt_id: str, at: datetime | None = None
++    ) -> tuple[ProviderSubmissionRecord, ProviderExecutionRequest]:
++        if self._dispatch_mode != "SIMULATED_PILOT":
++            raise PermissionError("institutional raw provider requests are private to the dispatch gateway")
++        return self._prepare(rtt_id=rtt_id, at=at)
++
++    def _prepare(
++        self, *, rtt_id: str, at: datetime | None = None
+     ) -> tuple[ProviderSubmissionRecord, ProviderExecutionRequest]:
+         instant = _instant(at)
+         attempt = self._executions.require_attempt(require_text("rtt_id", rtt_id))
+@@ -192,11 +215,22 @@ class ProviderSubmissionCoordinator:
+         self,
+         *,
+         rtt_id: str,
+-        adapter: ProviderAdapter,
++        adapter: ProviderAdapter | None = None,
+         at: datetime | None = None,
+     ) -> ProviderSubmissionRecord:
+         instant = _instant(at)
+-        record, request = self.prepare(rtt_id=rtt_id, at=instant)
++        if self._dispatch_mode == "INSTITUTIONAL_SANDBOX" and adapter is not None:
++            raise PermissionError("institutional adapter must be selected by the trusted registry")
++        if self._dispatch_mode == "SIMULATED_PILOT" and adapter is None:
++            raise SubmissionNotDispatchableError("simulation requires an explicit adapter")
++        record, request = self._prepare(rtt_id=rtt_id, at=instant)
++        if self._dispatch_mode == "INSTITUTIONAL_SANDBOX":
++            # Guard verifies the stored signed wrapper against trusted core state,
++            # active adapter manifest, request bytes, and economic-effect fence.
++            # It returns the exact registered adapter bridge, not a caller-selected one.
++            assert self._institutional_admission is not None
++            adapter = self._institutional_admission.admit(request, at=instant)
++        assert adapter is not None
+         if adapter.provider_id.upper() != record.provider_id:
+             raise SubmissionNotDispatchableError("adapter provider does not match RTT route")
+         if record.state in self.FINAL_STATES:
+diff --git a/tests/test_institution_admission_gateway.py b/tests/test_institution_admission_gateway.py
+new file mode 100644
+index 0000000..01cafec
+--- /dev/null
++++ b/tests/test_institution_admission_gateway.py
+@@ -0,0 +1,242 @@
++"""Admission gateway fails closed in institutional sandbox and preserves pilot behavior."""
++from __future__ import annotations
++
++import copy
++import unittest
++from dataclasses import replace
++from datetime import timedelta
++
++from railone_crypto import InMemoryEd25519KeyProvider, KeyPurpose, SignatureService
++from railone_institutions import (
++    CapabilityManifestSigner, InstitutionAdapterRegistry,
++    InstitutionalDispatchAdmissionGateway,
++)
++from railone_institutions.reference import (
++    CROSS_BORDER_PROFILE, ReferenceInstitutionAdapter, reference_manifest,
++)
++from railone_institutions.wrapper import (
++    CanonicalDispatchWrapper, DispatchWrapperService,
++)
++from railone_institutions.wrapper_store import InMemoryDispatchWrapperStore
++from railone_operations import ProviderExecutionRequest, ProviderSubmissionCoordinator
++from tests.test_institution_dispatch_wrapper import NOW, sections, snapshot
++
++
++class TrustedReader:
++    def __init__(self, expected):
++        self.expected = expected
++
++    def load(self, *, rtt_id):
++        if rtt_id != self.expected.rtt_id:
++            raise LookupError("unknown RTT in trusted state")
++        return self.expected
++
++
++class FixedFence:
++    """Test-only stand-in for an independently verified durable fence."""
++    def __init__(self, *, epoch=1):
++        self.epoch = epoch
++        self.calls = 0
++
++    def assert_dispatch_safe(self, *, utt_id, rtt_id, fence_epoch, release_evidence_ref, at):
++        self.calls += 1
++        if fence_epoch != self.epoch or release_evidence_ref is not None:
++            raise PermissionError("economic-effect fence was not safely released")
++
++
++def provider_request(body, **overrides):
++    trace, binding, terms = body["trace_identifiers"], body["execution_binding"], body["commercial_terms"]
++    data = dict(
++        idempotency_key=binding["idempotency_key"],
++        request_sha256=binding["request_sha256"],
++        utt_id=trace["utt_id"], rtt_id=trace["rtt_id"], attempt_number=trace["attempt_number"],
++        provider_id=binding["provider_id"], adapter_binding_ref=binding["adapter_binding_ref"],
++        rail="CROSS_BORDER", amount_minor=terms["source_amount_minor"],
++        currency_from=terms["source_currency"], receive_amount_minor=terms["receive_amount_minor"],
++        currency_to=terms["receive_currency"],
++        source_institution_id="INST-SOURCE", destination_institution_id="INST-DEST",
++        payer_account_reference="PRIVATE-SENDER", beneficiary_account_reference="PRIVATE-RECEIVER",
++    )
++    data.update(overrides)
++    return ProviderExecutionRequest(**data)
++
++
++class InstitutionalAdmissionGatewayTests(unittest.TestCase):
++    def setUp(self):
++        keys = InMemoryEd25519KeyProvider()
++        keys.generate(
++            key_id="phase4-test", owner_id="RAILONE", purpose=KeyPurpose.EXECUTION_SIGNING,
++            not_before=NOW - timedelta(days=1), not_after=NOW + timedelta(days=1),
++        )
++        signatures = SignatureService(keys)
++        self.wrapper_service = DispatchWrapperService(signatures, signing_key_id="phase4-test")
++        self.manifest_signer = CapabilityManifestSigner(signatures, signing_key_id="phase4-test")
++        self.profile = replace(
++            CROSS_BORDER_PROFILE, adapter_id="synthetic.mtn-crdb", provider_id="SYN-UG-TZ-PROVIDER",
++            rails=("CROSS_BORDER",), currencies_from=("UGX",), currencies_to=("TZS",),
++            source_countries=("UG",), destination_countries=("TZ",),
++        )
++        self.manifest = reference_manifest(
++            self.profile, source_institution_ids=("INST-SOURCE",),
++            destination_institution_ids=("INST-DEST",), now=NOW,
++        )
++        self.adapter = ReferenceInstitutionAdapter(self.manifest)
++        self.registry = InstitutionAdapterRegistry(self.manifest_signer)
++        signed_manifest = self.manifest_signer.sign(self.manifest, issued_at=NOW)
++        self.registry.register(self.adapter, signed_manifest)
++        body_sections = sections()
++        body_sections["execution_binding"]["adapter_manifest_digest"] = signed_manifest.signature.protected["payload_sha256"]
++        self.wrapper = CanonicalDispatchWrapper.build(
++            issued_at_epoch=int(NOW.timestamp()), expires_at_epoch=int(NOW.timestamp()) + 30,
++            **body_sections,
++        )
++        self.expected = snapshot(self.wrapper.to_payload())
++        self.wrappers = InMemoryDispatchWrapperStore(self.wrapper_service)
++        signed = self.wrapper_service.issue(self.wrapper, expected=self.expected, at=NOW)
++        self.wrappers.put(signed, expected=self.expected, at=NOW)
++        self.fence = FixedFence()
++        self.reader = TrustedReader(self.expected)
++        self.gateway = InstitutionalDispatchAdmissionGateway(
++            registry=self.registry, wrapper_store=self.wrappers,
++            wrapper_verifier=self.wrapper_service, snapshot_reader=self.reader,
++            fence_reader=self.fence,
++        )
++        self.request = provider_request(self.wrapper.to_payload())
++
++    def test_signed_wrapper_and_verified_adapter_are_admitted(self):
++        bridge = self.gateway.admit(self.request, at=NOW)
++        self.assertEqual(bridge.binding_ref, "synthetic.mtn-crdb@1.0.0")
++        self.assertEqual(self.fence.calls, 1)
++        # Return value is the registry-selected adapter; submission remains processing-only.
++        self.assertEqual(bridge.provider_id, self.request.provider_id)
++
++    def test_expired_wrapper_rejected_before_fence_or_adapter_dispatch(self):
++        with self.assertRaises(PermissionError):
++            self.gateway.admit(self.request, at=NOW + timedelta(seconds=31))
++        self.assertEqual(self.fence.calls, 0)
++
++    def test_tampered_provider_values_rejected(self):
++        for field, value in (("request_sha256", "1" * 64), ("amount_minor", 1),
++                             ("adapter_binding_ref", "foreign@1.0.0"),
++                             ("idempotency_key", "DIFFERENT")):
++            with self.subTest(field=field), self.assertRaises(PermissionError):
++                self.gateway.admit(replace(self.request, **{field: value}), at=NOW)
++        self.assertEqual(self.fence.calls, 0)
++
++    def test_stale_or_unproven_economic_fence_rejected(self):
++        self.fence.epoch = 2
++        with self.assertRaises(PermissionError):
++            self.gateway.admit(self.request, at=NOW)
++
++    def test_wrong_expected_snapshot_rejected(self):
++        self.reader.expected = replace(self.expected, request_sha256="9" * 64)
++        with self.assertRaises(PermissionError):
++            self.gateway.admit(self.request, at=NOW)
++
++    def test_manifest_changed_since_wrapper_is_rejected(self):
++        # A different valid manifest cannot silently replace the original digest.
++        self.registry = InstitutionAdapterRegistry(self.manifest_signer)
++        other = replace(self.manifest, max_amount_minor=self.manifest.max_amount_minor - 1)
++        self.registry.register(ReferenceInstitutionAdapter(other), self.manifest_signer.sign(other, issued_at=NOW))
++        self.gateway = InstitutionalDispatchAdmissionGateway(
++            registry=self.registry, wrapper_store=self.wrappers,
++            wrapper_verifier=self.wrapper_service, snapshot_reader=self.reader,
++            fence_reader=self.fence,
++        )
++        with self.assertRaises(PermissionError):
++            self.gateway.admit(self.request, at=NOW)
++
++    def test_unsupported_institution_or_rail_rejected(self):
++        for field, value in (("source_institution_id", "UNREGISTERED"), ("rail", "UNSUPPORTED")):
++            with self.subTest(field=field), self.assertRaises(PermissionError):
++                self.gateway.admit(replace(self.request, **{field: value}), at=NOW)
++
++    def test_unknown_adapter_binding_rejected(self):
++        self.registry = InstitutionAdapterRegistry(self.manifest_signer)
++        self.gateway = InstitutionalDispatchAdmissionGateway(
++            registry=self.registry, wrapper_store=self.wrappers,
++            wrapper_verifier=self.wrapper_service, snapshot_reader=self.reader,
++            fence_reader=self.fence,
++        )
++        with self.assertRaises(KeyError):
++            self.gateway.admit(self.request, at=NOW)
++
++    def test_missing_wrapper_fails_closed(self):
++        self.wrappers = InMemoryDispatchWrapperStore(self.wrapper_service)
++        self.gateway = InstitutionalDispatchAdmissionGateway(
++            registry=self.registry, wrapper_store=self.wrappers,
++            wrapper_verifier=self.wrapper_service, snapshot_reader=self.reader,
++            fence_reader=self.fence,
++        )
++        with self.assertRaises(LookupError):
++            self.gateway.admit(self.request, at=NOW)
++
++
++class InstitutionalCoordinatorBoundaryTests(unittest.TestCase):
++    def setUp(self):
++        from tests.test_provider_operations import ProviderOperationsTests, FakeProviderAdapter
++        self.fixture = ProviderOperationsTests("test_preparation_is_idempotent_and_uses_stable_provider_key")
++        self.fixture.setUp()
++        self.fake = FakeProviderAdapter()
++        self.adapter_factory = FakeProviderAdapter
++
++    def build(self, *, mode="INSTITUTIONAL_SANDBOX", gate=None):
++        f = self.fixture
++        return ProviderSubmissionCoordinator(
++            signatures=f.signatures, contracts=f.contracts, executions=f.executions,
++            operations=f.operations, endpoint_resolver=f.endpoint_resolver,
++            event_signing_key_id="R1CORE:execution:2026-01",
++            dispatch_mode=mode, institutional_admission=gate,
++        )
++
++    def test_missing_gate_rejects_institutional_mode(self):
++        with self.assertRaises(ValueError):
++            self.build()
++
++    def test_live_funds_mode_is_explicitly_disabled(self):
++        with self.assertRaises(ValueError):
++            self.build(mode="LIVE_FUNDS")
++
++    def test_institutional_mode_rejects_caller_adapter_and_direct_prepare(self):
++        from tests.test_provider_operations import FakeProviderAdapter
++        class StubGate:
++            def admit(self, request, *, at):
++                return FakeProviderAdapter()
++        coordinator = self.build(gate=StubGate())
++        with self.assertRaises(PermissionError):
++            coordinator.dispatch(rtt_id=self.fixture.rtt_id, adapter=self.fake, at=self.fixture.now + timedelta(seconds=22))
++        with self.assertRaises(PermissionError):
++            coordinator.prepare(rtt_id=self.fixture.rtt_id, at=self.fixture.now + timedelta(seconds=22))
++        self.assertEqual(self.fake.calls, 0)
++
++    def test_institutional_gate_runs_before_provider_effect(self):
++        class DenyGate:
++            def admit(self, request, *, at):
++                raise PermissionError("admission rejected")
++        coordinator = self.build(gate=DenyGate())
++        with self.assertRaises(PermissionError):
++            coordinator.dispatch(rtt_id=self.fixture.rtt_id, at=self.fixture.now + timedelta(seconds=22))
++        record = self.fixture.operations.require_submission(self.fixture.rtt_id)
++        self.assertEqual(record.dispatch_attempts, 0)
++
++    def test_institutional_mode_uses_only_gate_selected_adapter(self):
++        chosen = self.fake
++        class TrustedGate:
++            def admit(self, request, *, at):
++                return chosen
++        coordinator = self.build(gate=TrustedGate())
++        record = coordinator.dispatch(
++            rtt_id=self.fixture.rtt_id, at=self.fixture.now + timedelta(seconds=22)
++        )
++        self.assertEqual(record.state.value, "ACCEPTED")
++        self.assertEqual(chosen.calls, 1)
++
++    def test_simulated_pilot_still_operates_without_gate(self):
++        coordinator = self.build(mode="SIMULATED_PILOT")
++        result = coordinator.dispatch(rtt_id=self.fixture.rtt_id, adapter=self.fake, at=self.fixture.now + timedelta(seconds=22))
++        self.assertEqual(result.state.value, "ACCEPTED")
++        self.assertEqual(self.fake.calls, 1)
++
++
++if __name__ == "__main__":
++    unittest.main()

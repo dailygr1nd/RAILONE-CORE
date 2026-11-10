@@ -108,6 +108,18 @@ class LivePostgresRuntimeTests(unittest.TestCase):
             migrations_directory=self.migrations,
         ).apply_all()
         self.assertTrue(all(result.already_applied for result in results))
+        self.assertIn("0013", {result.version for result in results})
+        connection = self.factory()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT to_regclass('railone.institution_dispatch_wrappers') AS relation")
+                self.assertIsNotNone(cursor.fetchone()["relation"])
+                cursor.execute("""SELECT COUNT(*) AS count FROM pg_trigger
+                               WHERE tgrelid = 'railone.institution_dispatch_wrappers'::regclass
+                                 AND tgname = 'institution_dispatch_wrappers_append_only'""")
+                self.assertEqual(cursor.fetchone()["count"], 1)
+        finally:
+            connection.close()
 
     def test_contract_execution_submission_and_projection_round_trip(self):
         now = datetime(2026, 7, 14, 19, 0, tzinfo=timezone.utc)
@@ -180,9 +192,17 @@ class LivePostgresRuntimeTests(unittest.TestCase):
             speed_bps=8500, estimated_cost_minor=30, link_status=LinkStatus.UP,
             telemetry_observed_at=now, telemetry_expires_at=now + timedelta(minutes=5),
         )
-        ExecutionPlanningService(
+        plan = ExecutionPlanningService(
             signatures=signatures, contracts=contracts, executions=executions
         ).build_plan(utt_id=contract.utt_id, candidates=(route,), at=now + timedelta(seconds=2))
+        decision = executions.require_decision_for_plan(plan.plan_id)
+        decision.verify(plan=plan)
+        with database.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) AS count FROM railone.route_decision_records WHERE plan_id=%s",
+                (plan.plan_id,),
+            )
+            self.assertEqual(cursor.fetchone()["count"], 1)
         attempt = RttAttemptService(
             signatures=signatures, contracts=contracts, executions=executions,
             rtt_signing_key_id="R1CORE:execution:live",

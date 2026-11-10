@@ -44,18 +44,31 @@ class InstitutionAdapterRegistry:
                 raise ValueError("binding reference already registered with different signed capabilities")
             self._entries[ref] = (adapter, signed)
 
-    def resolve(self, binding_ref: str, *, at: datetime | None = None) -> InstitutionAdapter:
+    def resolve_with_manifest(
+        self, binding_ref: str, *, at: datetime | None = None
+    ) -> tuple[InstitutionAdapter, SignedCapabilityManifest]:
         instant = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
         with self._lock:
             entry = self._entries.get(binding_ref)
         if entry is None:
             raise KeyError(f"institution adapter binding not found: {binding_ref}")
         adapter, signed = entry
+        # Re-verify at dispatch, not just at initial registration.
+        self._verifier.verify(signed)
+        if adapter.descriptor != signed.manifest.descriptor:
+            raise PermissionError("institution adapter descriptor changed since registration")
+        if adapter.capabilities().to_payload() != signed.manifest.to_payload():
+            raise PermissionError("institution adapter capabilities changed since registration")
         if not signed.manifest.is_active_at(instant):
             raise PermissionError("institution adapter manifest is inactive or expired")
-        if signed.manifest.descriptor.certification_status is AdapterCertificationStatus.DRAFT:
-            raise PermissionError("draft institution adapter cannot execute")
-        return adapter
+        if signed.manifest.descriptor.certification_status in {
+            AdapterCertificationStatus.DRAFT, AdapterCertificationStatus.SUSPENDED
+        }:
+            raise PermissionError("institution adapter is not eligible for execution")
+        return adapter, signed
+
+    def resolve(self, binding_ref: str, *, at: datetime | None = None) -> InstitutionAdapter:
+        return self.resolve_with_manifest(binding_ref, at=at)[0]
 
     def provider_bridge(
         self, binding_ref: str, *, at: datetime | None = None

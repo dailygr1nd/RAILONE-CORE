@@ -38,6 +38,12 @@ class ProviderAdapter(Protocol):
         ...
 
 
+class InstitutionalAdmissionGate(Protocol):
+    """Trusted, registry-backed institutional admission; never caller-supplied policy data."""
+
+    def admit(self, request: ProviderExecutionRequest, *, at: datetime) -> ProviderAdapter: ...
+
+
 class SubmissionNotDispatchableError(RuntimeError):
     pass
 
@@ -75,7 +81,17 @@ class ProviderSubmissionCoordinator:
         operations: OperationsStore,
         endpoint_resolver: AccountEndpointResolver,
         event_signing_key_id: str,
+        dispatch_mode: str = "SIMULATED_PILOT",
+        institutional_admission: InstitutionalAdmissionGate | None = None,
     ) -> None:
+        if dispatch_mode not in {"SIMULATED_PILOT", "INSTITUTIONAL_SANDBOX"}:
+            raise ValueError("unsupported dispatch mode; live funds are not enabled")
+        if dispatch_mode == "INSTITUTIONAL_SANDBOX" and institutional_admission is None:
+            raise ValueError("institutional sandbox requires a trusted admission gate")
+        if dispatch_mode == "SIMULATED_PILOT" and institutional_admission is not None:
+            raise ValueError("institutional gate cannot be silently bypassed by simulation mode")
+        self._dispatch_mode = dispatch_mode
+        self._institutional_admission = institutional_admission
         self._signatures = signatures
         self._contracts = contracts
         self._executions = executions
@@ -84,6 +100,13 @@ class ProviderSubmissionCoordinator:
         self._event_signing_key_id = event_signing_key_id
 
     def prepare(
+        self, *, rtt_id: str, at: datetime | None = None
+    ) -> tuple[ProviderSubmissionRecord, ProviderExecutionRequest]:
+        if self._dispatch_mode != "SIMULATED_PILOT":
+            raise PermissionError("institutional raw provider requests are private to the dispatch gateway")
+        return self._prepare(rtt_id=rtt_id, at=at)
+
+    def _prepare(
         self, *, rtt_id: str, at: datetime | None = None
     ) -> tuple[ProviderSubmissionRecord, ProviderExecutionRequest]:
         instant = _instant(at)
@@ -192,11 +215,22 @@ class ProviderSubmissionCoordinator:
         self,
         *,
         rtt_id: str,
-        adapter: ProviderAdapter,
+        adapter: ProviderAdapter | None = None,
         at: datetime | None = None,
     ) -> ProviderSubmissionRecord:
         instant = _instant(at)
-        record, request = self.prepare(rtt_id=rtt_id, at=instant)
+        if self._dispatch_mode == "INSTITUTIONAL_SANDBOX" and adapter is not None:
+            raise PermissionError("institutional adapter must be selected by the trusted registry")
+        if self._dispatch_mode == "SIMULATED_PILOT" and adapter is None:
+            raise SubmissionNotDispatchableError("simulation requires an explicit adapter")
+        record, request = self._prepare(rtt_id=rtt_id, at=instant)
+        if self._dispatch_mode == "INSTITUTIONAL_SANDBOX":
+            # Guard verifies the stored signed wrapper against trusted core state,
+            # active adapter manifest, request bytes, and economic-effect fence.
+            # It returns the exact registered adapter bridge, not a caller-selected one.
+            assert self._institutional_admission is not None
+            adapter = self._institutional_admission.admit(request, at=instant)
+        assert adapter is not None
         if adapter.provider_id.upper() != record.provider_id:
             raise SubmissionNotDispatchableError("adapter provider does not match RTT route")
         if record.state in self.FINAL_STATES:

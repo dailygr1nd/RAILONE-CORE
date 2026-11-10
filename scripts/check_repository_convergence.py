@@ -15,6 +15,7 @@ REQUIRED_PACKAGES = {
     "railone_certification",
     "railone_contracts",
     "railone_crypto",
+    "railone_currency",
     "railone_execution",
     "railone_history",
     "railone_identity",
@@ -60,6 +61,9 @@ EXPECTED_MIGRATIONS = [
     "0008_deployable_sandbox_workers.sql",
     "0009_institution_adapter_spi.sql",
     "0010_partner_certification_harness.sql",
+    "0011_currency_and_settlement_instruments.sql",
+    "0012_immutable_route_decision_records.sql",
+    "0013_signed_institution_dispatch_wrappers.sql",
 ]
 
 
@@ -92,7 +96,7 @@ def validate() -> list[str]:
     migrations = sorted(path.name for path in (ROOT / "migrations").glob("*.sql"))
     if migrations != EXPECTED_MIGRATIONS:
         errors.append(
-            "migration chain differs from immutable 0001-0010 baseline: "
+            "migration chain differs from extended immutable 0001-0013 sequence: "
             + ", ".join(migrations)
         )
 

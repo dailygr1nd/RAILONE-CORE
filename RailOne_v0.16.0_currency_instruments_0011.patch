@@ -1,0 +1,648 @@
+diff --git a/docs/ADR-016-currency-and-settlement-instruments.md b/docs/ADR-016-currency-and-settlement-instruments.md
+new file mode 100644
+index 0000000..dfd3310
+--- /dev/null
++++ b/docs/ADR-016-currency-and-settlement-instruments.md
+@@ -0,0 +1,71 @@
++# ADR-016: Currency and Settlement-Instrument Reference Registry (v0.16 Alpha)
++
++- **Status:** Proposed / implementation reference (not approved for live funds)
++- **Parent:** RailOne ADR-015 and RO-DOC-TERM-001 / RO-DOC-ARCH-002
++- **Scope:** New *passive* currency and instrument reference metadata; no changes to UTT/RTT, routing, dispatch, settlement or licensing
++
++## Decision
++
++Separate the denomination of a monetary obligation from the institutional form
++of money that may settle it. A `CurrencyDefinition` identifies a sovereign
++currency, a versioned minor-unit exponent and governance reference. A
++`SettlementInstrumentProfile` declares one versioned settlement instrument and
++its jurisdiction, issuer, operator, settlement rail and environment.
++
++Permitted descriptive instrument classes are `COMMERCIAL_BANK_MONEY`,
++`REGULATED_E_MONEY`, `RETAIL_CBDC`, and `WHOLESALE_CBDC`. This registry does not
++include cryptoassets or stablecoins. In particular, a CBDC record represents
++an *intended profile*, not access to a central-bank ledger or a CBDC settlement
++right. Token-based CBDCs are still CBDCs for classification; the legal issuer,
++permission model and actual ledger settlement evidence remain decisive.
++
++## Non-negotiable boundaries
++
++1. **No execution admission.** Registry presence, `REVIEWED` metadata or
++   `PRODUCTION` label alone grants no route eligibility, partner entitlement,
++   payment authorization, custody, external movement or finality.
++2. **No automatic public registry ingestion.** Three-letter codes are only
++   syntactically validated; this is not an independent ISO 4217 or sovereign
++   issuer verification. Only trusted administrators may curate definitions.
++3. **No effect on commercial truth.** UTT and RTT remain authoritative under
++   existing contract and execution rules. Any currency precision transition
++   must be handled under controlled versioning, not retroactive reinterpretation.
++4. **No customer endpoints.** Raw accounts, phone numbers, access tokens and
++   signing secrets do not belong in instrument profiles.
++5. **New revisions, never rewrites.** Existing currency and instrument-version
++   records are immutable; operator-approved changes append a version.
++6. **No cryptocurrency support.** The v0.16 reference instrument-type enum
++   deliberately excludes private cryptocurrencies, stablecoins and other
++   cryptoassets. Validation of sovereign currency authenticity requires a
++   separately governed allowlist or vetted reference authority.
++
++## New files
++
++- `railone_currency/models.py`: strict frozen models and serializable payloads
++- `railone_currency/registry.py`: deterministic append-only metadata registry
++- `railone_currency/__init__.py`: public metadata interface
++- `migrations/0011_currency_and_settlement_instruments.sql`: append-only SQL records, foreign key and lookup index
++- `tests/test_currency_instruments.py`: model, immutability, version and non-authority contract tests
++
++## Source files changed
++
++- `scripts/check_repository_convergence.py`: admit the new package and migration
++- No change to UTT/RTT persistence, quote pricing or operational dispatch
++- No changes to migration files `0001` through `0010`
++
++## Future authority controls (NOT part of this change)
++
++Authoritative reference verification; jurisdiction and corridor legal gates;
++partner identity and adapter certification; settlement-rail contracts;
++production issuer permissions; currency-exponent consistency against accepted
++UTT; deterministic route selection; instrument-specific finality evidence.
++The next planned migration is `0012` (route decision and economic-effect fencing).
++
++## Acceptance gates
++
++1. All existing unit tests continue passing plus new metadata tests.
++2. All existing migration checksums remain unchanged; the new migration runs
++   successfully on a disposable PostgreSQL database and is idempotent.
++3. Convergence and secret scans pass on the clean source checkout.
++4. Neither the schema nor reference registry is allowed to authorize dispatch.
++5. No real bank, payment-rail or CBDC capability is inferred from synthetic IDs.
+diff --git a/migrations/0011_currency_and_settlement_instruments.sql b/migrations/0011_currency_and_settlement_instruments.sql
+new file mode 100644
+index 0000000..b22927e
+--- /dev/null
++++ b/migrations/0011_currency_and_settlement_instruments.sql
+@@ -0,0 +1,67 @@
++BEGIN;
++
++-- Passive, append-only reference metadata. The presence of a currency or
++-- profile in these tables NEVER authorizes payment dispatch or CBDC access.
++CREATE TABLE railone.currency_definitions (
++    currency_code text NOT NULL CHECK (currency_code ~ '^[A-Z]{3}$'),
++    definition_version integer NOT NULL CHECK (definition_version >= 1),
++    minor_unit_exponent smallint NOT NULL CHECK (minor_unit_exponent BETWEEN 0 AND 9),
++    issuing_authority_ref text NOT NULL CHECK (length(issuing_authority_ref) BETWEEN 2 AND 128),
++    standard_reference text NOT NULL CHECK (length(standard_reference) BETWEEN 2 AND 128),
++    created_at timestamptz NOT NULL DEFAULT now(),
++    PRIMARY KEY (currency_code, definition_version)
++);
++
++CREATE TABLE railone.settlement_instrument_profiles (
++    profile_id text NOT NULL,
++    profile_version integer NOT NULL CHECK (profile_version >= 1),
++    currency_code text NOT NULL,
++    currency_definition_version integer NOT NULL,
++    instrument_kind text NOT NULL CHECK (
++        instrument_kind IN (
++            'COMMERCIAL_BANK_MONEY', 'REGULATED_E_MONEY', 'RETAIL_CBDC', 'WHOLESALE_CBDC'
++        )
++    ),
++    issuer_kind text NOT NULL CHECK (
++        issuer_kind IN ('CENTRAL_BANK', 'LICENSED_BANK', 'REGULATED_EMONEY_ISSUER')
++    ),
++    issuer_institution_id text NOT NULL,
++    operator_institution_id text NOT NULL,
++    settlement_rail_id text NOT NULL,
++    jurisdiction_country text NOT NULL CHECK (jurisdiction_country ~ '^[A-Z]{2}$'),
++    environment text NOT NULL CHECK (environment IN ('SANDBOX', 'PILOT', 'PRODUCTION')),
++    review_status text NOT NULL CHECK (review_status IN ('DECLARED', 'REVIEWED', 'SUSPENDED')),
++    review_evidence_ref text,
++    created_at timestamptz NOT NULL DEFAULT now(),
++    PRIMARY KEY (profile_id, profile_version),
++    FOREIGN KEY (currency_code, currency_definition_version)
++        REFERENCES railone.currency_definitions (currency_code, definition_version),
++    CHECK ((review_status <> 'REVIEWED') OR review_evidence_ref IS NOT NULL),
++    CHECK (
++        (instrument_kind = 'COMMERCIAL_BANK_MONEY' AND issuer_kind = 'LICENSED_BANK') OR
++        (instrument_kind = 'REGULATED_E_MONEY' AND issuer_kind = 'REGULATED_EMONEY_ISSUER') OR
++        (instrument_kind IN ('RETAIL_CBDC', 'WHOLESALE_CBDC') AND issuer_kind = 'CENTRAL_BANK')
++    )
++);
++
++-- Immutable revisions: policy changes create new versioned rows, never rewrites.
++CREATE OR REPLACE FUNCTION railone.reject_currency_reference_mutation()
++RETURNS trigger LANGUAGE plpgsql AS $$
++BEGIN
++    RAISE EXCEPTION 'currency and settlement-instrument records are append-only';
++END;
++$$;
++
++CREATE TRIGGER currency_definitions_append_only
++BEFORE UPDATE OR DELETE ON railone.currency_definitions
++FOR EACH ROW EXECUTE FUNCTION railone.reject_currency_reference_mutation();
++
++CREATE TRIGGER settlement_instrument_profiles_append_only
++BEFORE UPDATE OR DELETE ON railone.settlement_instrument_profiles
++FOR EACH ROW EXECUTE FUNCTION railone.reject_currency_reference_mutation();
++
++CREATE INDEX settlement_instrument_profiles_lookup_idx
++    ON railone.settlement_instrument_profiles
++    (currency_code, instrument_kind, environment, review_status);
++
++COMMIT;
+diff --git a/railone_currency/__init__.py b/railone_currency/__init__.py
+new file mode 100644
+index 0000000..5a13572
+--- /dev/null
++++ b/railone_currency/__init__.py
+@@ -0,0 +1,21 @@
++"""Currency and settlement-instrument metadata, independent of execution authority."""
++
++from .models import (
++    CurrencyDefinition,
++    InstrumentEnvironment,
++    MonetaryIssuerKind,
++    ProfileReviewStatus,
++    SettlementInstrumentKind,
++    SettlementInstrumentProfile,
++)
++from .registry import CurrencyInstrumentRegistry
++
++__all__ = [
++    "CurrencyDefinition",
++    "CurrencyInstrumentRegistry",
++    "InstrumentEnvironment",
++    "MonetaryIssuerKind",
++    "ProfileReviewStatus",
++    "SettlementInstrumentKind",
++    "SettlementInstrumentProfile",
++]
+diff --git a/railone_currency/models.py b/railone_currency/models.py
+new file mode 100644
+index 0000000..202fc85
+--- /dev/null
++++ b/railone_currency/models.py
+@@ -0,0 +1,152 @@
++"""Passive, versioned sovereign-currency and settlement-instrument definitions.
++
++These metadata records do NOT authorize routing, custody, dispatch, settlement,
++CBDC access, or regulated activity. An authorization layer must separately
++verify authoritative evidence and institutional permissions before execution.
++"""
++
++from __future__ import annotations
++
++import re
++from dataclasses import dataclass
++from enum import StrEnum
++
++
++_CURRENCY_CODE = re.compile(r"^[A-Z]{3}$")
++_COUNTRY_CODE = re.compile(r"^[A-Z]{2}$")
++_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{1,127}$")
++
++
++def _code(name: str, value: str, pattern: re.Pattern[str]) -> str:
++    if not isinstance(value, str) or pattern.fullmatch(value) is None:
++        raise ValueError(f"{name} must be in its canonical identifier format")
++    return value
++
++
++def _reference(name: str, value: str) -> str:
++    return _code(name, value, _REFERENCE)
++
++
++def _positive_version(name: str, value: int) -> int:
++    if type(value) is not int or value < 1:
++        raise ValueError(f"{name} must be a positive integer")
++    return value
++
++
++class SettlementInstrumentKind(StrEnum):
++    COMMERCIAL_BANK_MONEY = "COMMERCIAL_BANK_MONEY"
++    REGULATED_E_MONEY = "REGULATED_E_MONEY"
++    RETAIL_CBDC = "RETAIL_CBDC"
++    WHOLESALE_CBDC = "WHOLESALE_CBDC"
++
++
++class MonetaryIssuerKind(StrEnum):
++    CENTRAL_BANK = "CENTRAL_BANK"
++    LICENSED_BANK = "LICENSED_BANK"
++    REGULATED_EMONEY_ISSUER = "REGULATED_EMONEY_ISSUER"
++
++
++class InstrumentEnvironment(StrEnum):
++    SANDBOX = "SANDBOX"
++    PILOT = "PILOT"
++    PRODUCTION = "PRODUCTION"
++
++
++class ProfileReviewStatus(StrEnum):
++    DECLARED = "DECLARED"
++    REVIEWED = "REVIEWED"
++    SUSPENDED = "SUSPENDED"
++
++
++@dataclass(frozen=True, slots=True)
++class CurrencyDefinition:
++    """A sovereign-denomination reference; not a live-execution permission."""
++
++    currency_code: str
++    definition_version: int
++    minor_unit_exponent: int
++    issuing_authority_ref: str
++    standard_reference: str
++
++    def __post_init__(self) -> None:
++        _code("currency_code", self.currency_code, _CURRENCY_CODE)
++        _positive_version("definition_version", self.definition_version)
++        if type(self.minor_unit_exponent) is not int or not 0 <= self.minor_unit_exponent <= 9:
++            raise ValueError("minor_unit_exponent must be an integer from 0 through 9")
++        _reference("issuing_authority_ref", self.issuing_authority_ref)
++        _reference("standard_reference", self.standard_reference)
++
++    def to_payload(self) -> dict[str, str | int]:
++        return {
++            "currency_code": self.currency_code,
++            "definition_version": self.definition_version,
++            "minor_unit_exponent": self.minor_unit_exponent,
++            "issuing_authority_ref": self.issuing_authority_ref,
++            "standard_reference": self.standard_reference,
++        }
++
++
++@dataclass(frozen=True, slots=True)
++class SettlementInstrumentProfile:
++    """A declared rail/instrument capability; never a dispatch authorization."""
++
++    profile_id: str
++    profile_version: int
++    currency_code: str
++    currency_definition_version: int
++    instrument_kind: SettlementInstrumentKind
++    issuer_kind: MonetaryIssuerKind
++    issuer_institution_id: str
++    operator_institution_id: str
++    settlement_rail_id: str
++    jurisdiction_country: str
++    environment: InstrumentEnvironment
++    review_status: ProfileReviewStatus = ProfileReviewStatus.DECLARED
++    review_evidence_ref: str | None = None
++
++    def __post_init__(self) -> None:
++        _reference("profile_id", self.profile_id)
++        _positive_version("profile_version", self.profile_version)
++        _code("currency_code", self.currency_code, _CURRENCY_CODE)
++        _positive_version("currency_definition_version", self.currency_definition_version)
++        for name in ("issuer_institution_id", "operator_institution_id", "settlement_rail_id"):
++            _reference(name, getattr(self, name))
++        _code("jurisdiction_country", self.jurisdiction_country, _COUNTRY_CODE)
++        for name, enum_type in (
++            ("instrument_kind", SettlementInstrumentKind),
++            ("issuer_kind", MonetaryIssuerKind),
++            ("environment", InstrumentEnvironment),
++            ("review_status", ProfileReviewStatus),
++        ):
++            if not isinstance(getattr(self, name), enum_type):
++                raise ValueError(f"{name} must be a supported {enum_type.__name__}")
++
++        expected_issuer = {
++            SettlementInstrumentKind.COMMERCIAL_BANK_MONEY: MonetaryIssuerKind.LICENSED_BANK,
++            SettlementInstrumentKind.REGULATED_E_MONEY: MonetaryIssuerKind.REGULATED_EMONEY_ISSUER,
++            SettlementInstrumentKind.RETAIL_CBDC: MonetaryIssuerKind.CENTRAL_BANK,
++            SettlementInstrumentKind.WHOLESALE_CBDC: MonetaryIssuerKind.CENTRAL_BANK,
++        }[self.instrument_kind]
++        if self.issuer_kind is not expected_issuer:
++            raise ValueError("instrument kind and issuer kind are inconsistent")
++        if self.review_evidence_ref is not None:
++            _reference("review_evidence_ref", self.review_evidence_ref)
++        if self.review_status is ProfileReviewStatus.REVIEWED and self.review_evidence_ref is None:
++            raise ValueError("reviewed profiles must reference review evidence")
++
++    def to_payload(self) -> dict[str, str | int | None]:
++        return {
++            "profile_id": self.profile_id,
++            "profile_version": self.profile_version,
++            "currency_code": self.currency_code,
++            "currency_definition_version": self.currency_definition_version,
++            "instrument_kind": self.instrument_kind.value,
++            "issuer_kind": self.issuer_kind.value,
++            "issuer_institution_id": self.issuer_institution_id,
++            "operator_institution_id": self.operator_institution_id,
++            "settlement_rail_id": self.settlement_rail_id,
++            "jurisdiction_country": self.jurisdiction_country,
++            "environment": self.environment.value,
++            "review_status": self.review_status.value,
++            "review_evidence_ref": self.review_evidence_ref,
++        }
+diff --git a/railone_currency/registry.py b/railone_currency/registry.py
+new file mode 100644
+index 0000000..598ba84
+--- /dev/null
++++ b/railone_currency/registry.py
+@@ -0,0 +1,87 @@
++"""Reference metadata registry: no adapter or execution authority is granted here.
++
++All lookups are descriptive only. The v0.15 routing/dispatch path does not
++consult this registry; a later trust boundary must verify issuer, license,
++conformance, corridor and external settlement permissions independently.
++"""
++
++from __future__ import annotations
++
++from threading import RLock
++
++from .models import CurrencyDefinition, SettlementInstrumentProfile
++
++
++class CurrencyInstrumentRegistry:
++    """In-memory reference for deterministic, append-only metadata versions."""
++
++    def __init__(self) -> None:
++        self._currencies: dict[tuple[str, int], CurrencyDefinition] = {}
++        self._profiles: dict[tuple[str, int], SettlementInstrumentProfile] = {}
++        self._lock = RLock()
++
++    def add_currency(self, definition: CurrencyDefinition) -> CurrencyDefinition:
++        key = (definition.currency_code, definition.definition_version)
++        with self._lock:
++            previous = self._currencies.get(key)
++            if previous is not None:
++                if previous != definition:
++                    raise ValueError("currency revision is immutable")
++                return previous
++            versions = [version for code, version in self._currencies if code == definition.currency_code]
++            if definition.definition_version != (max(versions) + 1 if versions else 1):
++                raise ValueError("currency revisions must be appended in sequence")
++            self._currencies[key] = definition
++            return definition
++
++    def add_profile(self, profile: SettlementInstrumentProfile) -> SettlementInstrumentProfile:
++        key = (profile.profile_id, profile.profile_version)
++        with self._lock:
++            if (profile.currency_code, profile.currency_definition_version) not in self._currencies:
++                raise KeyError("profile references an unregistered currency definition revision")
++            previous = self._profiles.get(key)
++            if previous is not None:
++                if previous != profile:
++                    raise ValueError("settlement profile revision is immutable")
++                return previous
++            previous_versions = [item for (name, _), item in self._profiles.items() if name == profile.profile_id]
++            if profile.profile_version != (max((item.profile_version for item in previous_versions), default=0) + 1):
++                raise ValueError("settlement profile revisions must be appended in sequence")
++            # Preserve a profile's enduring identity across revisions. Changing
++            # its currency, issuer, instrument or rail requires a new profile ID.
++            if previous_versions:
++                previous_profile = max(previous_versions, key=lambda item: item.profile_version)
++                enduring_fields = (
++                    "currency_code", "instrument_kind", "issuer_kind",
++                    "issuer_institution_id", "settlement_rail_id", "jurisdiction_country",
++                )
++                if any(getattr(previous_profile, name) != getattr(profile, name) for name in enduring_fields):
++                    raise ValueError("settlement profile identity changed; create a new profile_id")
++            self._profiles[key] = profile
++            return profile
++
++    def currency(self, currency_code: str, *, version: int | None = None) -> CurrencyDefinition:
++        with self._lock:
++            options = [item for (code, rev), item in self._currencies.items()
++                       if code == currency_code and (version is None or rev == version)]
++            if not options:
++                raise KeyError("currency definition not registered")
++            return max(options, key=lambda item: item.definition_version)
++
++    def profile(self, profile_id: str, *, version: int | None = None) -> SettlementInstrumentProfile:
++        with self._lock:
++            options = [item for (identifier, rev), item in self._profiles.items()
++                       if identifier == profile_id and (version is None or rev == version)]
++            if not options:
++                raise KeyError("settlement instrument profile not registered")
++            return max(options, key=lambda item: item.profile_version)
++
++    def declared_profiles(self, *, currency_code: str) -> tuple[SettlementInstrumentProfile, ...]:
++        """Return descriptive metadata, never executable route eligibility."""
++        with self._lock:
++            identifiers = {profile_id for profile_id, _ in self._profiles}
++            latest = (self.profile(profile_id) for profile_id in identifiers)
++            return tuple(sorted(
++                (item for item in latest if item.currency_code == currency_code),
++                key=lambda item: item.profile_id,
++            ))
+diff --git a/scripts/check_repository_convergence.py b/scripts/check_repository_convergence.py
+index b327e0b..5afbbd3 100644
+--- a/scripts/check_repository_convergence.py
++++ b/scripts/check_repository_convergence.py
+@@ -15,6 +15,7 @@ REQUIRED_PACKAGES = {
+     "railone_certification",
+     "railone_contracts",
+     "railone_crypto",
++    "railone_currency",
+     "railone_execution",
+     "railone_history",
+     "railone_identity",
+@@ -60,6 +61,7 @@ EXPECTED_MIGRATIONS = [
+     "0008_deployable_sandbox_workers.sql",
+     "0009_institution_adapter_spi.sql",
+     "0010_partner_certification_harness.sql",
++    "0011_currency_and_settlement_instruments.sql",
+ ]
+ 
+ 
+@@ -92,7 +94,7 @@ def validate() -> list[str]:
+     migrations = sorted(path.name for path in (ROOT / "migrations").glob("*.sql"))
+     if migrations != EXPECTED_MIGRATIONS:
+         errors.append(
+-            "migration chain differs from immutable 0001-0010 baseline: "
++            "migration chain differs from extended immutable 0001-0011 sequence: "
+             + ", ".join(migrations)
+         )
+ 
+diff --git a/tests/test_currency_instruments.py b/tests/test_currency_instruments.py
+new file mode 100644
+index 0000000..85cdf35
+--- /dev/null
++++ b/tests/test_currency_instruments.py
+@@ -0,0 +1,185 @@
++"""New additive v0.16.0 currency/settlement metadata contract tests."""
++
++from __future__ import annotations
++
++import unittest
++from dataclasses import FrozenInstanceError, replace
++from pathlib import Path
++
++from railone_currency import (
++    CurrencyDefinition, CurrencyInstrumentRegistry, InstrumentEnvironment,
++    MonetaryIssuerKind, ProfileReviewStatus, SettlementInstrumentKind,
++    SettlementInstrumentProfile,
++)
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++def tzs(version: int = 1) -> CurrencyDefinition:
++    return CurrencyDefinition(
++        currency_code="TZS", definition_version=version, minor_unit_exponent=2,
++        issuing_authority_ref="BOT", standard_reference="ISO4217-TZS",
++    )
++
++
++def profile(**changes) -> SettlementInstrumentProfile:
++    base = dict(
++        profile_id="TIPS-TZS-COMMERCIAL-BANK", profile_version=1,
++        currency_code="TZS", currency_definition_version=1,
++        instrument_kind=SettlementInstrumentKind.COMMERCIAL_BANK_MONEY,
++        issuer_kind=MonetaryIssuerKind.LICENSED_BANK,
++        issuer_institution_id="BANK-TEST", operator_institution_id="TIPS-TEST",
++        settlement_rail_id="TIPS-SYNTHETIC", jurisdiction_country="TZ",
++        environment=InstrumentEnvironment.SANDBOX,
++    )
++    return SettlementInstrumentProfile(**(base | changes))
++
++
++class CurrencyInstrumentContractTests(unittest.TestCase):
++    def setUp(self) -> None:
++        self.registry = CurrencyInstrumentRegistry()
++        self.registry.add_currency(tzs())
++
++    def test_currency_snapshot_is_immutable(self):
++        with self.assertRaises(FrozenInstanceError):
++            tzs().currency_code = "KES"
++
++    def test_currency_requires_uppercase_three_letter_code(self):
++        for bad in ("tzs", "TzS", "TZ", "TZSS", "123", "BTC-USD"):
++            with self.subTest(code=bad), self.assertRaises(ValueError):
++                replace(tzs(), currency_code=bad)
++
++    def test_minor_units_reject_negative_bool_noninteger(self):
++        for invalid in (-1, 10, True, False, 2.5, "2"):
++            with self.subTest(value=invalid), self.assertRaises(ValueError):
++                replace(tzs(), minor_unit_exponent=invalid)
++
++    def test_currency_revision_is_idempotent_and_immutable(self):
++        self.assertEqual(self.registry.add_currency(tzs()), tzs())
++        with self.assertRaises(ValueError):
++            self.registry.add_currency(replace(tzs(), minor_unit_exponent=0))
++        self.registry.add_currency(tzs(2))
++        self.assertEqual(self.registry.currency("TZS").definition_version, 2)
++        self.assertEqual(self.registry.currency("TZS", version=1), tzs())
++
++    def test_currency_revision_cannot_skip_versions(self):
++        with self.assertRaises(ValueError):
++            self.registry.add_currency(tzs(3))
++
++    def test_profile_requires_existing_currency_revision(self):
++        with self.assertRaises(KeyError):
++            self.registry.add_profile(profile(currency_definition_version=3))
++
++    def test_declared_profile_is_not_implicitly_reviewed(self):
++        item = self.registry.add_profile(profile())
++        self.assertEqual(item.review_status, ProfileReviewStatus.DECLARED)
++        self.assertIsNone(item.review_evidence_ref)
++
++    def test_reviewed_profile_requires_evidence(self):
++        with self.assertRaises(ValueError):
++            profile(review_status=ProfileReviewStatus.REVIEWED)
++        self.assertEqual(
++            profile(review_status=ProfileReviewStatus.REVIEWED, review_evidence_ref="AUDIT-TEST-001")
++            .review_status, ProfileReviewStatus.REVIEWED,
++        )
++
++    def test_cbdc_must_have_central_bank_issuer(self):
++        for kind in (SettlementInstrumentKind.RETAIL_CBDC, SettlementInstrumentKind.WHOLESALE_CBDC):
++            with self.subTest(kind=kind), self.assertRaises(ValueError):
++                profile(instrument_kind=kind)
++            value = profile(
++                instrument_kind=kind, issuer_kind=MonetaryIssuerKind.CENTRAL_BANK,
++                issuer_institution_id="CENTRAL-BANK-TEST",
++                profile_id=f"SYNTHETIC-{kind.value}",
++            )
++            self.assertEqual(value.instrument_kind, kind)
++
++    def test_emoney_requires_regulated_emoney_issuer(self):
++        with self.assertRaises(ValueError):
++            profile(instrument_kind=SettlementInstrumentKind.REGULATED_E_MONEY)
++        valid = profile(
++            instrument_kind=SettlementInstrumentKind.REGULATED_E_MONEY,
++            issuer_kind=MonetaryIssuerKind.REGULATED_EMONEY_ISSUER,
++        )
++        self.assertEqual(valid.issuer_kind, MonetaryIssuerKind.REGULATED_EMONEY_ISSUER)
++
++    def test_crypto_asset_is_not_an_instrument_type(self):
++        with self.assertRaises(ValueError):
++            SettlementInstrumentKind("CRYPTO_ASSET")
++        with self.assertRaises(ValueError):
++            SettlementInstrumentKind("STABLECOIN")
++
++    def test_profile_revision_cannot_be_rewritten(self):
++        self.registry.add_profile(profile())
++        self.assertEqual(self.registry.add_profile(profile()), profile())
++        with self.assertRaises(ValueError):
++            self.registry.add_profile(profile(operator_institution_id="OTHER-OPERATOR"))
++
++    def test_profile_revision_must_be_sequential(self):
++        with self.assertRaises(ValueError):
++            self.registry.add_profile(profile(profile_version=2))
++        self.registry.add_profile(profile())
++        with self.assertRaises(ValueError):
++            self.registry.add_profile(profile(profile_version=3))
++        self.registry.add_profile(profile(profile_version=2,
++                                          review_status=ProfileReviewStatus.REVIEWED,
++                                          review_evidence_ref="AUDIT-TEST-001"))
++        self.assertEqual(self.registry.profile("TIPS-TZS-COMMERCIAL-BANK").profile_version, 2)
++
++    def test_profile_identity_cannot_shift_currency_or_issuer_or_rail(self):
++        self.registry.add_profile(profile())
++        for updates in (
++            {"currency_code": "KES"}, {"issuer_institution_id": "BANK-OTHER"},
++            {"settlement_rail_id": "OTHER-RAIL"},
++        ):
++            with self.subTest(change=updates):
++                # KES needs a valid currency reference, too.
++                if updates.get("currency_code") == "KES":
++                    self.registry.add_currency(CurrencyDefinition(
++                        "KES", 1, 2, "CBK", "ISO4217-KES"))
++                with self.assertRaises(ValueError):
++                    self.registry.add_profile(profile(profile_version=2, **updates))
++
++    def test_retrieval_is_sorted_and_latest_version(self):
++        self.registry.add_profile(profile())
++        self.registry.add_profile(profile(profile_version=2,
++                                          review_status=ProfileReviewStatus.SUSPENDED))
++        self.registry.add_profile(profile(profile_id="A-SANDBOX-EMONEY",
++                                          instrument_kind=SettlementInstrumentKind.REGULATED_E_MONEY,
++                                          issuer_kind=MonetaryIssuerKind.REGULATED_EMONEY_ISSUER))
++        self.assertEqual(
++            tuple(x.profile_id for x in self.registry.declared_profiles(currency_code="TZS")),
++            ("A-SANDBOX-EMONEY", "TIPS-TZS-COMMERCIAL-BANK"),
++        )
++        self.assertEqual(
++            self.registry.profile("TIPS-TZS-COMMERCIAL-BANK").review_status,
++            ProfileReviewStatus.SUSPENDED,
++        )
++
++    def test_payload_contains_no_account_or_private_key_material(self):
++        payload = profile().to_payload()
++        self.assertNotIn("raw_sender_msisdn", payload)
++        self.assertNotIn("raw_receiver_account", payload)
++        self.assertNotIn("private_key", payload)
++        self.assertEqual(payload["environment"], "SANDBOX")
++
++    def test_migration_0011_is_additive_and_append_only(self):
++        ddl = (ROOT / "migrations" / "0011_currency_and_settlement_instruments.sql").read_text()
++        self.assertIn("CREATE TABLE railone.currency_definitions", ddl)
++        self.assertIn("CREATE TABLE railone.settlement_instrument_profiles", ddl)
++        self.assertIn("currency_definitions_append_only", ddl)
++        self.assertIn("settlement_instrument_profiles_append_only", ddl)
++        self.assertNotIn("DROP TABLE", ddl.upper())
++        self.assertIn("FOREIGN KEY (currency_code, currency_definition_version)", ddl)
++
++    def test_existing_utt_rtt_orchestration_packages_are_untouched_by_registry(self):
++        # A new metadata record cannot make itself an allowed execution route.
++        paths = [ROOT / "railone_contracts" / "models.py",
++                 ROOT / "railone_execution" / "service.py",
++                 ROOT / "railone_operations" / "service.py"]
++        for path in paths:
++            self.assertNotIn("from railone_currency", path.read_text())
++
++
++if __name__ == "__main__":
++    unittest.main()
