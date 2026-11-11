@@ -12,17 +12,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from railone_crypto.signature_service import SignatureService
+from railone_institutions import InstitutionAdapterRegistry, InstitutionalDispatchAdmissionGateway
+from railone_institutions.wrapper import DispatchWrapperService
+from railone_operations import ProviderSubmissionCoordinator
 from railone_postgres import (
     MigrationRunner, PostgresCallbackInboxStore, PostgresCertificationReportStore,
     PostgresCertificationRunRecorder,
     PostgresContractStore,
-    PostgresDatabase, PostgresEncryptedSecretStore, PostgresExecutionStore,
+    PostgresDatabase, PostgresDispatchWrapperStore, PostgresEconomicEffectFence,
+    PostgresEncryptedSecretStore, PostgresExecutionStore,
     PostgresIdentityRepository, PostgresInstitutionManifestStore,
     PostgresOperationsStore,
     PostgresPartnerDirectory, PostgresProviderOutcomeProjectionStore,
     PostgresSandboxEffectStore, PostgresSettlementNotificationStore,
     PostgresTransactionHistoryStore, psycopg_connection_factory,
 )
+from railone_postgres.dispatch_snapshot import PostgresDispatchSnapshotReader
 from railone_postgres.runtime import ConnectionFactory
 from railone_security import (
     EncryptedAccountEndpointVault, EncryptedContactBindingVault,
@@ -118,6 +124,36 @@ class DeployedSandboxRuntime:
 
     def apply_migrations(self) -> None:
         self.migrations.apply_all()
+
+    def institutional_dispatcher(
+        self, *, signatures: SignatureService, registry: InstitutionAdapterRegistry,
+        event_signing_key_id: str, wrapper_signing_key_id: str,
+        trusted_no_effect_signing_keys: frozenset[str], core_owner_id: str = "RAILONE",
+    ) -> ProviderSubmissionCoordinator:
+        """Compose an internal sandbox dispatcher for provisioned signed instructions."""
+        verifier = DispatchWrapperService(
+            signatures, signing_key_id=wrapper_signing_key_id,
+            expected_core_owner_id=core_owner_id,
+        )
+        gateway = InstitutionalDispatchAdmissionGateway(
+            registry=registry,
+            wrapper_store=PostgresDispatchWrapperStore(self.database, verifier),
+            wrapper_verifier=verifier,
+            snapshot_reader=PostgresDispatchSnapshotReader(
+                self.database, signatures=signatures, core_owner_id=core_owner_id,
+            ),
+            allow_pilot_adapters=False,
+            fence_reader=PostgresEconomicEffectFence(
+                self.database, signatures=signatures,
+                trusted_no_effect_signing_keys=trusted_no_effect_signing_keys,
+            ),
+        )
+        return ProviderSubmissionCoordinator(
+            signatures=signatures, contracts=self.contracts, executions=self.executions,
+            operations=self.operations, endpoint_resolver=self.account_endpoints,
+            event_signing_key_id=event_signing_key_id, dispatch_mode="INSTITUTIONAL_SANDBOX",
+            institutional_admission=gateway,
+        )
 
     def readiness(self) -> dict[str, object]:
         checks: dict[str, str] = {

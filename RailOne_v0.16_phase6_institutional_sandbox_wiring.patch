@@ -1,0 +1,819 @@
+diff --git a/docs/ADR-021-durable-fencing-and-institution-intelligence-isolation.md b/docs/ADR-021-durable-fencing-and-institution-intelligence-isolation.md
+index ea985d6..222978c 100644
+--- a/docs/ADR-021-durable-fencing-and-institution-intelligence-isolation.md
++++ b/docs/ADR-021-durable-fencing-and-institution-intelligence-isolation.md
+@@ -56,3 +56,27 @@ Do not grant `USAGE ON SCHEMA railone` or `SELECT` on the raw operational tables
+ - Implement purpose-specific least-privilege database roles for execution, reconciliation, analytics publishing, operational reporting, secrets and migrations; audit every grant and membership.
+ - Ensure analytics publication approvals are authenticated, dual-controlled where necessary, and privacy tested against inference/correlation; establish retention rules.
+ - Run all PostgreSQL tests with no skips and verify CI, backup/restore, disaster recovery, secret scanning and independent security assessment.
++
++## Internal PostgreSQL sandbox dispatcher
++
++`DeployedSandboxRuntime.institutional_dispatcher(...)` composes the coordinator,
++verified registry, PostgreSQL wrapper and snapshot readers, encrypted endpoint
++vault, and PostgreSQL fence. It is an internal entry point for sandbox adapters
++and continuity-bound P2P UTTs. Both parties must have active continuity records
++and active, matching opaque account bindings. The snapshot uses the RTT ID as
++the correlation ID and the verified endpoint institution IDs as routing nodes.
++Merchant and supplier actor IDs need a separately verified continuity mapping
++before they can use this dispatcher.
++
++A trusted provisioning process must supply the signed adapter manifest, one
++unambiguous signed ETK-R per UTT, and the signed wrapper per RTT before dispatch.
++The snapshot reader verifies both authorities, their lineage and validity
++window. The wrapper signature and all independently readable anchors are
++checked before endpoint resolution. The coordinator computes the request digest
++after resolution and compares it with the signed digest before persisting the
++request. Final admission rechecks the wrapper and reserves the fence before the
++adapter call. A held fence blocks subsequent dispatch attempts.
++
++The dispatcher does not provision ETK-Rs, issue wrappers, or certify external
++no-effect evidence. The internal composition and its database queries still
++require a disposable PostgreSQL integration run.
+diff --git a/railone_institutions/admission.py b/railone_institutions/admission.py
+index 57cc4ca..8f4c6e9 100644
+--- a/railone_institutions/admission.py
++++ b/railone_institutions/admission.py
+@@ -8,6 +8,7 @@ snapshots or mock fence services for actual institutional money movement.
+ from __future__ import annotations
+ 
+ import hmac
++from dataclasses import replace
+ from datetime import datetime, timezone
+ from typing import Protocol
+ 
+@@ -22,7 +23,7 @@ from .wrapper_store import DispatchWrapperStore
+ 
+ class AuthoritativeSnapshotReader(Protocol):
+     """Must construct from independently verified, persisted RailOne records."""
+-    def load(self, *, rtt_id: str) -> AuthoritativeDispatchSnapshot: ...
++    def load(self, *, rtt_id: str, at: datetime) -> AuthoritativeDispatchSnapshot: ...
+ 
+ 
+ class EconomicEffectFenceReader(Protocol):
+@@ -55,26 +56,31 @@ class InstitutionalDispatchAdmissionGateway:
+         wrapper_verifier: DispatchWrapperService,
+         snapshot_reader: AuthoritativeSnapshotReader,
+         fence_reader: EconomicEffectFenceReader,
++        allow_pilot_adapters: bool = True,
+     ) -> None:
+         self._registry = registry
+         self._wrappers = wrapper_store
+         self._verifier = wrapper_verifier
+         self._snapshots = snapshot_reader
+         self._fences = fence_reader
++        self._environments = {AdapterEnvironment.SANDBOX}
++        if allow_pilot_adapters:
++            self._environments.add(AdapterEnvironment.PILOT)
+ 
+-    def preflight(self, *, rtt_id: str, at: datetime) -> None:
++    def preflight(self, *, rtt_id: str, at: datetime) -> str:
+         """Verify trusted instruction, adapter and economic fence BEFORE decrypting endpoints.
+ 
+-        This is NOT a durable dispatch reservation. admit() independently
+-        rechecks the fence immediately before adapter submission, and live
+-        deployment remains disabled until atomic PostgreSQL fencing exists.
++        Final admission verifies the privately resolved request digest and
++        reserves the economic effect before allowing an adapter call.
+         """
+         if not isinstance(at, datetime) or at.tzinfo is None:
+             raise ValueError("institutional dispatch time must be timezone-aware")
+         instant = at.astimezone(timezone.utc)
+-        expected = self._snapshots.load(rtt_id=rtt_id)
++        expected = self._snapshots.load(rtt_id=rtt_id, at=instant)
+         signed = self._wrappers.require(rtt_id)
+-        body = self._verifier.verify(signed, expected=expected, at=instant).to_payload()
++        body = self._verifier.verify(
++            signed, expected=expected, at=instant, preflight=True,
++        ).to_payload()
+         trace, binding = body["trace_identifiers"], body["execution_binding"]
+         if trace["rtt_id"] != rtt_id:
+             raise PermissionError("preflight RTT does not match persisted wrapper")
+@@ -82,8 +88,8 @@ class InstitutionalDispatchAdmissionGateway:
+             binding["adapter_binding_ref"], at=instant
+         )
+         manifest = signed_manifest.manifest
+-        if manifest.descriptor.environment not in {AdapterEnvironment.SANDBOX, AdapterEnvironment.PILOT}:
+-            raise PermissionError("production institutional dispatch is not enabled")
++        if manifest.descriptor.environment not in self._environments:
++            raise PermissionError("institution adapter environment is ineligible")
+         if manifest.descriptor.certification_status not in {
+             AdapterCertificationStatus.CONFORMANCE, AdapterCertificationStatus.CERTIFIED
+         }:
+@@ -99,12 +105,15 @@ class InstitutionalDispatchAdmissionGateway:
+             fence_epoch=fence["economic_effect_fence_epoch"],
+             release_evidence_ref=fence["release_evidence_ref"], at=instant,
+         )
++        return binding["request_sha256"]
+ 
+     def admit(self, request: ProviderExecutionRequest, *, at: datetime) -> InstitutionAdapterBridge:
+         if not isinstance(at, datetime) or at.tzinfo is None:
+             raise ValueError("institutional dispatch time must be timezone-aware")
+         instant = at.astimezone(timezone.utc)
+-        expected = self._snapshots.load(rtt_id=request.rtt_id)
++        expected = self._snapshots.load(rtt_id=request.rtt_id, at=instant)
++        if expected.request_sha256 is None:
++            expected = replace(expected, request_sha256=request.request_sha256)
+         signed = self._wrappers.require(request.rtt_id)
+         wrapper = self._verifier.verify(signed, expected=expected, at=instant)
+         body = wrapper.to_payload()
+@@ -130,8 +139,8 @@ class InstitutionalDispatchAdmissionGateway:
+             request.adapter_binding_ref, at=instant
+         )
+         manifest = signed_manifest.manifest
+-        if manifest.descriptor.environment not in {AdapterEnvironment.SANDBOX, AdapterEnvironment.PILOT}:
+-            raise PermissionError("production institutional dispatch is not enabled")
++        if manifest.descriptor.environment not in self._environments:
++            raise PermissionError("institution adapter environment is ineligible")
+         if manifest.descriptor.certification_status not in {
+             AdapterCertificationStatus.CONFORMANCE, AdapterCertificationStatus.CERTIFIED
+         }:
+diff --git a/railone_institutions/wrapper.py b/railone_institutions/wrapper.py
+index df654bc..cf63782 100644
+--- a/railone_institutions/wrapper.py
++++ b/railone_institutions/wrapper.py
+@@ -212,7 +212,7 @@ class AuthoritativeDispatchSnapshot:
+     route_decision_digest: str
+     route_id: str
+     provider_id: str
+-    request_sha256: str
++    request_sha256: str | None
+     idempotency_key: str
+     source_amount_minor: int
+     source_currency: str
+@@ -225,7 +225,9 @@ class AuthoritativeDispatchSnapshot:
+     economic_effect_fence_epoch: int
+     release_evidence_ref: str | None
+ 
+-    def assert_matches(self, body: Mapping[str, Any]) -> None:
++    def assert_matches(
++        self, body: Mapping[str, Any], *, preflight: bool = False,
++    ) -> None:
+         paths = {
+             "utt_id": ("trace_identifiers", "utt_id"),
+             "plan_id": ("trace_identifiers", "plan_id"),
+@@ -258,6 +260,8 @@ class AuthoritativeDispatchSnapshot:
+             "release_evidence_ref": ("fencing_controls", "release_evidence_ref"),
+         }
+         for field_name, (section, item) in paths.items():
++            if preflight and field_name == "request_sha256" and self.request_sha256 is None:
++                continue
+             if body[section][item] != getattr(self, field_name):
+                 raise PermissionError(f"wrapper {field_name} disagrees with authoritative RailOne state")
+ 
+@@ -291,7 +295,7 @@ class DispatchWrapperService:
+ 
+     def verify(
+         self, signed: SignedDispatchWrapper, *, expected: AuthoritativeDispatchSnapshot,
+-        at: datetime,
++        at: datetime, preflight: bool = False,
+     ) -> CanonicalDispatchWrapper:
+         instant = _aware(at)
+         result = self._signatures.verify_artifact(
+@@ -310,7 +314,7 @@ class DispatchWrapperService:
+         signed_iat = signed.signature.protected["iat"]
+         if not payload["issued_at_epoch"] <= signed_iat < payload["expires_at_epoch"]:
+             raise PermissionError("signature timestamp disagrees with the wrapper validity")
+-        expected.assert_matches(payload)
++        expected.assert_matches(payload, preflight=preflight)
+         return signed.wrapper
+ 
+ 
+diff --git a/railone_operations/service.py b/railone_operations/service.py
+index 8b1b3f9..e6e5354 100644
+--- a/railone_operations/service.py
++++ b/railone_operations/service.py
+@@ -41,7 +41,7 @@ class ProviderAdapter(Protocol):
+ class InstitutionalAdmissionGate(Protocol):
+     """Trusted, registry-backed institutional admission; never caller-supplied policy data."""
+ 
+-    def preflight(self, *, rtt_id: str, at: datetime) -> None: ...
++    def preflight(self, *, rtt_id: str, at: datetime) -> str: ...
+ 
+     def admit(self, request: ProviderExecutionRequest, *, at: datetime) -> ProviderAdapter: ...
+ 
+@@ -71,6 +71,14 @@ def _content_id(prefix: str, payload: object) -> str:
+     return f"{prefix}-{digest[:32]}"
+ 
+ 
++def provider_idempotency_key(*, provider_id: str, rtt_id: str) -> str:
++    return _content_id("R1IDEM", {
++        "domain": "RAILONE-PROVIDER-SUBMISSION-V1",
++        "provider_id": provider_id,
++        "rtt_id": rtt_id,
++    })
++
++
+ class ProviderSubmissionCoordinator:
+     FINAL_STATES = {
+         ProviderSubmissionState.ACCEPTED,
+@@ -113,7 +121,8 @@ class ProviderSubmissionCoordinator:
+         return self._prepare(rtt_id=rtt_id, at=at)
+ 
+     def _prepare(
+-        self, *, rtt_id: str, at: datetime | None = None
++        self, *, rtt_id: str, at: datetime | None = None,
++        expected_request_sha256: str | None = None,
+     ) -> tuple[ProviderSubmissionRecord, ProviderExecutionRequest]:
+         instant = _instant(at)
+         attempt = self._executions.require_attempt(require_text("rtt_id", rtt_id))
+@@ -143,12 +152,7 @@ class ProviderSubmissionCoordinator:
+ 
+         route = signed_rtt.payload["route"]
+         provider_id = require_text("provider", route["provider"]).upper()
+-        idempotency_material = {
+-            "domain": "RAILONE-PROVIDER-SUBMISSION-V1",
+-            "provider_id": provider_id,
+-            "rtt_id": rtt_id,
+-        }
+-        idempotency_key = _content_id("R1IDEM", idempotency_material)
++        idempotency_key = provider_idempotency_key(provider_id=provider_id, rtt_id=rtt_id)
+         utt = signed_utt.payload
+         payer_endpoint = utt["payer"]["endpoint"]
+         beneficiary_endpoint = utt["beneficiary"]["endpoint"]
+@@ -180,6 +184,8 @@ class ProviderSubmissionCoordinator:
+         request_sha256 = hashlib.sha256(
+             canonical_json_bytes(request_material)
+         ).hexdigest()
++        if expected_request_sha256 is not None and request_sha256 != expected_request_sha256:
++            raise PermissionError("resolved provider request disagrees with the signed wrapper")
+         request = ProviderExecutionRequest(
+             **request_material,
+             request_sha256=request_sha256,
+@@ -229,12 +235,15 @@ class ProviderSubmissionCoordinator:
+             raise PermissionError("institutional adapter must be selected by the trusted registry")
+         if self._dispatch_mode == "SIMULATED_PILOT" and adapter is None:
+             raise SubmissionNotDispatchableError("simulation requires an explicit adapter")
++        expected_request_sha256 = None
+         if self._dispatch_mode == "INSTITUTIONAL_SANDBOX":
+             # Deny before creating a prepared submission or resolving protected
+             # bank account endpoints. The final admit() revalidates the fence.
+             assert self._institutional_admission is not None
+-            self._institutional_admission.preflight(rtt_id=rtt_id, at=instant)
+-        record, request = self._prepare(rtt_id=rtt_id, at=instant)
++            expected_request_sha256 = self._institutional_admission.preflight(rtt_id=rtt_id, at=instant)
++        record, request = self._prepare(
++            rtt_id=rtt_id, at=instant, expected_request_sha256=expected_request_sha256,
++        )
+         if self._dispatch_mode == "INSTITUTIONAL_SANDBOX":
+             # Guard verifies the stored signed wrapper against trusted core state,
+             # active adapter manifest, request bytes, and economic-effect fence.
+diff --git a/railone_postgres/dispatch_snapshot.py b/railone_postgres/dispatch_snapshot.py
+new file mode 100644
+index 0000000..3148e4a
+--- /dev/null
++++ b/railone_postgres/dispatch_snapshot.py
+@@ -0,0 +1,185 @@
++"""Build institutional dispatch expectations from verified RailOne records."""
++
++from __future__ import annotations
++
++from collections.abc import Mapping
++from datetime import datetime
++from typing import Any
++
++from railone_contracts.models import AccountEndpoint, AccountRole, ContextType
++from railone_crypto.signature_service import ArtifactType, SignatureEnvelope, SignatureService
++from railone_execution.models import AttemptState, PlanStatus, require_aware
++from railone_identity.models import IdentityStatus
++from railone_institutions.wrapper import AuthoritativeDispatchSnapshot
++from railone_operations.service import provider_idempotency_key
++
++from .codec import envelope_from_db
++from .contracts import PostgresContractStore
++from .execution import PostgresExecutionStore
++from .identity import PostgresIdentityRepository
++from .institutions import PostgresInstitutionManifestStore
++from .partners import PostgresPartnerDirectory
++from .runtime import PostgresDatabase
++
++
++class PostgresDispatchSnapshotReader:
++    """Read-only P2P sandbox boundary. Raw account endpoints stay in the vault."""
++
++    def __init__(
++        self, database: PostgresDatabase, *, signatures: SignatureService,
++        core_owner_id: str,
++    ) -> None:
++        self._database = database
++        self._signatures = signatures
++        self._core_owner_id = core_owner_id
++        self._contracts = PostgresContractStore(database)
++        self._executions = PostgresExecutionStore(database)
++        self._identities = PostgresIdentityRepository(database)
++        self._manifests = PostgresInstitutionManifestStore(database)
++        self._partners = PostgresPartnerDirectory(database)
++
++    def load(self, *, rtt_id: str, at: datetime) -> AuthoritativeDispatchSnapshot:
++        instant = require_aware("dispatch snapshot timestamp", at)
++        attempt = self._executions.require_attempt(rtt_id)
++        plan = self._executions.require_plan(attempt.plan_id)
++        if (attempt.state is not AttemptState.CREATED or plan.status is not PlanStatus.ACTIVE
++                or plan.utt_id != attempt.utt_id or plan.current_rtt_id != rtt_id
++                or plan.attempts_used != attempt.attempt_number):
++            raise PermissionError("RTT is not the current active attempt")
++        utt_envelope = self._contracts.require_utt(attempt.utt_id)
++        utt = self._verified(utt_envelope, ArtifactType.UTT, instant)
++        rtt = self._verified(attempt.signed_rtt, ArtifactType.RTT, instant)
++        utt_digest = utt_envelope.protected["payload_sha256"]
++        if (
++            utt["utt_id"], rtt["utt_id"], rtt["plan_id"], rtt["rtt_id"],
++            rtt["attempt_number"], rtt["replay_generation"], rtt["utt_payload_sha256"],
++        ) != (
++            attempt.utt_id, attempt.utt_id, plan.plan_id, rtt_id,
++            attempt.attempt_number, attempt.attempt_number - 1, utt_digest,
++        ):
++            raise PermissionError("signed UTT and RTT lineage does not match the active plan")
++        decision = self._executions.require_decision_for_plan(plan.plan_id)
++        decision.verify(plan=plan, expected_utt_payload_sha256=utt_digest)
++        decision_body = decision.payload
++        request = decision_body["request"]
++        if (decision_body["routing_policy_id"], request["amount_minor"],
++                request["currency_from"], request["currency_to"],
++                request["routing_budget_minor"], request["source_institution_id"],
++                request["destination_institution_id"]) != (
++                utt["routing_policy_id"], utt["amount_minor"],
++                utt["currency_from"], utt["currency_to"], utt["routing_budget_minor"],
++                utt["payer"]["endpoint"]["institution_id"],
++                utt["beneficiary"]["endpoint"]["institution_id"]):
++            raise PermissionError("route decision inputs do not match the accepted UTT")
++        route = rtt["route"]
++        if route["route_id"] != attempt.route_id or not any(
++            ranked.candidate.to_payload() == route
++            and ranked.score_bps == rtt["route_score_bps"]
++            and dict(ranked.component_scores) == rtt["route_component_scores"]
++            for ranked in plan.ranked_routes
++        ):
++            raise PermissionError("signed RTT route does not match the verified plan ranking")
++
++        payer, recipient = utt["payer"], utt["beneficiary"]
++        sender_uid, recipient_uid = payer["actor_id"], recipient["actor_id"]
++        origin = utt["origin"]
++        if origin["context_type"] != ContextType.P2P.value or origin.get("continuity_uid") != sender_uid:
++            raise PermissionError("sandbox snapshot requires a continuity-bound P2P UTT")
++        for uid in (sender_uid, recipient_uid):
++            identity = self._identities.get_by_continuity_uid(uid)
++            if (identity is None or identity.identity.status is not IdentityStatus.ACTIVE
++                    or identity.active_revision.status is not IdentityStatus.ACTIVE):
++                raise PermissionError("dispatch requires active sender and recipient identities")
++        debit = AccountEndpoint.from_payload(payer["endpoint"])
++        credit = AccountEndpoint.from_payload(recipient["endpoint"])
++        self._partners.validate_endpoint(
++            actor_id=sender_uid, endpoint=debit, required_role=AccountRole.DEBIT,
++            currency=utt["currency_from"],
++        )
++        self._partners.validate_endpoint(
++            actor_id=recipient_uid, endpoint=credit, required_role=AccountRole.CREDIT,
++            currency=utt["currency_to"],
++        )
++        if (route["source_institution_id"], route["destination_institution_id"],
++                route["currency_from"], route["currency_to"]) != (
++                debit.institution_id, credit.institution_id, utt["currency_from"], utt["currency_to"]):
++            raise PermissionError("signed RTT route does not match the accepted endpoints")
++
++        sender, receiver, fence = self._read_authority_and_fence(attempt.utt_id, utt["etk_s_id"])
++        etk_s = self._verified(sender, ArtifactType.ETK_S, instant)
++        etk_r = self._verified(receiver, ArtifactType.ETK_R, instant)
++        epoch = int(instant.timestamp())
++        if (etk_s["utt_id"], etk_s["etk_s_id"], etk_s["quote_id"],
++                etk_s["sender_actor_type"], etk_s["sender_reference"],
++                etk_s["amount_minor"], etk_s["currency"], etk_s["origin_context"],
++                etk_s["authority_scope"], etk_s["status"]) != (
++                attempt.utt_id, utt["etk_s_id"], utt["quote_id"], payer["actor_type"],
++                sender_uid, utt["amount_minor"], utt["currency_from"], origin,
++                "EXECUTE_UTT", "ACTIVE"):
++            raise PermissionError("sender authority does not match the accepted UTT")
++        if (etk_r["utt_id"], etk_r["etk_s_id"], etk_r["receiver_actor_type"],
++                etk_r["receiver_reference"], etk_r["amount_minor"], etk_r["currency"],
++                etk_r["status"]) != (
++                attempt.utt_id, utt["etk_s_id"], recipient["actor_type"], recipient_uid,
++                utt["amount_minor"], utt["currency_from"], "ACTIVE"):
++            raise PermissionError("receiver authority does not match the accepted UTT")
++        if not (etk_s["authorized_at"] <= etk_r["attested_at"] <= epoch
++                < etk_r["expires_at"] <= etk_s["expires_at"]):
++            raise PermissionError("bilateral authority is outside its dispatch window")
++
++        manifest = self._manifests.require(route["adapter"])
++        provider_id = route["provider"].upper()
++        if manifest.provider_id != provider_id:
++            raise PermissionError("persisted manifest provider does not match the signed route")
++        return AuthoritativeDispatchSnapshot(
++            utt_id=attempt.utt_id, plan_id=plan.plan_id, rtt_id=rtt_id,
++            attempt_number=attempt.attempt_number, replay_generation=rtt["replay_generation"],
++            correlation_id=rtt_id, utt_payload_digest=utt_digest,
++            rtt_birth_digest=attempt.signed_rtt.protected["payload_sha256"],
++            etk_s_digest=sender.protected["payload_sha256"],
++            etk_r_digest=receiver.protected["payload_sha256"],
++            sender_cont_uid=sender_uid, recipient_cont_uid=recipient_uid,
++            adapter_binding_ref=route["adapter"], adapter_manifest_digest=manifest.payload_sha256,
++            route_decision_digest=decision.decision_sha256, route_id=attempt.route_id,
++            provider_id=provider_id, request_sha256=None,
++            idempotency_key=provider_idempotency_key(provider_id=provider_id, rtt_id=rtt_id),
++            source_amount_minor=utt["amount_minor"], source_currency=utt["currency_from"],
++            receive_amount_minor=utt["receive_amount_minor"], receive_currency=utt["currency_to"],
++            payer_binding_ref=debit.account_binding_id, beneficiary_binding_ref=credit.account_binding_id,
++            source_routing_node=debit.institution_id, destination_routing_node=credit.institution_id,
++            economic_effect_fence_epoch=1 if fence is None else fence["fence_epoch"],
++            release_evidence_ref=None if fence is None else fence["last_release_evidence_id"],
++        )
++
++    def _verified(
++        self, envelope: SignatureEnvelope, artifact: ArtifactType, at: datetime,
++    ) -> Mapping[str, Any]:
++        result = self._signatures.verify_artifact(envelope, expected_artifact_type=artifact)
++        if (not result.valid or envelope.protected["iss"] != self._core_owner_id
++                or envelope.protected["iat"] > int(at.timestamp())):
++            raise PermissionError(f"invalid trusted {artifact.value} artifact")
++        return envelope.payload
++
++    def _read_authority_and_fence(
++        self, utt_id: str, sender_id: str,
++    ) -> tuple[SignatureEnvelope, SignatureEnvelope, Mapping[str, Any] | None]:
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                """SELECT authority_id, authority_type, signed_envelope
++                   FROM railone.execution_authorities
++                   WHERE utt_id=%s AND ((authority_type='ETK_S' AND authority_id=%s)
++                                        OR authority_type='ETK_R')
++                   ORDER BY authority_type, authority_id LIMIT 3""",
++                (utt_id, sender_id),
++            )
++            rows = cursor.fetchall()
++            if [row["authority_type"] for row in rows] != ["ETK_R", "ETK_S"]:
++                raise PermissionError("dispatch requires one persisted receiver and sender authority")
++            receiver, sender = [envelope_from_db(row["signed_envelope"]) for row in rows]
++            if receiver.payload.get("etk_r_id") != rows[0]["authority_id"]:
++                raise PermissionError("receiver authority identifier does not match its record")
++            cursor.execute(
++                """SELECT fence_epoch, last_release_evidence_id
++                   FROM railone.utt_economic_fences WHERE utt_id=%s""", (utt_id,),
++            )
++            return sender, receiver, cursor.fetchone()
+diff --git a/railone_sandbox/deployment.py b/railone_sandbox/deployment.py
+index 4c682b0..86a5e16 100644
+--- a/railone_sandbox/deployment.py
++++ b/railone_sandbox/deployment.py
+@@ -12,17 +12,23 @@ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Mapping
+ 
++from railone_crypto.signature_service import SignatureService
++from railone_institutions import InstitutionAdapterRegistry, InstitutionalDispatchAdmissionGateway
++from railone_institutions.wrapper import DispatchWrapperService
++from railone_operations import ProviderSubmissionCoordinator
+ from railone_postgres import (
+     MigrationRunner, PostgresCallbackInboxStore, PostgresCertificationReportStore,
+     PostgresCertificationRunRecorder,
+     PostgresContractStore,
+-    PostgresDatabase, PostgresEncryptedSecretStore, PostgresExecutionStore,
++    PostgresDatabase, PostgresDispatchWrapperStore, PostgresEconomicEffectFence,
++    PostgresEncryptedSecretStore, PostgresExecutionStore,
+     PostgresIdentityRepository, PostgresInstitutionManifestStore,
+     PostgresOperationsStore,
+     PostgresPartnerDirectory, PostgresProviderOutcomeProjectionStore,
+     PostgresSandboxEffectStore, PostgresSettlementNotificationStore,
+     PostgresTransactionHistoryStore, psycopg_connection_factory,
+ )
++from railone_postgres.dispatch_snapshot import PostgresDispatchSnapshotReader
+ from railone_postgres.runtime import ConnectionFactory
+ from railone_security import (
+     EncryptedAccountEndpointVault, EncryptedContactBindingVault,
+@@ -119,6 +125,36 @@ class DeployedSandboxRuntime:
+     def apply_migrations(self) -> None:
+         self.migrations.apply_all()
+ 
++    def institutional_dispatcher(
++        self, *, signatures: SignatureService, registry: InstitutionAdapterRegistry,
++        event_signing_key_id: str, wrapper_signing_key_id: str,
++        trusted_no_effect_signing_keys: frozenset[str], core_owner_id: str = "RAILONE",
++    ) -> ProviderSubmissionCoordinator:
++        """Compose an internal sandbox dispatcher for provisioned signed instructions."""
++        verifier = DispatchWrapperService(
++            signatures, signing_key_id=wrapper_signing_key_id,
++            expected_core_owner_id=core_owner_id,
++        )
++        gateway = InstitutionalDispatchAdmissionGateway(
++            registry=registry,
++            wrapper_store=PostgresDispatchWrapperStore(self.database, verifier),
++            wrapper_verifier=verifier,
++            snapshot_reader=PostgresDispatchSnapshotReader(
++                self.database, signatures=signatures, core_owner_id=core_owner_id,
++            ),
++            allow_pilot_adapters=False,
++            fence_reader=PostgresEconomicEffectFence(
++                self.database, signatures=signatures,
++                trusted_no_effect_signing_keys=trusted_no_effect_signing_keys,
++            ),
++        )
++        return ProviderSubmissionCoordinator(
++            signatures=signatures, contracts=self.contracts, executions=self.executions,
++            operations=self.operations, endpoint_resolver=self.account_endpoints,
++            event_signing_key_id=event_signing_key_id, dispatch_mode="INSTITUTIONAL_SANDBOX",
++            institutional_admission=gateway,
++        )
++
+     def readiness(self) -> dict[str, object]:
+         checks: dict[str, str] = {
+             "runtime_mode": "UP" if self.config.runtime_mode == "SIMULATED_PILOT" else "DOWN",
+diff --git a/tests/test_institution_admission_gateway.py b/tests/test_institution_admission_gateway.py
+index 76172c9..ebaf92d 100644
+--- a/tests/test_institution_admission_gateway.py
++++ b/tests/test_institution_admission_gateway.py
+@@ -26,7 +26,7 @@ class TrustedReader:
+     def __init__(self, expected):
+         self.expected = expected
+ 
+-    def load(self, *, rtt_id):
++    def load(self, *, rtt_id, at):
+         if rtt_id != self.expected.rtt_id:
+             raise LookupError("unknown RTT in trusted state")
+         return self.expected
+diff --git a/tests/test_postgres_institutional_dispatch.py b/tests/test_postgres_institutional_dispatch.py
+new file mode 100644
+index 0000000..37899b8
+--- /dev/null
++++ b/tests/test_postgres_institutional_dispatch.py
+@@ -0,0 +1,215 @@
++"""Exercise institutional dispatch using signed domain records and scripted SQL results."""
++from __future__ import annotations
++
++import unittest
++from dataclasses import replace
++from datetime import timedelta
++from functools import partial
++from pathlib import Path
++from types import SimpleNamespace
++from unittest.mock import Mock, patch
++
++from railone_authority.models import ReceiverParticipationMode
++from railone_authority.service import ExecutionAuthorityService
++from railone_identity.models import IdentityStatus
++from railone_institutions import CapabilityManifestSigner, InstitutionAdapterRegistry
++from railone_institutions.reference import (
++    DOMESTIC_BANK_PROFILE, ReferenceInstitutionAdapter, reference_manifest,
++)
++from railone_institutions.wrapper import CanonicalDispatchWrapper, DispatchWrapperService
++from railone_operations.store import InMemoryOperationsStore
++from railone_postgres.fencing import EconomicFenceViolation
++from railone_sandbox.deployment import DeployedSandboxConfig, compose_deployed_sandbox
++from tests.test_deployed_sandbox_composition import NoopConsumer, NoopKeyClient
++from tests.test_durable_economic_fencing import FakeDatabase
++from tests.test_institution_dispatch_wrapper import sections
++from tests import test_provider_operations as provider_tests
++
++
++KEY_ID = "R1CORE:execution:2026-01"
++
++
++class PostgresInstitutionalDispatchTests(unittest.TestCase):
++    def setUp(self):
++        fixture = provider_tests.ProviderOperationsTests(
++            "test_preparation_is_idempotent_and_uses_stable_provider_key"
++        )
++        fixture._create_current_rtt = partial(fixture._create_current_rtt, institutional=True)
++        fixture.setUp()
++        self.fixture = fixture
++        self.at = fixture.now + timedelta(seconds=22)
++        self.rtt_id = fixture.rtt_id
++        fixture.endpoint_resolver.register(
++            institution_id="INST-SOURCE", account_binding_id="acctbind_payer_ops",
++            provider_reference="PAYER-TEST-REF",
++        )
++        fixture.endpoint_resolver.register(
++            institution_id="INST-DEST", account_binding_id="acctbind_ben_ops",
++            provider_reference="BENEFICIARY-TEST-REF",
++        )
++        _, self.request = fixture.coordinator.prepare(rtt_id=self.rtt_id, at=self.at)
++        utt = fixture.contracts.require_utt(self.request.utt_id).payload
++        accepted = fixture.contracts.resolve_idempotency("IDEM-OPS-001", utt["acceptance_request_sha256"])
++        self.receiver = ExecutionAuthorityService(fixture.signatures).issue_receiver_participation(
++            sender_authority=accepted.sender_authority, receiver_actor_type="PERSON",
++            receiver_reference=utt["beneficiary"]["actor_id"],
++            participation_mode=ReceiverParticipationMode.ACTIVE_ACCEPTANCE,
++            evidence_reference="SYNTHETIC-ACCEPTANCE", signing_key_id=KEY_ID,
++            attested_at=fixture.now + timedelta(seconds=11), expires_at=fixture.now + timedelta(minutes=1),
++        )
++        self.authorities = [
++            {"authority_type": kind, "authority_id": envelope.payload[field],
++             "signed_envelope": envelope.to_dict()}
++            for kind, envelope, field in (
++                ("ETK_R", self.receiver, "etk_r_id"),
++                ("ETK_S", accepted.sender_authority, "etk_s_id"),
++            )
++        ]
++        signer = CapabilityManifestSigner(fixture.signatures, signing_key_id=KEY_ID)
++        profile = replace(
++            DOMESTIC_BANK_PROFILE, adapter_id="provider-fast", provider_id="PROVIDER-FAST",
++            rails=("MOBILE_MONEY",),
++        )
++        manifest = reference_manifest(
++            profile, source_institution_ids=("INST-SOURCE",),
++            destination_institution_ids=("INST-DEST",), now=fixture.now,
++        )
++        signed_manifest = signer.sign(manifest, issued_at=fixture.now)
++        self.manifest_digest = signed_manifest.signature.protected["payload_sha256"]
++        self.adapter = ReferenceInstitutionAdapter(manifest)
++        self.adapter.submit = Mock(wraps=self.adapter.submit)
++        self.registry = InstitutionAdapterRegistry(signer)
++        self.registry.register(self.adapter, signed_manifest)
++        self.db = FakeDatabase()
++        config = DeployedSandboxConfig(
++            database_url="postgresql://synthetic",
++            migrations_directory=Path(__file__).resolve().parents[1] / "migrations",
++            account_endpoint_key_id="account-v1", contact_destination_key_id="contact-v1",
++            provider_credential_key_id="credential-v1", notification_body_key_id="notification-v1",
++            worker_id="worker-1",
++        )
++        runtime = compose_deployed_sandbox(
++            config=config, key_client=NoopKeyClient(), effect_consumer=NoopConsumer(),
++            connection_factory=lambda: None,
++        )
++        self.operations = InMemoryOperationsStore()
++        self.endpoints = Mock(wraps=fixture.endpoint_resolver)
++        self.runtime = replace(
++            runtime, database=self.db, contracts=fixture.contracts, executions=fixture.executions,
++            operations=self.operations, account_endpoints=self.endpoints,
++        )
++        active = SimpleNamespace(status=IdentityStatus.ACTIVE)
++        identities = Mock()
++        identities.get_by_continuity_uid.return_value = SimpleNamespace(
++            identity=active, active_revision=active,
++        )
++        manifests = Mock()
++        manifests.require.return_value = SimpleNamespace(
++            provider_id="PROVIDER-FAST", payload_sha256=self.manifest_digest,
++        )
++        self.wrappers = Mock()
++        replacements = {
++            "railone_postgres.dispatch_snapshot.PostgresContractStore": fixture.contracts,
++            "railone_postgres.dispatch_snapshot.PostgresExecutionStore": fixture.executions,
++            "railone_postgres.dispatch_snapshot.PostgresIdentityRepository": identities,
++            "railone_postgres.dispatch_snapshot.PostgresInstitutionManifestStore": manifests,
++            "railone_postgres.dispatch_snapshot.PostgresPartnerDirectory": Mock(),
++            "railone_sandbox.deployment.PostgresDispatchWrapperStore": self.wrappers,
++        }
++        for target, value in replacements.items():
++            self.enterContext(patch(target, return_value=value))
++        from railone_postgres.dispatch_snapshot import PostgresDispatchSnapshotReader
++
++        self.reader = PostgresDispatchSnapshotReader(
++            self.db, signatures=fixture.signatures, core_owner_id="R1CORE",
++        )
++        self.dispatcher = self.runtime.institutional_dispatcher(
++            signatures=fixture.signatures, registry=self.registry,
++            event_signing_key_id=KEY_ID, wrapper_signing_key_id=KEY_ID,
++            trusted_no_effect_signing_keys=frozenset({"synthetic-no-effect-signer"}),
++            core_owner_id="R1CORE",
++        )
++
++    def provision_wrapper(self, *, request_digest=None):
++        self.db._cursor.selected.extend((self.authorities, None))
++        expected = self.reader.load(rtt_id=self.rtt_id, at=self.at)
++        self.assertEqual(expected.etk_r_digest, self.receiver.protected["payload_sha256"])
++        self.assertIsNone(expected.request_sha256)
++        expected = replace(expected, request_sha256=request_digest or self.request.request_sha256)
++        body = sections()
++        for section in body.values():
++            for field in section:
++                if hasattr(expected, field):
++                    section[field] = getattr(expected, field)
++        wrapper = CanonicalDispatchWrapper.build(
++            issued_at_epoch=int(self.at.timestamp()), expires_at_epoch=int(self.at.timestamp()) + 30,
++            **body,
++        )
++        verifier = DispatchWrapperService(
++            self.fixture.signatures, signing_key_id=KEY_ID, expected_core_owner_id="R1CORE",
++        )
++        self.wrappers.require.return_value = verifier.issue(wrapper, expected=expected, at=self.at)
++
++    def test_dispatch_reserves_and_commits_before_adapter_call_and_blocks_replay(self):
++        self.provision_wrapper()
++        current = {"rtt_id": self.rtt_id}
++        self.db._cursor.selected.extend((
++            self.authorities, None, None, None, current,  # snapshot and preflight
++            self.authorities, None, None, None, current,  # snapshot and final admission
++            {"utt_id": self.request.utt_id}, None, current, None,  # reservation
++            {"fence_epoch": 1},  # outcome observation
++        ))
++        submit = self.adapter.submit
++
++        def check_reservation(instruction):
++            self.assertEqual(self.db.commits, 6)
++            self.assertIn("INSERT INTO railone.rtt_operational_fences", self.db._cursor.executed[-2][0])
++            return submit(instruction)
++
++        self.adapter.submit = check_reservation
++        result = self.dispatcher.dispatch(rtt_id=self.rtt_id, at=self.at)
++        self.assertEqual(result.state.value, "ACCEPTED")
++        self.assertEqual(submit.call_count, 1)
++        self.assertFalse(self.db._cursor.selected)
++
++        held = {"state": "HELD", "fence_epoch": 1, "last_release_evidence_id": None}
++        self.db._cursor.selected.extend((self.authorities, held, held))
++        with self.assertRaises(EconomicFenceViolation):
++            self.dispatcher.dispatch(rtt_id=self.rtt_id, at=self.at)
++        self.assertEqual(submit.call_count, 1)
++        self.assertEqual(self.endpoints.resolve.call_count, 2)
++
++    def test_reservation_race_denies_adapter_call_after_successful_preflight(self):
++        self.provision_wrapper()
++        current = {"rtt_id": self.rtt_id}
++        held = {"state": "HELD", "fence_epoch": 1, "last_release_evidence_id": None}
++        self.db._cursor.selected.extend((
++            self.authorities, None, None, None, current,
++            self.authorities, None, None, None, current,
++            {"utt_id": self.request.utt_id}, None, current, held,
++        ))
++        with self.assertRaises(EconomicFenceViolation):
++            self.dispatcher.dispatch(rtt_id=self.rtt_id, at=self.at)
++        self.assertEqual(self.db.rollbacks, 1)
++        self.assertFalse(self.adapter.submit.called)
++        self.assertEqual(self.operations.require_submission(self.rtt_id).state.value, "PREPARED")
++
++    def test_digest_mismatch_does_not_persist_submission_or_reserve(self):
++        self.provision_wrapper(request_digest="1" * 64)
++        self.db._cursor.selected.extend((
++            self.authorities, None, None, None, {"rtt_id": self.rtt_id},
++        ))
++        with self.assertRaisesRegex(PermissionError, "resolved provider request"):
++            self.dispatcher.dispatch(rtt_id=self.rtt_id, at=self.at)
++        with self.assertRaises(LookupError):
++            self.operations.require_submission(self.rtt_id)
++        self.assertFalse(self.adapter.submit.called)
++        self.assertFalse(any("FOR UPDATE" in query for query, _ in self.db._cursor.executed))
++
++    def test_missing_receiver_authority_stops_before_wrapper_or_vault(self):
++        self.db._cursor.selected.append(self.authorities[1:])
++        with self.assertRaisesRegex(PermissionError, "receiver and sender authority"):
++            self.dispatcher.dispatch(rtt_id=self.rtt_id, at=self.at)
++        self.assertFalse(self.wrappers.require.called)
++        self.assertFalse(self.endpoints.resolve.called)
++        self.assertFalse(self.adapter.submit.called)
+diff --git a/tests/test_provider_operations.py b/tests/test_provider_operations.py
+index 29e9e79..c51cafb 100644
+--- a/tests/test_provider_operations.py
++++ b/tests/test_provider_operations.py
+@@ -119,17 +119,34 @@ class ProviderOperationsTests(unittest.TestCase):
+             event_signing_key_id="R1CORE:execution:2026-01",
+         )
+ 
+-    def _create_current_rtt(self) -> str:
++    def _create_current_rtt(self, *, institutional=False) -> str:
++        payer_id = "CUID-" + "A" * 32 if institutional else "MER002"
++        beneficiary_id = "CUID-" + "B" * 32 if institutional else "SUP001"
++        purpose = PaymentPurpose.PERSON_TO_PERSON if institutional else PaymentPurpose.SUPPLIER_PAYMENT
++        origin = (
++            OriginContext(
++                origin_system="RAILONE", origin_intent_id="P2P-OPS-001",
++                context_type=ContextType.P2P, purpose=purpose, continuity_uid=payer_id,
++            )
++            if institutional else
++            OriginContext(
++                origin_system="AVIA", origin_intent_id="AVIA-SUPPLIER-OPS-001",
++                context_type=ContextType.MERCHANT, purpose=purpose,
++                merchant_id=payer_id, branch_id="BR001",
++            )
++        )
+         quote = quote_service(self.signatures).issue_quote(
+             terms=QuoteTerms(
+                 request_id="REQ-OPS-001",
+                 payer=ActorReference(
+-                    "MERCHANT", "MER002", endpoint("BIND-PAYER-OPS", AccountRole.DEBIT)
++                    "PERSON" if institutional else "MERCHANT", payer_id,
++                    endpoint("acctbind_payer_ops" if institutional else "BIND-PAYER-OPS", AccountRole.DEBIT),
+                 ),
+                 beneficiary=ActorReference(
+-                    "SUPPLIER", "SUP001", endpoint("BIND-BEN-OPS", AccountRole.CREDIT)
++                    "PERSON" if institutional else "SUPPLIER", beneficiary_id,
++                    endpoint("acctbind_ben_ops" if institutional else "BIND-BEN-OPS", AccountRole.CREDIT),
+                 ),
+-                purpose=PaymentPurpose.SUPPLIER_PAYMENT,
++                purpose=purpose,
+                 amount_minor=250_000,
+                 currency_from="KES",
+                 receive_amount_minor=247_500,
+@@ -155,14 +172,7 @@ class ProviderOperationsTests(unittest.TestCase):
+         ).accept(
+             QuoteAcceptanceCommand(
+                 signed_quote=quote,
+-                origin=OriginContext(
+-                    origin_system="AVIA",
+-                    origin_intent_id="AVIA-SUPPLIER-OPS-001",
+-                    context_type=ContextType.MERCHANT,
+-                    purpose=PaymentPurpose.SUPPLIER_PAYMENT,
+-                    merchant_id="MER002",
+-                    branch_id="BR001",
+-                ),
++                origin=origin,
+                 authorization_method="MERCHANT_ACTOR_ATTESTATION",
+                 authorization_reference="AUTH-OPS-001",
+                 idempotency_key="IDEM-OPS-001",
+@@ -175,7 +185,7 @@ class ProviderOperationsTests(unittest.TestCase):
+             destination_institution_id="INST-DEST",
+             rail="MOBILE_MONEY",
+             provider="PROVIDER-FAST",
+-            adapter="provider-fast-v1",
++            adapter="provider-fast@1.0.0" if institutional else "provider-fast-v1",
+             currency_from="KES",
+             currency_to="KES",
+             min_amount_minor=100,

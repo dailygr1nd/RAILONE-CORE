@@ -8,6 +8,7 @@ snapshots or mock fence services for actual institutional money movement.
 from __future__ import annotations
 
 import hmac
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Protocol
 
@@ -22,7 +23,7 @@ from .wrapper_store import DispatchWrapperStore
 
 class AuthoritativeSnapshotReader(Protocol):
     """Must construct from independently verified, persisted RailOne records."""
-    def load(self, *, rtt_id: str) -> AuthoritativeDispatchSnapshot: ...
+    def load(self, *, rtt_id: str, at: datetime) -> AuthoritativeDispatchSnapshot: ...
 
 
 class EconomicEffectFenceReader(Protocol):
@@ -55,26 +56,31 @@ class InstitutionalDispatchAdmissionGateway:
         wrapper_verifier: DispatchWrapperService,
         snapshot_reader: AuthoritativeSnapshotReader,
         fence_reader: EconomicEffectFenceReader,
+        allow_pilot_adapters: bool = True,
     ) -> None:
         self._registry = registry
         self._wrappers = wrapper_store
         self._verifier = wrapper_verifier
         self._snapshots = snapshot_reader
         self._fences = fence_reader
+        self._environments = {AdapterEnvironment.SANDBOX}
+        if allow_pilot_adapters:
+            self._environments.add(AdapterEnvironment.PILOT)
 
-    def preflight(self, *, rtt_id: str, at: datetime) -> None:
+    def preflight(self, *, rtt_id: str, at: datetime) -> str:
         """Verify trusted instruction, adapter and economic fence BEFORE decrypting endpoints.
 
-        This is NOT a durable dispatch reservation. admit() independently
-        rechecks the fence immediately before adapter submission, and live
-        deployment remains disabled until atomic PostgreSQL fencing exists.
+        Final admission verifies the privately resolved request digest and
+        reserves the economic effect before allowing an adapter call.
         """
         if not isinstance(at, datetime) or at.tzinfo is None:
             raise ValueError("institutional dispatch time must be timezone-aware")
         instant = at.astimezone(timezone.utc)
-        expected = self._snapshots.load(rtt_id=rtt_id)
+        expected = self._snapshots.load(rtt_id=rtt_id, at=instant)
         signed = self._wrappers.require(rtt_id)
-        body = self._verifier.verify(signed, expected=expected, at=instant).to_payload()
+        body = self._verifier.verify(
+            signed, expected=expected, at=instant, preflight=True,
+        ).to_payload()
         trace, binding = body["trace_identifiers"], body["execution_binding"]
         if trace["rtt_id"] != rtt_id:
             raise PermissionError("preflight RTT does not match persisted wrapper")
@@ -82,8 +88,8 @@ class InstitutionalDispatchAdmissionGateway:
             binding["adapter_binding_ref"], at=instant
         )
         manifest = signed_manifest.manifest
-        if manifest.descriptor.environment not in {AdapterEnvironment.SANDBOX, AdapterEnvironment.PILOT}:
-            raise PermissionError("production institutional dispatch is not enabled")
+        if manifest.descriptor.environment not in self._environments:
+            raise PermissionError("institution adapter environment is ineligible")
         if manifest.descriptor.certification_status not in {
             AdapterCertificationStatus.CONFORMANCE, AdapterCertificationStatus.CERTIFIED
         }:
@@ -99,12 +105,15 @@ class InstitutionalDispatchAdmissionGateway:
             fence_epoch=fence["economic_effect_fence_epoch"],
             release_evidence_ref=fence["release_evidence_ref"], at=instant,
         )
+        return binding["request_sha256"]
 
     def admit(self, request: ProviderExecutionRequest, *, at: datetime) -> InstitutionAdapterBridge:
         if not isinstance(at, datetime) or at.tzinfo is None:
             raise ValueError("institutional dispatch time must be timezone-aware")
         instant = at.astimezone(timezone.utc)
-        expected = self._snapshots.load(rtt_id=request.rtt_id)
+        expected = self._snapshots.load(rtt_id=request.rtt_id, at=instant)
+        if expected.request_sha256 is None:
+            expected = replace(expected, request_sha256=request.request_sha256)
         signed = self._wrappers.require(request.rtt_id)
         wrapper = self._verifier.verify(signed, expected=expected, at=instant)
         body = wrapper.to_payload()
@@ -130,8 +139,8 @@ class InstitutionalDispatchAdmissionGateway:
             request.adapter_binding_ref, at=instant
         )
         manifest = signed_manifest.manifest
-        if manifest.descriptor.environment not in {AdapterEnvironment.SANDBOX, AdapterEnvironment.PILOT}:
-            raise PermissionError("production institutional dispatch is not enabled")
+        if manifest.descriptor.environment not in self._environments:
+            raise PermissionError("institution adapter environment is ineligible")
         if manifest.descriptor.certification_status not in {
             AdapterCertificationStatus.CONFORMANCE, AdapterCertificationStatus.CERTIFIED
         }:

@@ -212,7 +212,7 @@ class AuthoritativeDispatchSnapshot:
     route_decision_digest: str
     route_id: str
     provider_id: str
-    request_sha256: str
+    request_sha256: str | None
     idempotency_key: str
     source_amount_minor: int
     source_currency: str
@@ -225,7 +225,9 @@ class AuthoritativeDispatchSnapshot:
     economic_effect_fence_epoch: int
     release_evidence_ref: str | None
 
-    def assert_matches(self, body: Mapping[str, Any]) -> None:
+    def assert_matches(
+        self, body: Mapping[str, Any], *, preflight: bool = False,
+    ) -> None:
         paths = {
             "utt_id": ("trace_identifiers", "utt_id"),
             "plan_id": ("trace_identifiers", "plan_id"),
@@ -258,6 +260,8 @@ class AuthoritativeDispatchSnapshot:
             "release_evidence_ref": ("fencing_controls", "release_evidence_ref"),
         }
         for field_name, (section, item) in paths.items():
+            if preflight and field_name == "request_sha256" and self.request_sha256 is None:
+                continue
             if body[section][item] != getattr(self, field_name):
                 raise PermissionError(f"wrapper {field_name} disagrees with authoritative RailOne state")
 
@@ -291,7 +295,7 @@ class DispatchWrapperService:
 
     def verify(
         self, signed: SignedDispatchWrapper, *, expected: AuthoritativeDispatchSnapshot,
-        at: datetime,
+        at: datetime, preflight: bool = False,
     ) -> CanonicalDispatchWrapper:
         instant = _aware(at)
         result = self._signatures.verify_artifact(
@@ -310,7 +314,7 @@ class DispatchWrapperService:
         signed_iat = signed.signature.protected["iat"]
         if not payload["issued_at_epoch"] <= signed_iat < payload["expires_at_epoch"]:
             raise PermissionError("signature timestamp disagrees with the wrapper validity")
-        expected.assert_matches(payload)
+        expected.assert_matches(payload, preflight=preflight)
         return signed.wrapper
 
 

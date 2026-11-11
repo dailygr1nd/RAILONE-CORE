@@ -56,3 +56,27 @@ Do not grant `USAGE ON SCHEMA railone` or `SELECT` on the raw operational tables
 - Implement purpose-specific least-privilege database roles for execution, reconciliation, analytics publishing, operational reporting, secrets and migrations; audit every grant and membership.
 - Ensure analytics publication approvals are authenticated, dual-controlled where necessary, and privacy tested against inference/correlation; establish retention rules.
 - Run all PostgreSQL tests with no skips and verify CI, backup/restore, disaster recovery, secret scanning and independent security assessment.
+
+## Internal PostgreSQL sandbox dispatcher
+
+`DeployedSandboxRuntime.institutional_dispatcher(...)` composes the coordinator,
+verified registry, PostgreSQL wrapper and snapshot readers, encrypted endpoint
+vault, and PostgreSQL fence. It is an internal entry point for sandbox adapters
+and continuity-bound P2P UTTs. Both parties must have active continuity records
+and active, matching opaque account bindings. The snapshot uses the RTT ID as
+the correlation ID and the verified endpoint institution IDs as routing nodes.
+Merchant and supplier actor IDs need a separately verified continuity mapping
+before they can use this dispatcher.
+
+A trusted provisioning process must supply the signed adapter manifest, one
+unambiguous signed ETK-R per UTT, and the signed wrapper per RTT before dispatch.
+The snapshot reader verifies both authorities, their lineage and validity
+window. The wrapper signature and all independently readable anchors are
+checked before endpoint resolution. The coordinator computes the request digest
+after resolution and compares it with the signed digest before persisting the
+request. Final admission rechecks the wrapper and reserves the fence before the
+adapter call. A held fence blocks subsequent dispatch attempts.
+
+The dispatcher does not provision ETK-Rs, issue wrappers, or certify external
+no-effect evidence. The internal composition and its database queries still
+require a disposable PostgreSQL integration run.
