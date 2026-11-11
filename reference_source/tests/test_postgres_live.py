@@ -88,7 +88,7 @@ class AcceptedAdapter:
 class LivePostgresRuntimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.factory = staticmethod(psycopg_connection_factory(_DSN))
+        cls.factory = psycopg_connection_factory(_DSN)
         try:
             connection = cls.factory()
         except Exception as exc:
@@ -183,7 +183,7 @@ class LivePostgresRuntimeTests(unittest.TestCase):
                 purpose=PaymentPurpose.SUPPLIER_PAYMENT,
                 amount_minor=10_000, currency_from="KES",
                 receive_amount_minor=9_950, currency_to="KES",
-                total_fee_minor=50, routing_budget_minor=50, fx_rate="1.000000",
+                total_fee_minor=50, routing_budget_minor=100, fx_rate="1.000000",
                 corridor_id="KE-DOMESTIC", service_level="STANDARD",
                 routing_policy_id="POLICY-KE-PILOT", pricing_version="2026-07",
             ),
