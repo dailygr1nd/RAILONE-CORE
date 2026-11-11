@@ -1,0 +1,403 @@
+--- a/demo_sandbox.py
++++ b/demo_sandbox.py
+@@ -12,6 +12,14 @@
+     parser.add_argument(
+         "--reset-disposable-db", action="store_true",
+         help="Drop and rebuild railone and railone_bank schemas before seeding the demo.",
++    )
++    parser.add_argument(
++        "--http-bilateral", action="store_true",
++        help="Use authenticated in-process HTTP for ETK-S, ETK-R and UTT before dispatch.",
++    )
++    parser.add_argument(
++        "--report-json", metavar="PATH",
++        help="Write a sanitized machine-readable evidence report on success.",
+     )
+     args = parser.parse_args()
+     if not args.reset_disposable_db:
+@@ -30,17 +38,43 @@
+     test = LivePostgresRuntimeTests(
+         "test_institutional_dispatch_reserves_before_adapter_and_blocks_replay"
+     )
++    messages = []
++
++    def report(message):
++        messages.append(message)
++        print(f"  {message}", flush=True)
++
+     try:
+         LivePostgresRuntimeTests.setUpClass()
+         exercise_institutional_dispatch(
+             test, PostgresDatabase(test.factory), scenario=args.scenario,
+-            report=lambda message: print(f"  {message}", flush=True),
++            report=report,
++            http_bilateral=args.http_bilateral,
+         )
+     except Exception as exc:
+         # Avoid printing connection strings or raw account data from driver errors.
+         print(f"Demo failed ({type(exc).__name__}). Run python run_tests.py for diagnostics.",
+               file=sys.stderr)
+         return 1
++    if args.report_json:
++        import json
++        from datetime import datetime, timezone
++        from pathlib import Path
++
++        path = Path(args.report_json)
++        evidence = {
++            "protocol": "RAILONE",
++            "profile": "V0.17_INSTITUTIONAL_SANDBOX",
++            "custody_model": "NON_CUSTODIAL",
++            "transport": "IN_PROCESS_ASGI_HTTP" if args.http_bilateral else "INTERNAL_FIXTURE",
++            "scenario": args.scenario,
++            "result": "PASS",
++            "generated_at": datetime.now(timezone.utc).isoformat(),
++            "checks": messages,
++            "warning": "Synthetic test evidence only; not proof of real settlement or production readiness",
++        }
++        path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
++        print(f"  Evidence report: {path}", flush=True)
+     print("PASS — scenario assertions verified.", flush=True)
+     return 0
+ 
+--- a/tests/test_provider_operations.py
++++ b/tests/test_provider_operations.py
+@@ -80,7 +80,9 @@
+ 
+ class ProviderOperationsTests(unittest.TestCase):
+     def setUp(self) -> None:
+-        self.now = datetime(2026, 7, 14, 15, 0, tzinfo=timezone.utc)
++        self.now = getattr(
++            self, "sandbox_now", datetime(2026, 7, 14, 15, 0, tzinfo=timezone.utc),
++        )
+         keys = InMemoryEd25519KeyProvider()
+         keys.generate(
+             key_id="R1CORE:quote:2026-01",
+@@ -194,25 +196,35 @@
+                 accepted_at=self.now + timedelta(seconds=7),
+                 expires_at=self.now + timedelta(minutes=2),
+             )
+-        contract = QuoteAcceptanceService(
+-            signatures=self.signatures,
+-            authority=ExecutionAuthorityService(self.signatures),
+-            store=self.contracts,
+-            utt_signing_key_id="R1CORE:execution:2026-01",
+-            authority_signing_key_id="R1CORE:execution:2026-01",
+-            require_bilateral_p2p=sender_first,
+-        ).accept(
+-            QuoteAcceptanceCommand(
+-                signed_quote=quote,
+-                origin=origin,
+-                authorization_method="MERCHANT_ACTOR_ATTESTATION",
+-                authorization_reference="AUTH-OPS-001",
+-                idempotency_key="IDEM-OPS-001",
+-                sender_authority=sender_authority,
+-                receiver_authority=receiver_authority,
+-            ),
+-            at=self.now + timedelta(seconds=10),
+-        ).contract
++        # External acceptance is a test-only seam: the v0.17 integration
++        # harness supplies a genuine authenticated FastAPI -> PostgreSQL flow.
++        # Production services are never patched or replaced by this fixture.
++        external_acceptance = getattr(self, "external_bilateral_acceptance", None)
++        if sender_first and external_acceptance is not None:
++            contract = external_acceptance(
++                signed_quote=quote, sender=sender_authority,
++                receiver=receiver_authority, origin=origin,
++            )
++        else:
++            contract = QuoteAcceptanceService(
++                signatures=self.signatures,
++                authority=ExecutionAuthorityService(self.signatures),
++                store=self.contracts,
++                utt_signing_key_id="R1CORE:execution:2026-01",
++                authority_signing_key_id="R1CORE:execution:2026-01",
++                require_bilateral_p2p=sender_first,
++            ).accept(
++                QuoteAcceptanceCommand(
++                    signed_quote=quote,
++                    origin=origin,
++                    authorization_method="MERCHANT_ACTOR_ATTESTATION",
++                    authorization_reference="AUTH-OPS-001",
++                    idempotency_key="IDEM-OPS-001",
++                    sender_authority=sender_authority,
++                    receiver_authority=receiver_authority,
++                ),
++                at=self.now + timedelta(seconds=10),
++            ).contract
+         route = RouteCandidate(
+             route_id="FAST",
+             source_institution_id="INST-SOURCE",
+--- a/tests/institutional_live_support.py
++++ b/tests/institutional_live_support.py
+@@ -1,6 +1,6 @@
+ """Synthetic provisioning and full PostgreSQL institutional dispatch exercise."""
+ from dataclasses import replace
+-from datetime import timedelta
++from datetime import datetime, timedelta, timezone
+ from pathlib import Path
+ 
+ from railone_contracts import AccountRole
+@@ -29,7 +29,127 @@
+     """Test-only process interruption after the committed reservation."""
+ 
+ 
+-def exercise_institutional_dispatch(test, database, *, scenario="accepted", report=None):
++def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver, origin, emit):
++    """Exercise real FastAPI HTTP routes, persisted API audit, and UTT creation.
++
++    This uses TestClient (in-process ASGI), not an externally deployed server.
++    All keys, identities and bank endpoints are synthetic; never real funds.
++    """
++    from types import SimpleNamespace
++
++    from fastapi.testclient import TestClient
++    from railone_api import AccessTokenService, ActorScopes, PrincipalType
++    from railone_api.http import create_app
++    from railone_crypto.key_provider import KeyPurpose
++    from railone_postgres import PostgresTokenRevocationStore
++    from railone_sandbox.deployment import DeployedSandboxConfig, compose_deployed_sandbox
++
++    now = fixture.now
++    for key_id, owner, purpose in (
++        ("E2E-HTTP-TOKEN", "R1AUTH", KeyPurpose.ACCESS_TOKEN_SIGNING),
++        ("E2E-HTTP-AUDIT", "RAILONE", KeyPurpose.API_AUDIT_SIGNING),
++    ):
++        fixture.keys.generate(
++            key_id=key_id, owner_id=owner, purpose=purpose,
++            not_before=now-timedelta(days=1), not_after=now+timedelta(days=2),
++        )
++    tokens = AccessTokenService(
++        keys=fixture.keys, issuer="railone-v017-synthetic",
++        revocations=PostgresTokenRevocationStore(database),
++    )
++    config = DeployedSandboxConfig(
++        database_url="postgresql://synthetic",
++        migrations_directory=Path(__file__).resolve().parents[1]/"migrations",
++        account_endpoint_key_id="synthetic-endpoint", contact_destination_key_id="synthetic-contact",
++        provider_credential_key_id="synthetic-credential",
++        notification_body_key_id="synthetic-notification", worker_id="synthetic-api",
++    )
++    runtime = compose_deployed_sandbox(
++        config=config, key_client=NoopKeyClient(), effect_consumer=NoopConsumer(),
++        connection_factory=test.factory,
++    )
++    facade = runtime.authenticated_p2p_facade(
++        signatures=fixture.signatures, access_tokens=tokens,
++        utt_signing_key_id="R1CORE:execution:2026-01",
++        authority_signing_key_id="R1CORE:execution:2026-01",
++        api_audit_signing_key_id="E2E-HTTP-AUDIT",
++    )
++    client = TestClient(create_app(facade=facade))
++    payer = signed_quote.payload["payer"]["actor_id"]
++    beneficiary = signed_quote.payload["beneficiary"]["actor_id"]
++
++    def token(uid, *, partner=False):
++        return tokens.issue(
++            principal_id=f"E2E-{'PARTNER' if partner else 'ACTOR'}-{uid}",
++            principal_type=PrincipalType.PARTNER_SERVICE if partner else PrincipalType.HUMAN,
++            scopes=ActorScopes(partner_ids=(uid,)) if partner
++                   else ActorScopes(continuity_uid=uid),
++            key_id="E2E-HTTP-TOKEN", at=now,
++        )
++
++    payer_token = token(payer)
++    receiver_token = token(beneficiary)
++    hostile_token = token("AGG-COMPROMISED", partner=True)
++    body = {
++        "signed_quote": signed_quote.to_dict(),
++        "sender_authority": sender.to_dict(),
++        "receiver_authority": receiver.to_dict(),
++        "origin_intent_id": origin.origin_intent_id,
++    }
++
++    def post(path, access, *, payload=None, idem=None):
++        headers = {"Authorization": "Bearer " + access}
++        if idem:
++            headers["Idempotency-Key"] = idem
++        return client.post(
++            "/v1/bilateral/p2p/" + path, headers=headers,
++            json=body if payload is None else payload,
++        )
++
++    response = post("etk-s/verify", payer_token)
++    test.assertEqual(response.status_code, 200, response.text)
++    test.assertEqual(response.json()["status"], "ETK_S_VERIFIED")
++    emit("Authenticated sender ETK-S verified over HTTP")
++    response = post("etk-r/verify", receiver_token)
++    test.assertEqual(response.status_code, 200, response.text)
++    test.assertEqual(response.json()["status"], "ETK_R_VERIFIED")
++    emit("Authenticated receiver ETK-R verified against the exact ETK-S")
++
++    # A compromised partner with valid credentials must not claim the sender's
++    # human identity, even when supplied with both otherwise valid ETKs.
++    denied = post("utts", hostile_token, idem="IDEM-E2E-HOSTILE")
++    test.assertEqual(denied.status_code, 403, denied.text)
++    # A compromised endpoint may tamper with the signed request; signature
++    # verification must reject it rather than creating a UTT.
++    tampered = {**body, "signed_quote": signed_quote.to_dict()}
++    tampered["signed_quote"]["payload"]["amount_minor"] += 1
++    denied = post("utts", payer_token, payload=tampered, idem="IDEM-E2E-TAMPER")
++    test.assertEqual(denied.status_code, 403, denied.text)
++    with database.transaction() as connection, connection.cursor() as cursor:
++        cursor.execute("SELECT COUNT(*) AS n FROM railone.accepted_utts")
++        test.assertEqual(cursor.fetchone()["n"], 0)
++    emit("Compromised partner impersonation and amount tampering denied before UTT")
++
++    response = post("utts", payer_token, idem="IDEM-OPS-001")
++    test.assertEqual(response.status_code, 200, response.text)
++    utt = response.json()
++    test.assertEqual(utt["authority_version"], 3)
++    test.assertFalse(utt["replayed"])
++    with database.transaction() as connection, connection.cursor() as cursor:
++        cursor.execute("SELECT COUNT(*) AS n FROM railone.accepted_utts")
++        test.assertEqual(cursor.fetchone()["n"], 1)
++    emit("Immutable bilateral UTT accepted by authenticated HTTP and persisted to PostgreSQL")
++    replay = post("utts", payer_token, idem="IDEM-OPS-001")
++    test.assertEqual(replay.status_code, 200, replay.text)
++    test.assertTrue(replay.json()["replayed"])
++    test.assertEqual(replay.json()["utt_id"], utt["utt_id"])
++    emit("Repeated HTTP acceptance returned the same UTT without duplication")
++    return SimpleNamespace(utt_id=utt["utt_id"])
++
++
++def exercise_institutional_dispatch(
++    test, database, *, scenario="accepted", report=None, http_bilateral=False,
++):
+     if scenario not in {"accepted", "timeout", "crash"}:
+         raise ValueError("unsupported synthetic scenario")
+     emit = report or (lambda message: None)
+@@ -50,6 +170,13 @@
+ 
+     fixture._create_current_rtt = create
+     fixture.core_owner_id = "RAILONE"
++    if http_bilateral:
++        # The HTTP facade validates against the wall clock; unlike historical
++        # in-process fixtures, this scenario uses fresh short-lived signatures.
++        fixture.sandbox_now = datetime.now(timezone.utc) - timedelta(seconds=10)
++        fixture.external_bilateral_acceptance = lambda **kwargs: _accept_via_http(
++            test, database, fixture, emit=emit, **kwargs,
++        )
+     fixture.setUp()
+     at = fixture.now + timedelta(seconds=22)
+     attempt = fixture.executions.require_attempt(fixture.rtt_id)
+@@ -211,3 +338,14 @@
+                        (attempt.utt_id,))
+         test.assertEqual(cursor.fetchone()["total"], 0)
+     emit(f"RTT state {expected_fence}; economic hold HELD; settlement evidence count 0")
++    if http_bilateral:
++        with database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                "SELECT status_code, outcome FROM railone.api_request_audit "
++                "WHERE route_template LIKE '/v1/bilateral/p2p/%'"
++            )
++            events = cursor.fetchall()
++        test.assertEqual(len(events), 6)
++        test.assertEqual(sum(event["status_code"] == 403 for event in events), 2)
++        test.assertEqual(sum(event["status_code"] == 200 for event in events), 4)
++        emit("Authenticated API audit: 4 allowed, 2 denied; all durably recorded")
+--- a/tests/test_postgres_live.py
++++ b/tests/test_postgres_live.py
+@@ -111,6 +111,28 @@
+             connection_factory=cls.factory,
+             migrations_directory=cls.migrations,
+         ).apply_all()
++
++    def test_v017_http_to_postgres_institutional_dispatch(self):
++        """End-to-end: actor-scoped HTTP -> bilateral UTT -> RTT -> fenced adapter."""
++        self.setUpClass()  # Explicit disposable reset; synthetic IDs are reused.
++        from tests.institutional_live_support import exercise_institutional_dispatch
++        exercise_institutional_dispatch(
++            self, PostgresDatabase(self.factory), http_bilateral=True,
++        )
++
++    def test_v017_http_to_postgres_timeout_preserves_fence(self):
++        self.setUpClass()  # Explicit disposable reset; synthetic IDs are reused.
++        from tests.institutional_live_support import exercise_institutional_dispatch
++        exercise_institutional_dispatch(
++            self, PostgresDatabase(self.factory), scenario="timeout", http_bilateral=True,
++        )
++
++    def test_v017_http_to_postgres_crash_preserves_fence(self):
++        self.setUpClass()  # Explicit disposable reset; synthetic IDs are reused.
++        from tests.institutional_live_support import exercise_institutional_dispatch
++        exercise_institutional_dispatch(
++            self, PostgresDatabase(self.factory), scenario="crash", http_bilateral=True,
++        )
+ 
+     def test_institutional_dispatch_reserves_before_adapter_and_blocks_replay(self):
+         self.setUpClass()
+--- /dev/null
++++ b/docs/ADR-025-in-process-http-to-postgres-institutional-sandbox.md
+@@ -0,0 +1,71 @@
++# ADR-025 — Institutional HTTP-to-PostgreSQL sandbox conformance
++
++**Status:** Proposed sandbox test gate; not production certification.
++
++## Decision
++
++Retain the established RailOne v0.16 execution engine, immutable UTT, RTT
++fencing and signed institutional dispatch admission. Add an end-to-end test that
++starts with **real authenticated FastAPI HTTP routes** and then uses the
++existing internal provisioner for ExecutionPlan, RTT, authorized adapter
++registration and dispatch. Never expose private routing operations as
++unauthenticated HTTP endpoints solely for demonstration.
++
++This proof uses an **in-process ASGI TestClient**, not a running public server or
++an independently developed bank client. Key material, identities, endpoints,
++manifests and provider outcomes are synthetic.
++
++## Flow
++
++1. Sender signs ETK-S independently with their synthetic Ed25519 key.
++2. Sender's scoped bearer token verifies ETK-S via HTTP.
++3. Receiver independently signs ETK-R bound to the exact ETK-S digest.
++4. Receiver's distinct scoped bearer token verifies ETK-R via HTTP.
++5. A compromised aggregator principal attempts to impersonate the sender; 403.
++6. A modified quote amount is submitted to UTT acceptance; 403.
++7. Sender creates UTT over authenticated HTTP with a unique idempotency key.
++8. Repeating exactly that request/key returns the same UTT without a new effect.
++9. The PostgreSQL-backed plan and RTT are created for the same UTT.
++10. An authorized synthetic institutional adapter receives a signed dispatch
++    wrapper only after a durable economic-effect fence is reserved.
++11. A recreated dispatcher cannot redispatch that RTT. Timeout and crash
++    scenarios leave the economic hold fenced until verified resolution.
++12. API audit rows (including both denial decisions) and effect fence records
++    are verified in the disposable PostgreSQL database.
++
++`ACCEPTED_FOR_PROCESSING` is not settlement; settlement evidence count remains
++zero for these scenarios. No duplicate payment is claimed or inferred from
++provider idempotency alone.
++
++## How to run
++
++Set `RAILONE_TEST_DATABASE_URL` to a disposable PostgreSQL database, set
++`RAILONE_ALLOW_TEST_SCHEMA_RESET=1` and `RAILONE_REQUIRE_LIVE_POSTGRES=1`.
++`demo_sandbox.py` **drops and rebuilds** the `railone` and `railone_bank`
++schemas. Never point it at shared or production infrastructure.
++
++```powershell
++python -m pip install -e ".[pilot]"
++python -m unittest -v tests.test_postgres_live.LivePostgresRuntimeTests.test_v017_http_to_postgres_institutional_dispatch
++python demo_sandbox.py --reset-disposable-db --http-bilateral --scenario accepted --report-json v017-accepted.json
++python demo_sandbox.py --reset-disposable-db --http-bilateral --scenario timeout --report-json v017-timeout.json
++python demo_sandbox.py --reset-disposable-db --http-bilateral --scenario crash --report-json v017-crash.json
++```
++
++Each demo resets the same disposable schemas; run serially. Do not run the
++full test suite in parallel against the same disposable DB.
++
++## Still required before a true externally deployed institutional pilot
++
++- Run all live PostgreSQL tests without skips against the target merged branch.
++- Deploy the HTTP application behind properly configured TLS/mTLS, authentication,
++  rate limits and institution-managed cryptographic keys.
++- Replace TestClient with independent network clients and independently
++  implemented adapters for both sides of an institutional corridor.
++- Prove authentic settlement evidence and finality/reconciliation behavior;
++  synthetic provider acceptance alone does not satisfy that requirement.
++- Exercise concurrency, recovery, operator approval and revocation across
++  multiple processes, hosts and authenticated counterparties.
++
++Do not claim production-ready institutional settlement from this conformance
++proof alone.

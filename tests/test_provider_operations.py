@@ -80,7 +80,9 @@ class FakeEventPublisher:
 
 class ProviderOperationsTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.now = datetime(2026, 7, 14, 15, 0, tzinfo=timezone.utc)
+        self.now = getattr(
+            self, "sandbox_now", datetime(2026, 7, 14, 15, 0, tzinfo=timezone.utc),
+        )
         keys = InMemoryEd25519KeyProvider()
         keys.generate(
             key_id="R1CORE:quote:2026-01",
@@ -194,25 +196,35 @@ class ProviderOperationsTests(unittest.TestCase):
                 accepted_at=self.now + timedelta(seconds=7),
                 expires_at=self.now + timedelta(minutes=2),
             )
-        contract = QuoteAcceptanceService(
-            signatures=self.signatures,
-            authority=ExecutionAuthorityService(self.signatures),
-            store=self.contracts,
-            utt_signing_key_id="R1CORE:execution:2026-01",
-            authority_signing_key_id="R1CORE:execution:2026-01",
-            require_bilateral_p2p=sender_first,
-        ).accept(
-            QuoteAcceptanceCommand(
-                signed_quote=quote,
-                origin=origin,
-                authorization_method="MERCHANT_ACTOR_ATTESTATION",
-                authorization_reference="AUTH-OPS-001",
-                idempotency_key="IDEM-OPS-001",
-                sender_authority=sender_authority,
-                receiver_authority=receiver_authority,
-            ),
-            at=self.now + timedelta(seconds=10),
-        ).contract
+        # External acceptance is a test-only seam: the v0.17 integration
+        # harness supplies a genuine authenticated FastAPI -> PostgreSQL flow.
+        # Production services are never patched or replaced by this fixture.
+        external_acceptance = getattr(self, "external_bilateral_acceptance", None)
+        if sender_first and external_acceptance is not None:
+            contract = external_acceptance(
+                signed_quote=quote, sender=sender_authority,
+                receiver=receiver_authority, origin=origin,
+            )
+        else:
+            contract = QuoteAcceptanceService(
+                signatures=self.signatures,
+                authority=ExecutionAuthorityService(self.signatures),
+                store=self.contracts,
+                utt_signing_key_id="R1CORE:execution:2026-01",
+                authority_signing_key_id="R1CORE:execution:2026-01",
+                require_bilateral_p2p=sender_first,
+            ).accept(
+                QuoteAcceptanceCommand(
+                    signed_quote=quote,
+                    origin=origin,
+                    authorization_method="MERCHANT_ACTOR_ATTESTATION",
+                    authorization_reference="AUTH-OPS-001",
+                    idempotency_key="IDEM-OPS-001",
+                    sender_authority=sender_authority,
+                    receiver_authority=receiver_authority,
+                ),
+                at=self.now + timedelta(seconds=10),
+            ).contract
         route = RouteCandidate(
             route_id="FAST",
             source_institution_id="INST-SOURCE",

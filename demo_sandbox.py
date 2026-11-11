@@ -13,6 +13,14 @@ def main() -> int:
         "--reset-disposable-db", action="store_true",
         help="Drop and rebuild railone and railone_bank schemas before seeding the demo.",
     )
+    parser.add_argument(
+        "--http-bilateral", action="store_true",
+        help="Use authenticated in-process HTTP for ETK-S, ETK-R and UTT before dispatch.",
+    )
+    parser.add_argument(
+        "--report-json", metavar="PATH",
+        help="Write a sanitized machine-readable evidence report on success.",
+    )
     args = parser.parse_args()
     if not args.reset_disposable_db:
         parser.error("--reset-disposable-db is required; this demo rebuilds both RailOne schemas")
@@ -30,17 +38,43 @@ def main() -> int:
     test = LivePostgresRuntimeTests(
         "test_institutional_dispatch_reserves_before_adapter_and_blocks_replay"
     )
+    messages = []
+
+    def report(message):
+        messages.append(message)
+        print(f"  {message}", flush=True)
+
     try:
         LivePostgresRuntimeTests.setUpClass()
         exercise_institutional_dispatch(
             test, PostgresDatabase(test.factory), scenario=args.scenario,
-            report=lambda message: print(f"  {message}", flush=True),
+            report=report,
+            http_bilateral=args.http_bilateral,
         )
     except Exception as exc:
         # Avoid printing connection strings or raw account data from driver errors.
         print(f"Demo failed ({type(exc).__name__}). Run python run_tests.py for diagnostics.",
               file=sys.stderr)
         return 1
+    if args.report_json:
+        import json
+        from datetime import datetime, timezone
+        from pathlib import Path
+
+        path = Path(args.report_json)
+        evidence = {
+            "protocol": "RAILONE",
+            "profile": "V0.17_INSTITUTIONAL_SANDBOX",
+            "custody_model": "NON_CUSTODIAL",
+            "transport": "IN_PROCESS_ASGI_HTTP" if args.http_bilateral else "INTERNAL_FIXTURE",
+            "scenario": args.scenario,
+            "result": "PASS",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "checks": messages,
+            "warning": "Synthetic test evidence only; not proof of real settlement or production readiness",
+        }
+        path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+        print(f"  Evidence report: {path}", flush=True)
     print("PASS — scenario assertions verified.", flush=True)
     return 0
 

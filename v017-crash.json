@@ -1,0 +1,29 @@
+{
+  "protocol": "RAILONE",
+  "profile": "V0.17_INSTITUTIONAL_SANDBOX",
+  "custody_model": "NON_CUSTODIAL",
+  "transport": "IN_PROCESS_ASGI_HTTP",
+  "scenario": "crash",
+  "result": "PASS",
+  "generated_at": "2026-11-11T15:26:14.603713+00:00",
+  "checks": [
+    "Authenticated sender ETK-S verified over HTTP",
+    "Authenticated receiver ETK-R verified against the exact ETK-S",
+    "Compromised partner impersonation and amount tampering denied before UTT",
+    "Immutable bilateral UTT accepted by authenticated HTTP and persisted to PostgreSQL",
+    "Repeated HTTP acceptance returned the same UTT without duplication",
+    "Accepted synthetic P2P instruction UTT-9FF1EA4F08AFB46C8B29E64EA75F6B67",
+    "Instructed source amount KES 2,500.00",
+    "Expected recipient amount KES 2,475.00",
+    "Customer fee KES 25.00",
+    "Amounts describe the synthetic instruction; settlement confirmation is pending",
+    "Selected route FAST; created attempt RTT-0FCA768D122BCD81C3F919D1FF07FC9E",
+    "Persisted bilateral authorities, encrypted endpoints, and signed dispatch wrapper",
+    "Simulated worker interruption after reservation",
+    "Verified committed economic hold through a separate database connection",
+    "Recreated dispatcher; duplicate attempt blocked; adapter invoked once",
+    "RTT state RESERVED; economic hold HELD; settlement evidence count 0",
+    "Authenticated API audit: 4 allowed, 2 denied; all durably recorded"
+  ],
+  "warning": "Synthetic test evidence only; not proof of real settlement or production readiness"
+}
