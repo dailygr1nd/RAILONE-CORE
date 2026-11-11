@@ -1,0 +1,16 @@
+--- a/tests/institutional_live_support.py
++++ b/tests/institutional_live_support.py
+@@ -173,7 +173,12 @@
+     if http_bilateral:
+         # The HTTP facade validates against the wall clock; unlike historical
+         # in-process fixtures, this scenario uses fresh short-lived signatures.
+-        fixture.sandbox_now = datetime.now(timezone.utc) - timedelta(seconds=10)
++        # Manifest signatures encode iat as integral Unix seconds. Use the same
++        # precision for the synthetic manifest's issued_at, otherwise the
++        # verifier sees a sub-second "issued before valid" mismatch.
++        fixture.sandbox_now = (datetime.now(timezone.utc) - timedelta(seconds=10)).replace(
++            microsecond=0,
++        )
+         fixture.external_bilateral_acceptance = lambda **kwargs: _accept_via_http(
+             test, database, fixture, emit=emit, **kwargs,
+         )

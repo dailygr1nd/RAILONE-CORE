@@ -1,6 +1,6 @@
 """Synthetic provisioning and full PostgreSQL institutional dispatch exercise."""
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from railone_contracts import AccountRole
@@ -29,7 +29,127 @@ class SimulatedWorkerCrash(BaseException):
     """Test-only process interruption after the committed reservation."""
 
 
-def exercise_institutional_dispatch(test, database, *, scenario="accepted", report=None):
+def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver, origin, emit):
+    """Exercise real FastAPI HTTP routes, persisted API audit, and UTT creation.
+
+    This uses TestClient (in-process ASGI), not an externally deployed server.
+    All keys, identities and bank endpoints are synthetic; never real funds.
+    """
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+    from railone_api import AccessTokenService, ActorScopes, PrincipalType
+    from railone_api.http import create_app
+    from railone_crypto.key_provider import KeyPurpose
+    from railone_postgres import PostgresTokenRevocationStore
+    from railone_sandbox.deployment import DeployedSandboxConfig, compose_deployed_sandbox
+
+    now = fixture.now
+    for key_id, owner, purpose in (
+        ("E2E-HTTP-TOKEN", "R1AUTH", KeyPurpose.ACCESS_TOKEN_SIGNING),
+        ("E2E-HTTP-AUDIT", "RAILONE", KeyPurpose.API_AUDIT_SIGNING),
+    ):
+        fixture.keys.generate(
+            key_id=key_id, owner_id=owner, purpose=purpose,
+            not_before=now-timedelta(days=1), not_after=now+timedelta(days=2),
+        )
+    tokens = AccessTokenService(
+        keys=fixture.keys, issuer="railone-v017-synthetic",
+        revocations=PostgresTokenRevocationStore(database),
+    )
+    config = DeployedSandboxConfig(
+        database_url="postgresql://synthetic",
+        migrations_directory=Path(__file__).resolve().parents[1]/"migrations",
+        account_endpoint_key_id="synthetic-endpoint", contact_destination_key_id="synthetic-contact",
+        provider_credential_key_id="synthetic-credential",
+        notification_body_key_id="synthetic-notification", worker_id="synthetic-api",
+    )
+    runtime = compose_deployed_sandbox(
+        config=config, key_client=NoopKeyClient(), effect_consumer=NoopConsumer(),
+        connection_factory=test.factory,
+    )
+    facade = runtime.authenticated_p2p_facade(
+        signatures=fixture.signatures, access_tokens=tokens,
+        utt_signing_key_id="R1CORE:execution:2026-01",
+        authority_signing_key_id="R1CORE:execution:2026-01",
+        api_audit_signing_key_id="E2E-HTTP-AUDIT",
+    )
+    client = TestClient(create_app(facade=facade))
+    payer = signed_quote.payload["payer"]["actor_id"]
+    beneficiary = signed_quote.payload["beneficiary"]["actor_id"]
+
+    def token(uid, *, partner=False):
+        return tokens.issue(
+            principal_id=f"E2E-{'PARTNER' if partner else 'ACTOR'}-{uid}",
+            principal_type=PrincipalType.PARTNER_SERVICE if partner else PrincipalType.HUMAN,
+            scopes=ActorScopes(partner_ids=(uid,)) if partner
+                   else ActorScopes(continuity_uid=uid),
+            key_id="E2E-HTTP-TOKEN", at=now,
+        )
+
+    payer_token = token(payer)
+    receiver_token = token(beneficiary)
+    hostile_token = token("AGG-COMPROMISED", partner=True)
+    body = {
+        "signed_quote": signed_quote.to_dict(),
+        "sender_authority": sender.to_dict(),
+        "receiver_authority": receiver.to_dict(),
+        "origin_intent_id": origin.origin_intent_id,
+    }
+
+    def post(path, access, *, payload=None, idem=None):
+        headers = {"Authorization": "Bearer " + access}
+        if idem:
+            headers["Idempotency-Key"] = idem
+        return client.post(
+            "/v1/bilateral/p2p/" + path, headers=headers,
+            json=body if payload is None else payload,
+        )
+
+    response = post("etk-s/verify", payer_token)
+    test.assertEqual(response.status_code, 200, response.text)
+    test.assertEqual(response.json()["status"], "ETK_S_VERIFIED")
+    emit("Authenticated sender ETK-S verified over HTTP")
+    response = post("etk-r/verify", receiver_token)
+    test.assertEqual(response.status_code, 200, response.text)
+    test.assertEqual(response.json()["status"], "ETK_R_VERIFIED")
+    emit("Authenticated receiver ETK-R verified against the exact ETK-S")
+
+    # A compromised partner with valid credentials must not claim the sender's
+    # human identity, even when supplied with both otherwise valid ETKs.
+    denied = post("utts", hostile_token, idem="IDEM-E2E-HOSTILE")
+    test.assertEqual(denied.status_code, 403, denied.text)
+    # A compromised endpoint may tamper with the signed request; signature
+    # verification must reject it rather than creating a UTT.
+    tampered = {**body, "signed_quote": signed_quote.to_dict()}
+    tampered["signed_quote"]["payload"]["amount_minor"] += 1
+    denied = post("utts", payer_token, payload=tampered, idem="IDEM-E2E-TAMPER")
+    test.assertEqual(denied.status_code, 403, denied.text)
+    with database.transaction() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) AS n FROM railone.accepted_utts")
+        test.assertEqual(cursor.fetchone()["n"], 0)
+    emit("Compromised partner impersonation and amount tampering denied before UTT")
+
+    response = post("utts", payer_token, idem="IDEM-OPS-001")
+    test.assertEqual(response.status_code, 200, response.text)
+    utt = response.json()
+    test.assertEqual(utt["authority_version"], 3)
+    test.assertFalse(utt["replayed"])
+    with database.transaction() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) AS n FROM railone.accepted_utts")
+        test.assertEqual(cursor.fetchone()["n"], 1)
+    emit("Immutable bilateral UTT accepted by authenticated HTTP and persisted to PostgreSQL")
+    replay = post("utts", payer_token, idem="IDEM-OPS-001")
+    test.assertEqual(replay.status_code, 200, replay.text)
+    test.assertTrue(replay.json()["replayed"])
+    test.assertEqual(replay.json()["utt_id"], utt["utt_id"])
+    emit("Repeated HTTP acceptance returned the same UTT without duplication")
+    return SimpleNamespace(utt_id=utt["utt_id"])
+
+
+def exercise_institutional_dispatch(
+    test, database, *, scenario="accepted", report=None, http_bilateral=False,
+):
     if scenario not in {"accepted", "timeout", "crash"}:
         raise ValueError("unsupported synthetic scenario")
     emit = report or (lambda message: None)
@@ -50,6 +170,18 @@ def exercise_institutional_dispatch(test, database, *, scenario="accepted", repo
 
     fixture._create_current_rtt = create
     fixture.core_owner_id = "RAILONE"
+    if http_bilateral:
+        # The HTTP facade validates against the wall clock; unlike historical
+        # in-process fixtures, this scenario uses fresh short-lived signatures.
+        # Manifest signatures encode iat as integral Unix seconds. Use the same
+        # precision for the synthetic manifest's issued_at, otherwise the
+        # verifier sees a sub-second "issued before valid" mismatch.
+        fixture.sandbox_now = (datetime.now(timezone.utc) - timedelta(seconds=10)).replace(
+            microsecond=0,
+        )
+        fixture.external_bilateral_acceptance = lambda **kwargs: _accept_via_http(
+            test, database, fixture, emit=emit, **kwargs,
+        )
     fixture.setUp()
     at = fixture.now + timedelta(seconds=22)
     attempt = fixture.executions.require_attempt(fixture.rtt_id)
@@ -211,3 +343,14 @@ def exercise_institutional_dispatch(test, database, *, scenario="accepted", repo
                        (attempt.utt_id,))
         test.assertEqual(cursor.fetchone()["total"], 0)
     emit(f"RTT state {expected_fence}; economic hold HELD; settlement evidence count 0")
+    if http_bilateral:
+        with database.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT status_code, outcome FROM railone.api_request_audit "
+                "WHERE route_template LIKE '/v1/bilateral/p2p/%'"
+            )
+            events = cursor.fetchall()
+        test.assertEqual(len(events), 6)
+        test.assertEqual(sum(event["status_code"] == 403 for event in events), 2)
+        test.assertEqual(sum(event["status_code"] == 200 for event in events), 4)
+        emit("Authenticated API audit: 4 allowed, 2 denied; all durably recorded")
