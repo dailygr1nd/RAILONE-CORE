@@ -1,0 +1,19 @@
+--- a/tests/institutional_live_support.py
++++ b/tests/institutional_live_support.py
+@@ -56,6 +56,16 @@
+     attempt = fixture.executions.require_attempt(fixture.rtt_id)
+     utt = fixture.contracts.require_utt(attempt.utt_id).payload
+     emit(f"Accepted synthetic P2P instruction {attempt.utt_id}")
++    # This synthetic fixture uses KES, with two decimal places.
++    for label, field, currency in (
++        ("Instructed source amount", "amount_minor", utt["currency_from"]),
++        ("Expected recipient amount", "receive_amount_minor", utt["currency_to"]),
++        ("Customer fee", "total_fee_minor", utt["currency_from"]),
++    ):
++        minor = utt[field]
++        amount = f"{minor // 100:,}.{minor % 100:02d}" if currency == "KES" else f"{minor} minor units"
++        emit(f"{label} {currency} {amount}")
++    emit("Amounts describe the synthetic instruction; settlement confirmation is pending")
+     emit(f"Selected route {attempt.route_id}; created attempt {fixture.rtt_id}")
+     identities = PostgresIdentityRepository(database)
+     partners = PostgresPartnerDirectory(database)
