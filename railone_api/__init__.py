@@ -8,6 +8,7 @@ from .auth import (
     TokenRevocationStore,
 )
 from .facade import RailOneApiFacade
+from .bilateral import BilateralP2PApi
 from .guard import (
     ApiAuditOutcome,
     ApiRateLimitExceededError,
@@ -34,6 +35,7 @@ __all__ = [
     "InMemoryTokenRevocationStore",
     "PrincipalType",
     "RailOneApiFacade",
+    "BilateralP2PApi",
     "RateLimitDecision",
     "TokenRevocationStore",
 ]

@@ -13,6 +13,8 @@ from railone_contracts.models import (
     require_text,
 )
 from railone_contracts.store import ContractStore
+from railone_authority.bilateral import BilateralAuthorityService
+from railone_security.incident_audit import SecurityAuditWriter
 from railone_crypto.canonical_json import canonical_json_bytes
 from railone_crypto.signature_service import ArtifactType, SignatureService
 from railone_partners import EndpointValidator
@@ -45,6 +47,32 @@ def _identifier(prefix: str, payload: object) -> str:
     return f"{prefix}-{digest[:32]}"
 
 
+def _verify_bilateral_for_execution(
+    signatures: SignatureService, contracts: ContractStore,
+    signed_utt, utt_id: str, at: datetime,
+    security_audit: SecurityAuditWriter | None, operation: str,
+) -> None:
+    version = signed_utt.payload.get("authority_version")
+    if version not in (2, 3):
+        return  # Legacy v1 follows its existing separate authority controls.
+    try:
+        if version == 2:
+            # Never reinterpret previously issued receiver-first v2 artifacts
+            # as a sender-first authorization chain.
+            raise PermissionError("RECEIVER_FIRST_V2_DEPRECATED")
+        sender, receiver = contracts.require_bilateral_authorities(utt_id)
+        BilateralAuthorityService(signatures).verify_utt(
+            signed_utt=signed_utt, sender=sender, receiver=receiver, at=at,
+        )
+    except (PermissionError, ValueError) as exc:
+        if security_audit is not None:
+            security_audit.record_rejection(
+                event_type="BILATERAL_AUTH_REJECTED", operation=operation,
+                correlation_ref=utt_id, error=exc, at=at,
+            )
+        raise
+
+
 class ExecutionPlanningService:
     def __init__(
         self,
@@ -53,11 +81,13 @@ class ExecutionPlanningService:
         contracts: ContractStore,
         executions: ExecutionStore,
         scorer: DeterministicRouteScorer | None = None,
+        security_audit: SecurityAuditWriter | None = None,
     ) -> None:
         self._signatures = signatures
         self._contracts = contracts
         self._executions = executions
         self._scorer = scorer or DeterministicRouteScorer()
+        self._security_audit = security_audit
 
     def build_plan(
         self,
@@ -74,6 +104,10 @@ class ExecutionPlanningService:
         if not verification.valid:
             raise PermissionError(f"UTT rejected: {verification.reason}")
         utt = signed_utt.payload
+        _verify_bilateral_for_execution(
+            self._signatures, self._contracts, signed_utt, utt_id, instant,
+            self._security_audit, "PLAN",
+        )
         ranked = self._scorer.rank(
             candidates,
             amount_minor=utt["amount_minor"],
@@ -135,6 +169,7 @@ class RttAttemptService:
         rtt_signing_key_id: str,
         endpoints: EndpointValidator | None = None,
         allow_unverified_endpoints_for_tests: bool = False,
+        security_audit: SecurityAuditWriter | None = None,
     ) -> None:
         self._signatures = signatures
         self._contracts = contracts
@@ -142,6 +177,7 @@ class RttAttemptService:
         self._rtt_signing_key_id = rtt_signing_key_id
         self._endpoints = endpoints
         self._allow_unverified = allow_unverified_endpoints_for_tests
+        self._security_audit = security_audit
 
     def start_next(
         self, *, utt_id: str, at: datetime | None = None
@@ -154,6 +190,10 @@ class RttAttemptService:
         if not verification.valid:
             raise PermissionError(f"UTT rejected: {verification.reason}")
         utt = signed_utt.payload
+        _verify_bilateral_for_execution(
+            self._signatures, self._contracts, signed_utt, utt_id, instant,
+            self._security_audit, "RTT_CREATE",
+        )
         if utt.get("endpoint_model_version") != 1:
             raise PlanNotExecutableError("UTT uses an unsupported endpoint model")
         if self._endpoints is None:

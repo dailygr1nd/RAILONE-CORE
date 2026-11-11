@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from railone_history import SubjectKind, TransactionHistoryService
 from railone_projection import ProviderOutcomeProjectionStore
 
 from .auth import AuthenticatedPrincipal
+from .bilateral import BilateralP2PApi
 from .guard import ApiRequest, AuthenticatedRequestGuard, RateLimitDecision
 
 
@@ -18,10 +19,56 @@ class RailOneApiFacade:
         guard: AuthenticatedRequestGuard,
         history: TransactionHistoryService,
         outcomes: ProviderOutcomeProjectionStore,
+        bilateral_p2p: BilateralP2PApi | None = None,
     ) -> None:
         self._guard = guard
         self._history = history
         self._outcomes = outcomes
+        self._bilateral_p2p = bilateral_p2p
+
+    @property
+    def bilateral_p2p_enabled(self) -> bool:
+        return self._bilateral_p2p is not None
+
+    def verify_sender_intent(self, *, bearer_token: str, request_id: str,
+                             body: dict, at: datetime | None = None):
+        instant = at or datetime.now(timezone.utc)
+        return self._guard.execute(
+            bearer_token=bearer_token,
+            request=ApiRequest(request_id, "POST", "/v1/bilateral/p2p/etk-s/verify"),
+            operation=lambda principal: self._require_bilateral().verify_sender(
+                principal=principal, request=body, at=instant,
+            ), at=instant,
+        )
+
+    def verify_receiver_acceptance(self, *, bearer_token: str, request_id: str,
+                                   body: dict, at: datetime | None = None):
+        instant = at or datetime.now(timezone.utc)
+        return self._guard.execute(
+            bearer_token=bearer_token,
+            request=ApiRequest(request_id, "POST", "/v1/bilateral/p2p/etk-r/verify"),
+            operation=lambda principal: self._require_bilateral().verify_receiver(
+                principal=principal, request=body, at=instant,
+            ), at=instant,
+        )
+
+    def create_bilateral_utt(self, *, bearer_token: str, request_id: str,
+                             body: dict, idempotency_key: str,
+                             at: datetime | None = None):
+        instant = at or datetime.now(timezone.utc)
+        return self._guard.execute(
+            bearer_token=bearer_token,
+            request=ApiRequest(request_id, "POST", "/v1/bilateral/p2p/utts"),
+            operation=lambda principal: self._require_bilateral().create_utt(
+                principal=principal, request=body, idempotency_key=idempotency_key,
+                at=instant,
+            ), at=instant,
+        )
+
+    def _require_bilateral(self) -> BilateralP2PApi:
+        if self._bilateral_p2p is None:
+            raise PermissionError("BILATERAL_API_NOT_CONFIGURED")
+        return self._bilateral_p2p
 
     def me(
         self, *, bearer_token: str, request_id: str, at: datetime | None = None

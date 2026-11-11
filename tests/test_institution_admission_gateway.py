@@ -95,6 +95,10 @@ class InstitutionalAdmissionGatewayTests(unittest.TestCase):
         self.registry.register(self.adapter, signed_manifest)
         body_sections = sections()
         body_sections["execution_binding"]["adapter_manifest_digest"] = signed_manifest.signature.protected["payload_sha256"]
+        # Bind the genuine provider request fields, including private account
+        # references, before issuing the canonical dispatch wrapper.
+        provisional = provider_request(body_sections)
+        body_sections["execution_binding"]["request_sha256"] = provisional.calculated_request_sha256()
         self.wrapper = CanonicalDispatchWrapper.build(
             issued_at_epoch=int(NOW.timestamp()), expires_at_epoch=int(NOW.timestamp()) + 30,
             **body_sections,

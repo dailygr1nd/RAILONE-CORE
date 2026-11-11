@@ -4,3 +4,5 @@ from .models import ReceiverParticipationMode
 from .service import ExecutionAuthorityService
 
 __all__ = ["ExecutionAuthorityService", "ReceiverParticipationMode"]
+
+from .bilateral import BilateralAuthorityService

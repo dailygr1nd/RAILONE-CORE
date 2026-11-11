@@ -127,7 +127,7 @@ class PostgresInstitutionalDispatchTests(unittest.TestCase):
             signatures=fixture.signatures, registry=self.registry,
             event_signing_key_id=KEY_ID, wrapper_signing_key_id=KEY_ID,
             trusted_no_effect_signing_keys=frozenset({"synthetic-no-effect-signer"}),
-            core_owner_id="R1CORE",
+            core_owner_id="R1CORE", require_sender_first=False,
         )
 
     def provision_wrapper(self, *, request_digest=None):

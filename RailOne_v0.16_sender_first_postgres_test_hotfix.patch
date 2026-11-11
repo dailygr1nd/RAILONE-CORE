@@ -1,0 +1,210 @@
+diff --git a/tests/institutional_live_support.py b/tests/institutional_live_support.py
+index 2505c64..59cbca1 100644
+--- a/tests/institutional_live_support.py
++++ b/tests/institutional_live_support.py
+@@ -3,8 +3,6 @@ from dataclasses import replace
+ from datetime import timedelta
+ from pathlib import Path
+ 
+-from railone_authority import ExecutionAuthorityService
+-from railone_authority.models import ReceiverParticipationMode
+ from railone_contracts import AccountRole
+ from railone_identity.models import (
+     IdentityBundle, IdentityGenesis, IdentityObject, IdentityRevision, IdentityStatus, TrustTier,
+@@ -17,7 +15,6 @@ from railone_postgres import (
+     PostgresIdentityRepository, PostgresPartnerDirectory, PostgresInstitutionManifestStore,
+     PostgresEncryptedSecretStore, PostgresDispatchWrapperStore, EconomicFenceViolation,
+ )
+-from railone_postgres.codec import json_text
+ from railone_postgres.dispatch_snapshot import PostgresDispatchSnapshotReader
+ from railone_partners import PartnerInstitution, AccountBinding
+ from railone_security import EncryptedAccountEndpointVault
+@@ -47,7 +44,9 @@ def exercise_institutional_dispatch(test, database, *, scenario="accepted", repo
+         fixture.executions = PostgresExecutionStore(database)
+         fixture.operations = PostgresOperationsStore(database)
+         fixture.endpoint_resolver = vault
+-        return fixtures.ProviderOperationsTests._create_current_rtt(fixture, institutional=True)
++        return fixtures.ProviderOperationsTests._create_current_rtt(
++            fixture, institutional=True, sender_first=True,
++        )
+ 
+     fixture._create_current_rtt = create
+     fixture.core_owner_id = "RAILONE"
+@@ -103,22 +102,13 @@ def exercise_institutional_dispatch(test, database, *, scenario="accepted", repo
+ 
+     accepted = fixture.contracts.resolve_idempotency("IDEM-OPS-001", utt["acceptance_request_sha256"])
+     key = "R1CORE:execution:2026-01"
+-    receiver = ExecutionAuthorityService(fixture.signatures).issue_receiver_participation(
+-        sender_authority=accepted.sender_authority, receiver_actor_type="PERSON",
+-        receiver_reference=utt["beneficiary"]["actor_id"],
+-        participation_mode=ReceiverParticipationMode.ACTIVE_ACCEPTANCE,
+-        evidence_reference="SYNTHETIC-LIVE-ACCEPTANCE", signing_key_id=key,
+-        attested_at=fixture.now+timedelta(seconds=11),
+-        expires_at=fixture.now+timedelta(minutes=1),
+-    )
+-    with database.transaction() as connection, connection.cursor() as cursor:
+-        cursor.execute(
+-            """INSERT INTO railone.execution_authorities
+-               (authority_id, authority_type, utt_id, payload_sha256, signed_envelope, created_at)
+-               VALUES (%s,'ETK_R',%s,%s,%s::jsonb,%s)""",
+-            (receiver.payload["etk_r_id"], attempt.utt_id,
+-             receiver.protected["payload_sha256"], json_text(receiver.to_dict()), at),
+-        )
++    # Receiver-first or post-UTT synthetic ETK-R insertion would bypass
++    # the bilateral lock. Verify that both v3 authorities were persisted
++    # atomically before creating the ExecutionPlan or RTT.
++    sender, receiver = fixture.contracts.require_bilateral_authorities(attempt.utt_id)
++    test.assertEqual(utt["authority_version"], 3)
++    test.assertEqual(receiver.payload["etk_s_digest"], sender.protected["payload_sha256"])
++    test.assertEqual(utt["etk_r_digest"], receiver.protected["payload_sha256"])
+ 
+     signer = CapabilityManifestSigner(fixture.signatures, signing_key_id=key)
+     profile = replace(DOMESTIC_BANK_PROFILE, adapter_id="provider-fast",
+@@ -152,6 +142,7 @@ def exercise_institutional_dispatch(test, database, *, scenario="accepted", repo
+     _, request = fixture.coordinator.prepare(rtt_id=fixture.rtt_id, at=at)
+     expected = PostgresDispatchSnapshotReader(
+         database, signatures=fixture.signatures, core_owner_id="RAILONE",
++        require_sender_first=True,
+     ).load(rtt_id=fixture.rtt_id, at=at)
+     expected = replace(expected, request_sha256=request.request_sha256)
+     body = sections()
+diff --git a/tests/test_bilateral_postgres_live.py b/tests/test_bilateral_postgres_live.py
+index 0603882..df6d46e 100644
+--- a/tests/test_bilateral_postgres_live.py
++++ b/tests/test_bilateral_postgres_live.py
+@@ -14,6 +14,7 @@ from pathlib import Path
+ 
+ from railone_authority import ExecutionAuthorityService
+ from railone_contracts import QuoteAcceptanceService
++from railone_contracts.store import IdempotencyConflictError
+ from railone_execution import ExecutionPlanningService, RttAttemptService
+ from railone_postgres import (
+     PostgresContractStore, PostgresDatabase, PostgresExecutionStore,
+@@ -76,8 +77,20 @@ class BilateralPostgresLiveTests(unittest.TestCase):
+         # A distinct, tampered acceptance must be rejected and journaled; it
+         # cannot create a second UTT or enter institutional dispatch.
+         new_quote = fixture.make_quote(replace(fixture.terms, request_id="REQ-ATTACKED", amount_minor=200000))
++        # Reusing the original idempotency key must fail before verification.
++        with self.assertRaises(IdempotencyConflictError):
++            acceptance.accept(
++                fixture.command(receiver, quote=new_quote, sender=sender),
++                at=fixture.now+timedelta(seconds=10),
++            )
++        # A *fresh* request key reaches bilateral verification, which must
++        # reject a changed quote paired with the old sender's signature.
++        malicious = replace(
++            fixture.command(receiver, quote=new_quote, sender=sender),
++            idempotency_key="IDEM-P2P-ATTACK-FRESH",
++        )
+         with self.assertRaisesRegex(PermissionError, "SENDER_QUOTE_BINDING_MISMATCH"):
+-            acceptance.accept(fixture.command(receiver, quote=new_quote), at=fixture.now+timedelta(seconds=10))
++            acceptance.accept(malicious, at=fixture.now+timedelta(seconds=10))
+         with database.transaction() as connection, connection.cursor() as cursor:
+             cursor.execute("SELECT reason_code FROM railone.institution_security_audit ORDER BY occurred_at DESC LIMIT 1")
+             self.assertEqual(cursor.fetchone()["reason_code"], "SENDER_QUOTE_BINDING_MISMATCH")
+diff --git a/tests/test_provider_operations.py b/tests/test_provider_operations.py
+index 69e5b2f..2b46c37 100644
+--- a/tests/test_provider_operations.py
++++ b/tests/test_provider_operations.py
+@@ -97,6 +97,7 @@ class ProviderOperationsTests(unittest.TestCase):
+             not_after=self.now + timedelta(days=90),
+         )
+         self.signatures = SignatureService(keys)
++        self.keys = keys  # Synthetic institutional keys for the strict v3 fixture.
+         self.contracts = InMemoryContractStore()
+         self.executions = InMemoryExecutionStore(self.contracts)
+         self.operations = InMemoryOperationsStore()
+@@ -119,7 +120,9 @@ class ProviderOperationsTests(unittest.TestCase):
+             event_signing_key_id="R1CORE:execution:2026-01",
+         )
+ 
+-    def _create_current_rtt(self, *, institutional=False) -> str:
++    def _create_current_rtt(self, *, institutional=False, sender_first=False) -> str:
++        if sender_first and not institutional:
++            raise ValueError("sender_first fixture requires institutional P2P")
+         payer_id = "CUID-" + "A" * 32 if institutional else "MER002"
+         beneficiary_id = "CUID-" + "B" * 32 if institutional else "SUP001"
+         purpose = PaymentPurpose.PERSON_TO_PERSON if institutional else PaymentPurpose.SUPPLIER_PAYMENT
+@@ -163,12 +166,41 @@ class ProviderOperationsTests(unittest.TestCase):
+             issued_at=self.now,
+             expires_at=self.now + timedelta(minutes=1),
+         )
++        # Strict institutional fixtures exercise the real externally signed
++        # sender-first v3 protocol; ordinary merchant fixtures keep the v0.16
++        # acceptance semantics they were originally written to test.
++        sender_authority = receiver_authority = None
++        if sender_first:
++            from railone_authority.bilateral import BilateralAuthorityService
++            for key_id, owner_id in (
++                ("fixture-payer-v3", payer_id),
++                ("fixture-receiver-v3", beneficiary_id),
++            ):
++                self.keys.generate(
++                    key_id=key_id, owner_id=owner_id,
++                    purpose=KeyPurpose.EXECUTION_SIGNING,
++                    not_before=self.now - timedelta(days=1),
++                    not_after=self.now + timedelta(days=2),
++                )
++            bilateral = BilateralAuthorityService(self.signatures)
++            sender_authority = bilateral.issue_sender_authority(
++                signed_quote=quote, signing_key_id="fixture-payer-v3",
++                authorized_at=self.now + timedelta(seconds=5),
++                expires_at=self.now + timedelta(minutes=2),
++            )
++            receiver_authority = bilateral.issue_receiver_acceptance(
++                signed_quote=quote, sender=sender_authority,
++                signing_key_id="fixture-receiver-v3",
++                accepted_at=self.now + timedelta(seconds=7),
++                expires_at=self.now + timedelta(minutes=2),
++            )
+         contract = QuoteAcceptanceService(
+             signatures=self.signatures,
+             authority=ExecutionAuthorityService(self.signatures),
+             store=self.contracts,
+             utt_signing_key_id="R1CORE:execution:2026-01",
+             authority_signing_key_id="R1CORE:execution:2026-01",
++            require_bilateral_p2p=sender_first,
+         ).accept(
+             QuoteAcceptanceCommand(
+                 signed_quote=quote,
+@@ -176,6 +208,8 @@ class ProviderOperationsTests(unittest.TestCase):
+                 authorization_method="MERCHANT_ACTOR_ATTESTATION",
+                 authorization_reference="AUTH-OPS-001",
+                 idempotency_key="IDEM-OPS-001",
++                sender_authority=sender_authority,
++                receiver_authority=receiver_authority,
+             ),
+             at=self.now + timedelta(seconds=10),
+         ).contract
+@@ -221,6 +255,31 @@ class ProviderOperationsTests(unittest.TestCase):
+         )
+         return attempt.rtt_id
+ 
++    def test_sender_first_institutional_fixture_persists_bilateral_before_rtt(self) -> None:
++        """Guard the exact synthetic fixture used by live dispatch tests."""
++        from functools import partial
++        from railone_authority.bilateral import BilateralAuthorityService
++
++        fixture = ProviderOperationsTests(
++            "test_preparation_is_idempotent_and_uses_stable_provider_key"
++        )
++        fixture._create_current_rtt = partial(
++            fixture._create_current_rtt, institutional=True, sender_first=True,
++        )
++        fixture.setUp()
++        attempt = fixture.executions.require_attempt(fixture.rtt_id)
++        utt = fixture.contracts.require_utt(attempt.utt_id)
++        sender, receiver = fixture.contracts.require_bilateral_authorities(attempt.utt_id)
++        self.assertEqual(utt.payload["authority_version"], 3)
++        self.assertLess(sender.protected["iat"], receiver.protected["iat"])
++        self.assertEqual(
++            receiver.payload["etk_s_digest"], sender.protected["payload_sha256"],
++        )
++        BilateralAuthorityService(fixture.signatures).verify_utt(
++            signed_utt=utt, sender=sender, receiver=receiver,
++            at=fixture.now + timedelta(seconds=22),
++        )
++
+     def test_preparation_is_idempotent_and_uses_stable_provider_key(self) -> None:
+         first, first_request = self.coordinator.prepare(
+             rtt_id=self.rtt_id, at=self.now + timedelta(seconds=22)

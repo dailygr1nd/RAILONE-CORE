@@ -30,6 +30,7 @@ class AcceptedContract:
     utt_id: str
     request_sha256: str
     accepted_at: datetime
+    receiver_authority: SignatureEnvelope | None = None
 
 
 class ContractStore(Protocol):
@@ -53,6 +54,9 @@ class ContractStore(Protocol):
     def require_utt(self, utt_id: str) -> SignatureEnvelope:
         ...
 
+    def require_bilateral_authorities(self, utt_id: str) -> tuple[SignatureEnvelope, SignatureEnvelope]:
+        ...
+
 
 class InMemoryContractStore:
     """Test-only model of required database uniqueness and transaction rules."""
@@ -62,6 +66,7 @@ class InMemoryContractStore:
         self._idempotency: dict[str, AcceptedContract] = {}
         self._quote_to_utt: dict[str, str] = {}
         self._utts: dict[str, SignatureEnvelope] = {}
+        self._contracts: dict[str, AcceptedContract] = {}
 
     def resolve_idempotency(
         self, idempotency_key: str, request_sha256: str
@@ -100,6 +105,7 @@ class InMemoryContractStore:
                 raise RuntimeError("UTT identifier collision")
 
             self._utts[contract.utt_id] = contract.signed_utt
+            self._contracts[contract.utt_id] = contract
             self._quote_to_utt[contract.quote_id] = contract.utt_id
             self._idempotency[idempotency_key] = contract
             return contract, False
@@ -110,3 +116,10 @@ class InMemoryContractStore:
             if utt is None:
                 raise UttNotFoundError(f"persisted UTT not found: {utt_id}")
             return utt
+
+    def require_bilateral_authorities(self, utt_id: str) -> tuple[SignatureEnvelope, SignatureEnvelope]:
+        with self._lock:
+            contract = self._contracts.get(utt_id)
+            if contract is None or contract.receiver_authority is None:
+                raise PermissionError("PERSISTED_BILATERAL_AUTHORITIES_MISSING")
+            return contract.sender_authority, contract.receiver_authority

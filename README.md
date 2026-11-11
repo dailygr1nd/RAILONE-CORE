@@ -1,75 +1,50 @@
-# RailOne v0.16 Alpha — Phase 4: Institutional Sandbox Admission
+# RailOne v0.16 — Authenticated Sender-First Bilateral P2P API Patch
 
-## Baseline
+## Patch base
 
-Apply **after** Phase 3 (ADR-018 / migration 0013). This is a source-only control extension:
-**no migration 0014 yet**. The patch was built and clean-applied against the
-v0.15.1 + Phase 1 + Phase 2 + Phase 3 baseline in the supplied snapshot.
+Apply **only after** the corrected sender-first v3 patch and PostgreSQL hotfix from the previous steps. This patch is based on that exact corrected/hotfixed file tree. **Do not apply the superseded receiver-first patch.**
 
-## Scope
+New endpoint shape:
 
-- Adds `railone_institutions/admission.py` with a trusted gateway protocol.
-- Revalidates exact signed and active adapter manifests at admission.
-- Adds `INSTITUTIONAL_SANDBOX` coordinator mode requiring the admission gate.
-- Rejects caller-selected adapters and public provider-ready `prepare()` in this mode.
-- Verifies the persisted signed wrapper against a trusted core snapshot and
-  the prepared provider request, including idempotency, amount, provider and adapter.
-- Requires a separate, authoritative economic-effect fence decision before dispatch.
-- Preserves `SIMULATED_PILOT` mode for existing tests and synthetic demonstrations.
-- Rejects production/live dispatch modes. **NOT live-funds ready.**
+- `POST /v1/bilateral/p2p/etk-s/verify` (sender bearer token)
+- `POST /v1/bilateral/p2p/etk-r/verify` (receiver bearer token)
+- `POST /v1/bilateral/p2p/utts` (sender bearer token + `Idempotency-Key`)
 
-## What is NOT implemented
+Both ETK preflight endpoints verify independently signed artifacts; they do **not** persist a pending acceptance. The third endpoint persistently creates a UTT and its ETK-S/ETK-R records through the existing quote acceptance store. **RailOne never signs ETKs for the payer/beneficiary at these HTTP endpoints.**
 
-No production-grade snapshot reader, SQL-backed economic fence authorization,
-license enforcement, or distributed dispatch reservation. Mock/fixture readers
-in tests are not permission to connect real funds. Existing PostgreSQL tests
-remain environment-gated.
+## Apply in PowerShell
 
-## Windows PowerShell application
-
-From your repository root after completing and committing Phase 3:
+From the clean branch containing the sender-first v3 patch and prior test hotfix:
 
 ```powershell
-git status --short
-git switch feat/v0.16-signed-dispatch-wrapper
-git pull --ff-only origin feat/v0.16-signed-dispatch-wrapper
-git switch -c feat/v0.16-institutional-admission
-```
-
-Place `RailOne_v0.16.0_phase4_trusted_admission.patch` in the root.
-
-```powershell
-git apply --check .\RailOne_v0.16.0_phase4_trusted_admission.patch
-git apply .\RailOne_v0.16.0_phase4_trusted_admission.patch
-$env:PYTHONDONTWRITEBYTECODE = '1'
-python -m unittest tests.test_institution_admission_gateway -v
+git switch -c feat/authenticated-bilateral-p2p-api
+git apply --check .\RailOne_v0.16_authenticated_bilateral_api.patch
+git apply .\RailOne_v0.16_authenticated_bilateral_api.patch
+python -m pip install -e ".[pilot]"
+python -m unittest -v tests.test_authenticated_bilateral_api
 python run_tests.py
-python scripts/check_repository_convergence.py
-python scripts/check_no_secrets.py
-git diff --check
 ```
 
-Expected on the supplied baseline: **222 tests total, 219 passed, 3 skipped**.
-The skipped tests need disposable PostgreSQL configuration. Do not assume the
-same results for a divergent working branch until tests run there.
+## Live PostgreSQL gate — disposable DB only
 
 ```powershell
-git add railone_operations/service.py railone_institutions/registry.py railone_institutions/__init__.py
-git add railone_institutions/admission.py docs/ADR-019-trusted-institutional-dispatch-admission.md
-git add tests/test_institution_admission_gateway.py
-git diff --cached --check
-git commit -m "feat(institutions): enforce sandbox admission before dispatch"
-git push -u origin feat/v0.16-institutional-admission
+$env:RAILONE_TEST_DATABASE_URL = "postgresql://railone_test:railone_test@localhost:55432/railone_test"
+$env:RAILONE_ALLOW_TEST_SCHEMA_RESET = "1"
+$env:RAILONE_REQUIRE_LIVE_POSTGRES = "1"
+python run_tests.py
 ```
 
-If the branch already exists, `git switch feat/v0.16-institutional-admission`
-instead of `git switch -c`. If the patch check fails, **do not force it**;
-inspect `git status` and compare with the forthcoming latest repository snapshot.
+These settings permit destructive schema resets and must **never** be used with a shared or production database. A successful local test run without these variables skips the live PostgreSQL integration suite.
 
-## Key review items
+## Verification and operational scope
 
-- Security review of `AuthoritativeSnapshotReader` and `EconomicEffectFenceReader`
-  implementations when wired to trusted SQL stores.
-- Atomic dispatch authorization / concurrent workers and crash recovery.
-- Partner cert and contract authority gates; license checks in Phase 5.
-- No institutional real-money endpoints until all gates pass.
+- Strict sender-first ETK-S → ETK-R → UTT v3 remains enforced.
+- API authorization uses trusted token `continuity_uid` scopes, human-principal type, and independently signed ETKs.
+- Signed audit logging handles repeated request IDs without collisions; idempotency conflicts return HTTP 409 and are recorded as denied.
+- Existing noncustodial economic-effect fencing, institutional admission, and dispatch wrappers are left untouched.
+- New API routes appear only when explicitly wired. See `docs/ADR-024-authenticated-sender-first-bilateral-api.md` for an example of composing the API with PostgreSQL-backed services.
+- Future work: pending ETK relay/inbox, independent institution/identity provisioning, external signer integration, audited key rotation, production auth/FAPI profile, live HTTP/PostgreSQL/RTT/dispatch validation.
+
+**Locally validated:** Python suite; **not locally validated:** disposable PostgreSQL because no live DB server/psycopg was available in the packaging environment.
+
+Suggested commit message: `feat(api): enforce sender-first bilateral P2P acceptance via authenticated endpoints`

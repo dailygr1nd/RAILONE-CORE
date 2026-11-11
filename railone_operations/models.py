@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
+import hashlib
+from railone_crypto.canonical_json import canonical_json_bytes
 from datetime import datetime
 from enum import StrEnum
 
@@ -53,6 +55,16 @@ class ProviderExecutionRequest:
     destination_institution_id: str
     payer_account_reference: str = field(repr=False)
     beneficiary_account_reference: str = field(repr=False)
+
+    def calculated_request_sha256(self) -> str:
+        """Hash the actual request bytes/values, including protected account refs.
+
+        Never accept a digest merely copied from an untrusted caller. The
+        return value is a digest; raw protected references must never be logged.
+        """
+        data = {f.name: getattr(self, f.name) for f in fields(self)
+                if f.name != "request_sha256"}
+        return hashlib.sha256(canonical_json_bytes(data)).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)

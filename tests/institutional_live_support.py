@@ -3,8 +3,6 @@ from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 
-from railone_authority import ExecutionAuthorityService
-from railone_authority.models import ReceiverParticipationMode
 from railone_contracts import AccountRole
 from railone_identity.models import (
     IdentityBundle, IdentityGenesis, IdentityObject, IdentityRevision, IdentityStatus, TrustTier,
@@ -17,7 +15,6 @@ from railone_postgres import (
     PostgresIdentityRepository, PostgresPartnerDirectory, PostgresInstitutionManifestStore,
     PostgresEncryptedSecretStore, PostgresDispatchWrapperStore, EconomicFenceViolation,
 )
-from railone_postgres.codec import json_text
 from railone_postgres.dispatch_snapshot import PostgresDispatchSnapshotReader
 from railone_partners import PartnerInstitution, AccountBinding
 from railone_security import EncryptedAccountEndpointVault
@@ -47,7 +44,9 @@ def exercise_institutional_dispatch(test, database, *, scenario="accepted", repo
         fixture.executions = PostgresExecutionStore(database)
         fixture.operations = PostgresOperationsStore(database)
         fixture.endpoint_resolver = vault
-        return fixtures.ProviderOperationsTests._create_current_rtt(fixture, institutional=True)
+        return fixtures.ProviderOperationsTests._create_current_rtt(
+            fixture, institutional=True, sender_first=True,
+        )
 
     fixture._create_current_rtt = create
     fixture.core_owner_id = "RAILONE"
@@ -103,22 +102,13 @@ def exercise_institutional_dispatch(test, database, *, scenario="accepted", repo
 
     accepted = fixture.contracts.resolve_idempotency("IDEM-OPS-001", utt["acceptance_request_sha256"])
     key = "R1CORE:execution:2026-01"
-    receiver = ExecutionAuthorityService(fixture.signatures).issue_receiver_participation(
-        sender_authority=accepted.sender_authority, receiver_actor_type="PERSON",
-        receiver_reference=utt["beneficiary"]["actor_id"],
-        participation_mode=ReceiverParticipationMode.ACTIVE_ACCEPTANCE,
-        evidence_reference="SYNTHETIC-LIVE-ACCEPTANCE", signing_key_id=key,
-        attested_at=fixture.now+timedelta(seconds=11),
-        expires_at=fixture.now+timedelta(minutes=1),
-    )
-    with database.transaction() as connection, connection.cursor() as cursor:
-        cursor.execute(
-            """INSERT INTO railone.execution_authorities
-               (authority_id, authority_type, utt_id, payload_sha256, signed_envelope, created_at)
-               VALUES (%s,'ETK_R',%s,%s,%s::jsonb,%s)""",
-            (receiver.payload["etk_r_id"], attempt.utt_id,
-             receiver.protected["payload_sha256"], json_text(receiver.to_dict()), at),
-        )
+    # Receiver-first or post-UTT synthetic ETK-R insertion would bypass
+    # the bilateral lock. Verify that both v3 authorities were persisted
+    # atomically before creating the ExecutionPlan or RTT.
+    sender, receiver = fixture.contracts.require_bilateral_authorities(attempt.utt_id)
+    test.assertEqual(utt["authority_version"], 3)
+    test.assertEqual(receiver.payload["etk_s_digest"], sender.protected["payload_sha256"])
+    test.assertEqual(utt["etk_r_digest"], receiver.protected["payload_sha256"])
 
     signer = CapabilityManifestSigner(fixture.signatures, signing_key_id=key)
     profile = replace(DOMESTIC_BANK_PROFILE, adapter_id="provider-fast",
@@ -152,6 +142,7 @@ def exercise_institutional_dispatch(test, database, *, scenario="accepted", repo
     _, request = fixture.coordinator.prepare(rtt_id=fixture.rtt_id, at=at)
     expected = PostgresDispatchSnapshotReader(
         database, signatures=fixture.signatures, core_owner_id="RAILONE",
+        require_sender_first=True,
     ).load(rtt_id=fixture.rtt_id, at=at)
     expected = replace(expected, request_sha256=request.request_sha256)
     body = sections()

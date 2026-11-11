@@ -9,12 +9,13 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from railone_history import SubjectKind, TransactionAccessDeniedError
 from railone_callbacks import MpesaCallbackProcessor
+from railone_contracts.store import IdempotencyConflictError, QuoteAlreadyAcceptedError
 
 from .auth import AccessTokenError
 from .facade import RailOneApiFacade
@@ -60,6 +61,15 @@ def create_app(
             status_code=429,
             headers={"Retry-After": str(retry_after)},
             content={"error": {"code": "API_RATE_LIMIT_EXCEEDED", "message": "request limit reached"}},
+        )
+
+    @app.exception_handler(IdempotencyConflictError)
+    @app.exception_handler(QuoteAlreadyAcceptedError)
+    async def bilateral_conflict(_, __):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=409,
+            content={"error": {"code": "BILATERAL_ACCEPTANCE_CONFLICT", "message": "request conflicts with existing acceptance"}},
         )
 
     @app.exception_handler(TransactionAccessDeniedError)
@@ -118,6 +128,48 @@ def create_app(
                 raw_body=await request.body(),
                 ingress_signature=ingress_signature,
             )
+            return jsonable_encoder(result)
+
+    if facade.bilateral_p2p_enabled:
+        @app.post("/v1/bilateral/p2p/etk-s/verify")
+        def verify_sender_intent(
+            response: Response,
+            body: dict = Body(...),
+            credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+            request_id: str | None = Header(default=None, alias="X-Request-ID"),
+        ):
+            result, decision = facade.verify_sender_intent(
+                bearer_token=_token(credentials), request_id=_request_id(request_id), body=body,
+            )
+            _rate_headers(response, decision)
+            return jsonable_encoder(result)
+
+        @app.post("/v1/bilateral/p2p/etk-r/verify")
+        def verify_receiver_acceptance(
+            response: Response,
+            body: dict = Body(...),
+            credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+            request_id: str | None = Header(default=None, alias="X-Request-ID"),
+        ):
+            result, decision = facade.verify_receiver_acceptance(
+                bearer_token=_token(credentials), request_id=_request_id(request_id), body=body,
+            )
+            _rate_headers(response, decision)
+            return jsonable_encoder(result)
+
+        @app.post("/v1/bilateral/p2p/utts")
+        def create_bilateral_utt(
+            response: Response,
+            body: dict = Body(...),
+            credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+            request_id: str | None = Header(default=None, alias="X-Request-ID"),
+            idempotency_key: str = Header(default="", alias="Idempotency-Key"),
+        ):
+            result, decision = facade.create_bilateral_utt(
+                bearer_token=_token(credentials), request_id=_request_id(request_id),
+                body=body, idempotency_key=idempotency_key,
+            )
+            _rate_headers(response, decision)
             return jsonable_encoder(result)
 
     @app.get("/v1/auth/me")

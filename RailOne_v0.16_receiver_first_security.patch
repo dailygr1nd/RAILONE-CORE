@@ -1,0 +1,1746 @@
+diff --git a/docs/ADR-022-receiver-first-bilateral-and-compromise-harness.md b/docs/ADR-022-receiver-first-bilateral-and-compromise-harness.md
+new file mode 100644
+index 0000000..ad9cd13
+--- /dev/null
++++ b/docs/ADR-022-receiver-first-bilateral-and-compromise-harness.md
+@@ -0,0 +1,106 @@
++# ADR-022 — Receiver-First Bilateral Authority and Compromised-Institution Sandbox
++
++**Status:** Proposed sandbox hardening; Python conformance validated, live PostgreSQL validation pending.
++
++**Supersedes for P2P sandbox traffic:** legacy ETK-S-first timing documented in ADR-003. **Does not supersede:** economic-effect fencing, immutable RTT birth evidence, provider-outcome reconciliation, or partner adapters.
++
++## 1. Required P2P lifecycle
++
++1. RailOne issues a signed, expiring, route-independent quote containing amount, sender/receiver endpoint snapshots, currency, fees, routing budget, limits, and policy.
++2. The independently authenticated **receiver** signs **ETK-R v2** over the **whole quote payload commitment**, including both opaque account-binding snapshots, and an explicit ACTIVE_ACCEPTANCE assertion.
++3. The independently authenticated **sender** verifies ETK-R, signs **ETK-S v2** over the same quote commitment, and includes ETK-R's identifier and payload digest.
++4. The accepting service verifies the quote, both separately signed authorities, signer ownership (`iss` equals actor ID), ordering, expiry, purpose and quote/endpoints. It **does not create a sender signature** from a caller-supplied key name.
++5. RailOne mints and atomically persists the immutable signed **UTT v2** and both ETK envelopes, with ETK digests included in UTT's signed payload. Quote uniqueness/idempotency apply as before.
++6. `ExecutionPlanningService.build_plan` and `RttAttemptService.start_next` independently re-verify ETK-S, ETK-R and the UTT commitment against the stored authorities and current key revocation state before creating an ExecutionPlan or RTT.
++7. The institutional sandbox dispatch snapshot reader verifies ETK-S/ETK-R again from independently persisted authority records, together with route, identity, binding, adapter manifest and economic fence. The **strict deployed sandbox dispatcher defaults to receiver-first v2 only**.
++8. The institutional dispatch gateway independently hashes the complete provider request, including protected endpoint references, compares the result with the signed wrapper, then atomically reserves the economic-effect fence **before** invoking an institution adapter.
++9. Provider `UNKNOWN` or timeout **does not release the hold or authorize blind redispatch**. Only valid no-effect/reconciliation evidence may release the fence.
++
++### Why ETK-R and ETK-S do not contain a UTT ID
++
++Both parties authorize the signed quote **before** the UTT exists. Requiring the new UTT ID in either pre-UTT signature would introduce a circular dependency. Instead, each ETK binds the quote digest; ETK-S also binds ETK-R, and the immutable UTT binds both ETK identifiers and digests. UTT/RTT lineage is subsequently protected by the signed UTT payload digest.
++
++### Versioning
++
++- `authority_version: 2` on ETK-R, ETK-S, and UTT identifies the receiver-first chain.
++- Historical v1 acceptance remains available to existing fixtures until migration is complete, but it **must not be treated as receiver-first authorization**. Strict acceptance refuses to return a previously accepted v1 P2P UTT even when the idempotency key matches.
++- `DeployedSandboxRuntime.institutional_dispatcher(..., require_receiver_first=True)` rejects historical v1 P2P dispatch; the only compatibility escape hatch is an explicit `False`, reserved for synthetic regression fixtures.
++- `DeployedSandboxRuntime.receiver_first_p2p_acceptance(...)` composes strict P2P acceptance with a durable redacted audit sink. Existing API HTTP endpoints do not automatically expose the new acceptance sequence; the client/SDK wiring still needs implementation.
++
++## 2. Security audit
++
++Migration `0016_institution_security_audit.sql` adds append-only `railone.institution_security_audit`. Its fields are intentionally limited to:
++
++- `event_id`, `occurred_at`
++- `event_type` (`BILATERAL_AUTH_REJECTED`, `INSTITUTION_DISPATCH_REJECTED`)
++- `operation` (`ACCEPT`, `PLAN`, `RTT_CREATE`, `PREFLIGHT`, `ADMIT`)
++- safe, bounded `correlation_ref`, allowlisted `reason_code`, and `DENIED` outcome.
++
++No raw user identity, bank account, contact information, signing secrets, full ETK payloads, or raw exception messages are logged. Postgres append-only triggers prevent application-level mutation; **external immutable log replication and compromised-database-admin protection are not supplied by this patch**.
++
++Example query after migration:
++
++```sql
++SELECT occurred_at, event_type, operation, correlation_ref, reason_code, outcome
++FROM railone.institution_security_audit
++ORDER BY occurred_at DESC
++LIMIT 50;
++```
++
++A rejection is an audit event, **not by itself proof that an institution is compromised**. Institution-wide suspensions, capability quarantine, incident triage, regulatory notification and trust-anchor rotation need a separate governed operating policy.
++
++## 3. Compromised-institution conformance scenarios
++
++Run `python -m unittest -v tests.test_compromised_institution_harness` or `python scripts/run_compromised_institution_harness.py`.
++
++Tests assert that unauthorized economic effects cannot be initiated **through the exercised boundaries**:
++
++1. Receiver-first happy path: ETK-R → ETK-S → UTT → ExecutionPlan → RTT.
++2. Missing ETK-R (no UTT).
++3. Rogue ETK-R signer (no UTT).
++4. Modified ETK-R (redacted audit, no UTT).
++5. ETK-R replay under a different quote (no UTT).
++6. Expired receiver consent (no UTT).
++7. Revoked receiver key blocks planning.
++8. Tampered persisted ETK-S blocks the first RTT after planning.
++9. Unauthorized route endpoint is ineligible.
++10. Expired authority blocks RTT creation.
++11. Admission preflight denial produces redacted audit.
++12. Substituted private beneficiary endpoint fails the recomputed provider-request digest before fence reservation.
++13. Unknown provider outcome does not clear an economic hold.
++14. Non-idempotent crash recovery blocks duplicate adapter submission.
++15. Receiver consent alone cannot mint a UTT without sender signature.
++16. A validly signed ETK-S from a different owner cannot impersonate the sender.
++
++`tests/test_bilateral_postgres_live.py` also validates the atomic persistence of ETK-R and ETK-S, planning and RTT creation, and a durable rejected-acceptance audit entry against a disposable PostgreSQL instance. This test is skipped without an explicitly configured disposable database; a passing Python suite alone is not proof of database integration.
++
++## 4. Disposable PostgreSQL execution (PowerShell / Windows + Docker)
++
++**Destructive only to the disposable test database. Do not point these commands at production or shared environments.**
++
++```powershell
++docker run -d --name railone-pg-disposable `
++  -e POSTGRES_DB=railone_test `
++  -e POSTGRES_USER=railone_test `
++  -e POSTGRES_PASSWORD=railone_test `
++  -p 55432:5432 postgres:17-alpine
++
++$env:RAILONE_TEST_DATABASE_URL = "postgresql://railone_test:railone_test@localhost:55432/railone_test"
++$env:RAILONE_ALLOW_TEST_SCHEMA_RESET = "1"
++$env:RAILONE_REQUIRE_LIVE_POSTGRES = "1"
++python -m pip install -e ".[pilot]"
++python run_tests.py
++python scripts/run_compromised_institution_harness.py
++```
++
++If the named disposable container already exists, start it instead of creating another. CI already provides a temporary PostgreSQL service; CI must run the new live test before promoting this patch.
++
++## 5. Scope and limitations
++
++- This patch is an **institutional sandbox/conformance** step, not authority to send real money.
++- ETK signing helpers use an injected signer; production sender and receiver signatures must come from independently authenticated, authorized principals or tightly scoped delegated institutional signers. User authentication, delegation, KMS/HSM and key rotation still require integration review.
++- Existing partner-bank capability permissions, bilateral agreements and regulated settlement responsibilities remain distinct from ETK cryptographic consent.
++- Legacy v1 transaction compatibility is preserved; migration of clients and fixtures to v2 is still outstanding.
++- The new audit table is **not** a security information/event management platform or an external tamper-proof evidence vault.
++- Route/quarantine automation, production-level load/fault injection, independent bank attestations and authorized settlement finality require separate certification.
++- No live PostgreSQL test has been executed in the packaging environment if no disposable PostgreSQL instance was available. Run the gated live test before merging.
+diff --git a/migrations/0016_institution_security_audit.sql b/migrations/0016_institution_security_audit.sql
+new file mode 100644
+index 0000000..0a44c7f
+--- /dev/null
++++ b/migrations/0016_institution_security_audit.sql
+@@ -0,0 +1,23 @@
++BEGIN;
++
++-- Redacted, append-only admission decisions. Sensitive account data, private
++-- keys and complete ETK payloads never belong in this table.
++CREATE TABLE railone.institution_security_audit (
++    event_id uuid PRIMARY KEY,
++    occurred_at timestamptz NOT NULL,
++    event_type text NOT NULL CHECK (event_type IN
++        ('BILATERAL_AUTH_REJECTED', 'INSTITUTION_DISPATCH_REJECTED')),
++    operation text NOT NULL CHECK (operation IN ('ACCEPT', 'PLAN', 'RTT_CREATE', 'PREFLIGHT', 'ADMIT')),
++    correlation_ref text NOT NULL CHECK (length(correlation_ref) BETWEEN 1 AND 128),
++    reason_code text NOT NULL CHECK (length(reason_code) BETWEEN 1 AND 72),
++    outcome text NOT NULL DEFAULT 'DENIED' CHECK (outcome = 'DENIED')
++);
++
++CREATE INDEX institution_security_audit_recent_idx
++    ON railone.institution_security_audit (occurred_at DESC, event_type);
++
++CREATE TRIGGER institution_security_audit_append_only
++BEFORE UPDATE OR DELETE ON railone.institution_security_audit
++FOR EACH ROW EXECUTE FUNCTION railone.reject_append_only_mutation();
++
++COMMIT;
+diff --git a/railone_authority/__init__.py b/railone_authority/__init__.py
+index 3418b4d..6ede58f 100644
+--- a/railone_authority/__init__.py
++++ b/railone_authority/__init__.py
+@@ -4,3 +4,5 @@ from .models import ReceiverParticipationMode
+ from .service import ExecutionAuthorityService
+ 
+ __all__ = ["ExecutionAuthorityService", "ReceiverParticipationMode"]
++
++from .bilateral import BilateralAuthorityService
+diff --git a/railone_authority/bilateral.py b/railone_authority/bilateral.py
+new file mode 100644
+index 0000000..1c2c660
+--- /dev/null
++++ b/railone_authority/bilateral.py
+@@ -0,0 +1,229 @@
++"""Receiver-first bilateral authority for P2P sandbox execution, version 2.
++
++The receiver signs the immutable quote commitment BEFORE the sender signs.
++The UTT is created only after both verified artifacts are available. No UTT
++identifier is included in either pre-UTT authority (avoids circular signing).
++"""
++
++from __future__ import annotations
++
++import hashlib
++from datetime import datetime
++from typing import Mapping, Any
++
++from railone_crypto.canonical_json import canonical_json_bytes
++from railone_crypto.signature_service import ArtifactType, SignatureEnvelope, SignatureService
++
++
++def _sha(value: Mapping[str, Any]) -> str:
++    return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
++
++
++def _id(prefix: str, value: Mapping[str, Any]) -> str:
++    return prefix + "-" + _sha(value)[:32].upper()
++
++
++def _instant(at: datetime) -> int:
++    if at.tzinfo is None:
++        raise ValueError("authority time must be timezone-aware")
++    return int(at.timestamp())
++
++
++def _verified(signatures: SignatureService, envelope: SignatureEnvelope, kind: ArtifactType, owner: str) -> Mapping[str, Any]:
++    check = signatures.verify_artifact(envelope, expected_artifact_type=kind)
++    if not check.valid:
++        raise PermissionError("BILATERAL_SIGNATURE_INVALID:" + check.reason)
++    if envelope.protected.get("iss") != owner:
++        raise PermissionError("BILATERAL_SIGNER_OWNER_MISMATCH")
++    return envelope.payload
++
++
++def quote_commitment(quote: Mapping[str, Any]) -> dict[str, Any]:
++    """Bind all quote terms, not merely the amount or visible account aliases."""
++    return {
++        "quote_id": quote["quote_id"],
++        "quote_payload_sha256": quote.get("quote_payload_sha256") or _sha(quote),
++        "payer_actor_id": quote["payer"]["actor_id"],
++        "payer_actor_type": quote["payer"]["actor_type"],
++        "beneficiary_actor_id": quote["beneficiary"]["actor_id"],
++        "beneficiary_actor_type": quote["beneficiary"]["actor_type"],
++        "payer_binding_sha256": _sha(quote["payer"]["endpoint"]),
++        "beneficiary_binding_sha256": _sha(quote["beneficiary"]["endpoint"]),
++        "amount_minor": quote["amount_minor"],
++        "currency_from": quote["currency_from"],
++        "receive_amount_minor": quote["receive_amount_minor"],
++        "currency_to": quote["currency_to"],
++    }
++
++
++class BilateralAuthorityService:
++    """Sandbox signing helper and trusted verifier.
++
++    Production receivers/senders sign outside RailOne. The issuance methods
++    assume an authenticated caller; signature ownership is enforced at verify.
++    """
++
++    MAX_TTL_SECONDS = 900
++
++    def __init__(self, signatures: SignatureService) -> None:
++        self._signatures = signatures
++
++    def issue_receiver_acceptance(
++        self, *, signed_quote: SignatureEnvelope, signing_key_id: str,
++        accepted_at: datetime, expires_at: datetime,
++    ) -> SignatureEnvelope:
++        epoch, expiry = _instant(accepted_at), _instant(expires_at)
++        if not epoch < expiry <= epoch + self.MAX_TTL_SECONDS:
++            raise ValueError("invalid receiver authority window")
++        result = self._signatures.verify_artifact(signed_quote, expected_artifact_type=ArtifactType.QUOTE)
++        if not result.valid:
++            raise PermissionError("QUOTE_INVALID:" + result.reason)
++        quote = signed_quote.payload
++        if not quote["issued_at"] <= epoch < quote["expires_at"]:
++            raise PermissionError("QUOTE_NOT_ACTIVE")
++        if quote["purpose"] != "PERSON_TO_PERSON":
++            raise PermissionError("RECEIVER_FIRST_FLOW_P2P_ONLY")
++        core = {
++            "authority_version": 2,
++            "authorization_scope": "ACCEPT_QUOTE",
++            "receiver_confirmed": True,
++            "participation_mode": "ACTIVE_ACCEPTANCE",
++            **quote_commitment(quote),
++            "accepted_at": epoch,
++            "expires_at": expiry,
++            "status": "ACTIVE",
++            "custody_model": "NON_CUSTODIAL",
++        }
++        signed = self._signatures.sign_artifact(
++            artifact_type=ArtifactType.ETK_R,
++            payload={"etk_r_id": _id("ETKR", core), **core},
++            key_id=signing_key_id, issued_at=accepted_at,
++        )
++        _verified(self._signatures, signed, ArtifactType.ETK_R, quote["beneficiary"]["actor_id"])
++        return signed
++
++    def verify_receiver(
++        self, *, signed_quote: SignatureEnvelope, receiver: SignatureEnvelope,
++        at: datetime,
++    ) -> None:
++        epoch = _instant(at)
++        result = self._signatures.verify_artifact(signed_quote, expected_artifact_type=ArtifactType.QUOTE)
++        if not result.valid:
++            raise PermissionError("QUOTE_INVALID:" + result.reason)
++        quote = signed_quote.payload
++        payload = _verified(self._signatures, receiver, ArtifactType.ETK_R, quote["beneficiary"]["actor_id"])
++        expected = quote_commitment(quote)
++        if payload.get("authority_version") != 2 or payload.get("authorization_scope") != "ACCEPT_QUOTE" or payload.get("participation_mode") != "ACTIVE_ACCEPTANCE" or payload.get("receiver_confirmed") is not True or payload.get("status") != "ACTIVE" or payload.get("custody_model") != "NON_CUSTODIAL":
++            raise PermissionError("RECEIVER_AUTHORITY_SCOPE_INVALID")
++        if any(payload.get(k) != v for k, v in expected.items()):
++            raise PermissionError("RECEIVER_QUOTE_BINDING_MISMATCH")
++        if (payload.get("etk_r_id") != _id("ETKR", {k:v for k,v in payload.items() if k != "etk_r_id"})
++                or not isinstance(payload.get("accepted_at"), int)
++                or not isinstance(payload.get("expires_at"), int)
++                or not payload["accepted_at"] <= epoch < payload["expires_at"]
++                or not payload["accepted_at"] < payload["expires_at"] <= payload["accepted_at"] + self.MAX_TTL_SECONDS
++                or payload["accepted_at"] < quote["issued_at"]
++                or payload["accepted_at"] >= quote["expires_at"]
++                or receiver.protected["iat"] != payload["accepted_at"]):
++            raise PermissionError("RECEIVER_AUTHORITY_NOT_ACTIVE")
++
++    def issue_sender_authority(
++        self, *, signed_quote: SignatureEnvelope, receiver: SignatureEnvelope,
++        signing_key_id: str, authorized_at: datetime, expires_at: datetime,
++    ) -> SignatureEnvelope:
++        self.verify_receiver(signed_quote=signed_quote, receiver=receiver, at=authorized_at)
++        epoch, expiry = _instant(authorized_at), _instant(expires_at)
++        if not epoch < expiry <= epoch + self.MAX_TTL_SECONDS or expiry > receiver.payload["expires_at"]:
++            raise ValueError("invalid sender authority window")
++        if not signed_quote.payload["issued_at"] <= epoch < signed_quote.payload["expires_at"]:
++            raise PermissionError("QUOTE_NOT_ACTIVE")
++        core = {
++            "authority_version": 2,
++            "authorization_scope": "AUTHORIZE_BILATERAL_QUOTE",
++            **quote_commitment(signed_quote.payload),
++            "etk_r_id": receiver.payload["etk_r_id"],
++            "etk_r_digest": receiver.protected["payload_sha256"],
++            "authorized_at": epoch,
++            "expires_at": expiry,
++            "status": "ACTIVE",
++            "custody_model": "NON_CUSTODIAL",
++        }
++        signed = self._signatures.sign_artifact(
++            artifact_type=ArtifactType.ETK_S,
++            payload={"etk_s_id": _id("ETKS", core), **core},
++            key_id=signing_key_id, issued_at=authorized_at,
++        )
++        _verified(self._signatures, signed, ArtifactType.ETK_S, signed_quote.payload["payer"]["actor_id"])
++        return signed
++
++    def verify_sender(
++        self, *, signed_quote: SignatureEnvelope,
++        receiver: SignatureEnvelope, sender: SignatureEnvelope, at: datetime,
++    ) -> None:
++        """Verify an independently signed ETK-S before any UTT is issued."""
++        epoch = _instant(at)
++        self.verify_receiver(signed_quote=signed_quote, receiver=receiver, at=at)
++        quote = signed_quote.payload
++        s = _verified(self._signatures, sender, ArtifactType.ETK_S,
++                      quote["payer"]["actor_id"])
++        expected = quote_commitment(quote)
++        if any(s.get(k) != v for k, v in expected.items()):
++            raise PermissionError("SENDER_QUOTE_BINDING_MISMATCH")
++        if (s.get("authority_version") != 2 or
++                s.get("authorization_scope") != "AUTHORIZE_BILATERAL_QUOTE" or
++                s.get("status") != "ACTIVE" or
++                s.get("custody_model") != "NON_CUSTODIAL" or
++                s.get("etk_r_id") != receiver.payload["etk_r_id"] or
++                s.get("etk_r_digest") != receiver.protected["payload_sha256"] or
++                s.get("etk_s_id") != _id("ETKS", {k:v for k,v in s.items() if k != "etk_s_id"})):
++            raise PermissionError("BILATERAL_CHAIN_BROKEN")
++        issued, expiry = s.get("authorized_at"), s.get("expires_at")
++        if not (type(issued) is int and type(expiry) is int and
++                receiver.payload["accepted_at"] <= issued <= epoch < expiry <= receiver.payload["expires_at"] and
++                issued < expiry <= issued + self.MAX_TTL_SECONDS and
++                signed_quote.payload["issued_at"] <= issued < signed_quote.payload["expires_at"] and
++                sender.protected["iat"] == issued):
++            raise PermissionError("BILATERAL_AUTHORITY_EXPIRED_OR_REORDERED")
++
++    def verify_utt(
++        self, *, signed_utt: SignatureEnvelope, sender: SignatureEnvelope,
++        receiver: SignatureEnvelope, at: datetime,
++    ) -> None:
++        epoch = _instant(at)
++        verification = self._signatures.verify_artifact(signed_utt, expected_artifact_type=ArtifactType.UTT)
++        if not verification.valid:
++            raise PermissionError("UTT_INVALID:" + verification.reason)
++        utt = signed_utt.payload
++        if utt.get("authority_version") != 2 or utt["origin"].get("context_type") != "P2P":
++            raise PermissionError("BILATERAL_UTT_REQUIRED")
++        s = _verified(self._signatures, sender, ArtifactType.ETK_S, utt["payer"]["actor_id"])
++        r = _verified(self._signatures, receiver, ArtifactType.ETK_R, utt["beneficiary"]["actor_id"])
++        expected = quote_commitment(utt)
++        if any(s.get(k) != v or r.get(k) != v for k, v in expected.items()):
++            raise PermissionError("BILATERAL_QUOTE_BINDING_MISMATCH")
++        if (s.get("authority_version") != 2 or r.get("authority_version") != 2
++                or s.get("authorization_scope") != "AUTHORIZE_BILATERAL_QUOTE"
++                or r.get("authorization_scope") != "ACCEPT_QUOTE"
++                or r.get("receiver_confirmed") is not True
++                or s.get("status") != "ACTIVE" or r.get("status") != "ACTIVE"
++                or s.get("custody_model") != "NON_CUSTODIAL" or r.get("custody_model") != "NON_CUSTODIAL"
++                or s.get("etk_r_id") != r.get("etk_r_id")
++                or s.get("etk_r_digest") != receiver.protected["payload_sha256"]
++                or utt.get("etk_s_id") != s.get("etk_s_id")
++                or utt.get("etk_r_id") != r.get("etk_r_id")
++                or utt.get("etk_s_digest") != sender.protected["payload_sha256"]
++                or utt.get("etk_r_digest") != receiver.protected["payload_sha256"]):
++            raise PermissionError("BILATERAL_CHAIN_BROKEN")
++        if not (isinstance(r.get("accepted_at"), int) and isinstance(s.get("authorized_at"), int)
++                and isinstance(s.get("expires_at"), int) and isinstance(r.get("expires_at"), int)
++                and r["accepted_at"] <= s["authorized_at"] <= utt["accepted_at"] <= epoch
++                < s["expires_at"] <= r["expires_at"]
++                and r["accepted_at"] < r["expires_at"] <= r["accepted_at"] + self.MAX_TTL_SECONDS
++                and s["authorized_at"] < s["expires_at"] <= s["authorized_at"] + self.MAX_TTL_SECONDS
++                and receiver.protected["iat"] == r["accepted_at"]
++                and sender.protected["iat"] == s["authorized_at"]):
++            raise PermissionError("BILATERAL_AUTHORITY_EXPIRED_OR_REORDERED")
++        # Validates deterministic IDs; makes a forged but validly signed mismatch explicit.
++        if (r["etk_r_id"] != _id("ETKR", {k:v for k,v in r.items() if k != "etk_r_id"})
++                or s["etk_s_id"] != _id("ETKS", {k:v for k,v in s.items() if k != "etk_s_id"})):
++            raise PermissionError("BILATERAL_AUTHORITY_ID_MISMATCH")
+diff --git a/railone_contracts/acceptance_service.py b/railone_contracts/acceptance_service.py
+index b530b46..0885726 100644
+--- a/railone_contracts/acceptance_service.py
++++ b/railone_contracts/acceptance_service.py
+@@ -4,9 +4,12 @@ from __future__ import annotations
+ 
+ import hashlib
+ from dataclasses import dataclass
++from functools import wraps
+ from datetime import datetime, timedelta, timezone
+ 
+ from railone_authority.service import ExecutionAuthorityService
++from railone_authority.bilateral import BilateralAuthorityService
++from railone_security.incident_audit import SecurityAuditWriter
+ from railone_crypto.canonical_json import canonical_json_bytes
+ from railone_crypto.signature_service import ArtifactType, SignatureEnvelope, SignatureService
+ 
+@@ -22,6 +25,8 @@ class QuoteAcceptanceCommand:
+     authorization_reference: str
+     idempotency_key: str
+     authority_ttl_seconds: int = 10 * 60
++    receiver_authority: SignatureEnvelope | None = None
++    sender_authority: SignatureEnvelope | None = None
+ 
+ 
+ @dataclass(frozen=True, slots=True)
+@@ -30,6 +35,23 @@ class QuoteAcceptanceResult:
+     replayed: bool
+ 
+ 
++def _audit_acceptance_denial(fn):
++    @wraps(fn)
++    def wrapped(self, command, *, at=None):
++        try:
++            return fn(self, command, at=at)
++        except (PermissionError, ValueError) as exc:
++            if (self._security_audit is not None and
++                    command.origin.context_type is ContextType.P2P):
++                self._security_audit.record_rejection(
++                    event_type="BILATERAL_AUTH_REJECTED", operation="ACCEPT",
++                    correlation_ref=str(command.signed_quote.payload.get("quote_id", "INVALID-QUOTE")),
++                    error=exc, at=at or datetime.now(timezone.utc),
++                )
++            raise
++    return wrapped
++
++
+ class QuoteAcceptanceService:
+     def __init__(
+         self,
+@@ -39,13 +61,19 @@ class QuoteAcceptanceService:
+         store: ContractStore,
+         utt_signing_key_id: str,
+         authority_signing_key_id: str,
++        require_bilateral_p2p: bool = False,
++        security_audit: SecurityAuditWriter | None = None,
+     ) -> None:
+         self._signatures = signatures
+         self._authority = authority
+         self._store = store
+         self._utt_signing_key_id = utt_signing_key_id
+         self._authority_signing_key_id = authority_signing_key_id
++        self._bilateral = BilateralAuthorityService(signatures)
++        self._require_bilateral_p2p = require_bilateral_p2p
++        self._security_audit = security_audit
+ 
++    @_audit_acceptance_denial
+     def accept(
+         self,
+         command: QuoteAcceptanceCommand,
+@@ -65,6 +93,15 @@ class QuoteAcceptanceService:
+             ),
+             "authority_ttl_seconds": command.authority_ttl_seconds,
+         }
++        # Preserve the existing v0.16 idempotency fingerprint for legacy callers.
++        # Only v2 requests include the two pre-signed authorization artifacts.
++        if command.receiver_authority is not None or command.sender_authority is not None:
++            request_material["receiver_authority"] = (
++                command.receiver_authority.to_dict() if command.receiver_authority else None
++            )
++            request_material["sender_authority"] = (
++                command.sender_authority.to_dict() if command.sender_authority else None
++            )
+         request_sha256 = hashlib.sha256(
+             canonical_json_bytes(request_material)
+         ).hexdigest()
+@@ -73,6 +110,13 @@ class QuoteAcceptanceService:
+             idempotency_key, request_sha256
+         )
+         if existing is not None:
++            # Strict mode must not return a pre-v2 P2P UTT simply because an
++            # idempotency key matches an older acceptance record.
++            if (self._require_bilateral_p2p and
++                    command.origin.context_type is ContextType.P2P and
++                    (existing.signed_utt.payload.get("authority_version") != 2 or
++                     existing.receiver_authority is None)):
++                raise PermissionError("RECEIVER_FIRST_BILATERAL_V2_REQUIRED")
+             return QuoteAcceptanceResult(existing, replayed=True)
+ 
+         if at is not None and at.tzinfo is None:
+@@ -134,25 +178,55 @@ class QuoteAcceptanceService:
+             "custody_model": "NON_CUSTODIAL",
+             "endpoint_model_version": quote["endpoint_model_version"],
+         }
++        bilateral = command.receiver_authority is not None or command.sender_authority is not None
++        if command.origin.context_type is ContextType.P2P and self._require_bilateral_p2p and not bilateral:
++            raise PermissionError("BILATERAL_RECEIVER_ACCEPTANCE_REQUIRED")
++        if bilateral:
++            if (command.origin.context_type is not ContextType.P2P
++                    or command.receiver_authority is None or command.sender_authority is None):
++                raise PermissionError("BILATERAL_P2P_AUTHORITIES_REQUIRED")
++            self._bilateral.verify_receiver(
++                signed_quote=command.signed_quote, receiver=command.receiver_authority,
++                at=accepted_at,
++            )
++            receiver = command.receiver_authority
++            self._bilateral.verify_sender(
++                signed_quote=command.signed_quote, receiver=receiver,
++                sender=command.sender_authority, at=accepted_at,
++            )
++            # ETK-S is independently signed by the payer; RailOne never
++            # signs a user's authorization just because an API caller named a key.
++            sender_authority = command.sender_authority
++            commercial_core.update({
++                "authority_version": 2,
++                "etk_s_id": sender_authority.payload["etk_s_id"],
++                "etk_r_id": receiver.payload["etk_r_id"],
++                "etk_s_digest": sender_authority.protected["payload_sha256"],
++                "etk_r_digest": receiver.protected["payload_sha256"],
++            })
++        else:
++            receiver = None
++
+         utt_hash = hashlib.sha256(
+             canonical_json_bytes(commercial_core)
+         ).hexdigest().upper()
+         utt_id = f"UTT-{utt_hash[:32]}"
+ 
+-        sender_authority = self._authority.issue_sender_authority(
+-            utt_id=utt_id,
+-            quote_id=quote["quote_id"],
+-            sender_actor_type=quote["payer"]["actor_type"],
+-            sender_reference=quote["payer"]["actor_id"],
+-            amount_minor=quote["amount_minor"],
+-            currency=quote["currency_from"],
+-            origin_context=origin_payload,
+-            authorization_method=command.authorization_method,
+-            authorization_reference=command.authorization_reference,
+-            signing_key_id=self._authority_signing_key_id,
+-            authorized_at=accepted_at,
+-            expires_at=accepted_at + timedelta(seconds=ttl),
+-        )
++        if not bilateral:
++            sender_authority = self._authority.issue_sender_authority(
++                utt_id=utt_id,
++                quote_id=quote["quote_id"],
++                sender_actor_type=quote["payer"]["actor_type"],
++                sender_reference=quote["payer"]["actor_id"],
++                amount_minor=quote["amount_minor"],
++                currency=quote["currency_from"],
++                origin_context=origin_payload,
++                authorization_method=command.authorization_method,
++                authorization_reference=command.authorization_reference,
++                signing_key_id=self._authority_signing_key_id,
++                authorized_at=accepted_at,
++                expires_at=accepted_at + timedelta(seconds=ttl),
++            )
+         utt_payload = {
+             "utt_id": utt_id,
+             **commercial_core,
+@@ -165,9 +239,15 @@ class QuoteAcceptanceService:
+             key_id=self._utt_signing_key_id,
+             issued_at=accepted_at,
+         )
++        if bilateral:
++            self._bilateral.verify_utt(
++                signed_utt=signed_utt, sender=sender_authority,
++                receiver=receiver, at=accepted_at,
++            )
+         contract = AcceptedContract(
+             signed_utt=signed_utt,
+             sender_authority=sender_authority,
++            receiver_authority=receiver,
+             quote_id=quote["quote_id"],
+             utt_id=utt_id,
+             request_sha256=request_sha256,
+diff --git a/railone_contracts/store.py b/railone_contracts/store.py
+index 19dc626..16b2d2b 100644
+--- a/railone_contracts/store.py
++++ b/railone_contracts/store.py
+@@ -30,6 +30,7 @@ class AcceptedContract:
+     utt_id: str
+     request_sha256: str
+     accepted_at: datetime
++    receiver_authority: SignatureEnvelope | None = None
+ 
+ 
+ class ContractStore(Protocol):
+@@ -53,6 +54,9 @@ class ContractStore(Protocol):
+     def require_utt(self, utt_id: str) -> SignatureEnvelope:
+         ...
+ 
++    def require_bilateral_authorities(self, utt_id: str) -> tuple[SignatureEnvelope, SignatureEnvelope]:
++        ...
++
+ 
+ class InMemoryContractStore:
+     """Test-only model of required database uniqueness and transaction rules."""
+@@ -62,6 +66,7 @@ class InMemoryContractStore:
+         self._idempotency: dict[str, AcceptedContract] = {}
+         self._quote_to_utt: dict[str, str] = {}
+         self._utts: dict[str, SignatureEnvelope] = {}
++        self._contracts: dict[str, AcceptedContract] = {}
+ 
+     def resolve_idempotency(
+         self, idempotency_key: str, request_sha256: str
+@@ -100,6 +105,7 @@ class InMemoryContractStore:
+                 raise RuntimeError("UTT identifier collision")
+ 
+             self._utts[contract.utt_id] = contract.signed_utt
++            self._contracts[contract.utt_id] = contract
+             self._quote_to_utt[contract.quote_id] = contract.utt_id
+             self._idempotency[idempotency_key] = contract
+             return contract, False
+@@ -110,3 +116,10 @@ class InMemoryContractStore:
+             if utt is None:
+                 raise UttNotFoundError(f"persisted UTT not found: {utt_id}")
+             return utt
++
++    def require_bilateral_authorities(self, utt_id: str) -> tuple[SignatureEnvelope, SignatureEnvelope]:
++        with self._lock:
++            contract = self._contracts.get(utt_id)
++            if contract is None or contract.receiver_authority is None:
++                raise PermissionError("PERSISTED_BILATERAL_AUTHORITIES_MISSING")
++            return contract.sender_authority, contract.receiver_authority
+diff --git a/railone_execution/service.py b/railone_execution/service.py
+index cf1a008..63b7189 100644
+--- a/railone_execution/service.py
++++ b/railone_execution/service.py
+@@ -13,6 +13,8 @@ from railone_contracts.models import (
+     require_text,
+ )
+ from railone_contracts.store import ContractStore
++from railone_authority.bilateral import BilateralAuthorityService
++from railone_security.incident_audit import SecurityAuditWriter
+ from railone_crypto.canonical_json import canonical_json_bytes
+ from railone_crypto.signature_service import ArtifactType, SignatureService
+ from railone_partners import EndpointValidator
+@@ -45,6 +47,27 @@ def _identifier(prefix: str, payload: object) -> str:
+     return f"{prefix}-{digest[:32]}"
+ 
+ 
++def _verify_bilateral_for_execution(
++    signatures: SignatureService, contracts: ContractStore,
++    signed_utt, utt_id: str, at: datetime,
++    security_audit: SecurityAuditWriter | None, operation: str,
++) -> None:
++    if signed_utt.payload.get("authority_version") != 2:
++        return
++    try:
++        sender, receiver = contracts.require_bilateral_authorities(utt_id)
++        BilateralAuthorityService(signatures).verify_utt(
++            signed_utt=signed_utt, sender=sender, receiver=receiver, at=at,
++        )
++    except (PermissionError, ValueError) as exc:
++        if security_audit is not None:
++            security_audit.record_rejection(
++                event_type="BILATERAL_AUTH_REJECTED", operation=operation,
++                correlation_ref=utt_id, error=exc, at=at,
++            )
++        raise
++
++
+ class ExecutionPlanningService:
+     def __init__(
+         self,
+@@ -53,11 +76,13 @@ class ExecutionPlanningService:
+         contracts: ContractStore,
+         executions: ExecutionStore,
+         scorer: DeterministicRouteScorer | None = None,
++        security_audit: SecurityAuditWriter | None = None,
+     ) -> None:
+         self._signatures = signatures
+         self._contracts = contracts
+         self._executions = executions
+         self._scorer = scorer or DeterministicRouteScorer()
++        self._security_audit = security_audit
+ 
+     def build_plan(
+         self,
+@@ -74,6 +99,10 @@ class ExecutionPlanningService:
+         if not verification.valid:
+             raise PermissionError(f"UTT rejected: {verification.reason}")
+         utt = signed_utt.payload
++        _verify_bilateral_for_execution(
++            self._signatures, self._contracts, signed_utt, utt_id, instant,
++            self._security_audit, "PLAN",
++        )
+         ranked = self._scorer.rank(
+             candidates,
+             amount_minor=utt["amount_minor"],
+@@ -135,6 +164,7 @@ class RttAttemptService:
+         rtt_signing_key_id: str,
+         endpoints: EndpointValidator | None = None,
+         allow_unverified_endpoints_for_tests: bool = False,
++        security_audit: SecurityAuditWriter | None = None,
+     ) -> None:
+         self._signatures = signatures
+         self._contracts = contracts
+@@ -142,6 +172,7 @@ class RttAttemptService:
+         self._rtt_signing_key_id = rtt_signing_key_id
+         self._endpoints = endpoints
+         self._allow_unverified = allow_unverified_endpoints_for_tests
++        self._security_audit = security_audit
+ 
+     def start_next(
+         self, *, utt_id: str, at: datetime | None = None
+@@ -154,6 +185,10 @@ class RttAttemptService:
+         if not verification.valid:
+             raise PermissionError(f"UTT rejected: {verification.reason}")
+         utt = signed_utt.payload
++        _verify_bilateral_for_execution(
++            self._signatures, self._contracts, signed_utt, utt_id, instant,
++            self._security_audit, "RTT_CREATE",
++        )
+         if utt.get("endpoint_model_version") != 1:
+             raise PlanNotExecutableError("UTT uses an unsupported endpoint model")
+         if self._endpoints is None:
+diff --git a/railone_institutions/admission.py b/railone_institutions/admission.py
+index 8f4c6e9..c6e08c6 100644
+--- a/railone_institutions/admission.py
++++ b/railone_institutions/admission.py
+@@ -9,6 +9,8 @@ from __future__ import annotations
+ 
+ import hmac
+ from dataclasses import replace
++from functools import wraps
++from railone_security.incident_audit import SecurityAuditWriter
+ from datetime import datetime, timezone
+ from typing import Protocol
+ 
+@@ -43,6 +45,27 @@ class EconomicEffectFenceReader(Protocol):
+     ) -> None: ...
+ 
+ 
++def _audit_rejection(operation):
++    """Journal boundary denials without weakening rejection semantics."""
++    def decorate(fn):
++        @wraps(fn)
++        def wrapper(self, *args, **kwargs):
++            try:
++                return fn(self, *args, **kwargs)
++            except Exception as exc:
++                if self._security_audit is not None:
++                    request = args[0] if args else kwargs.get("request")
++                    ref = kwargs.get("rtt_id") or getattr(request, "rtt_id", "UNKNOWN")
++                    self._security_audit.record_rejection(
++                        event_type="INSTITUTION_DISPATCH_REJECTED",
++                        operation=operation, correlation_ref=ref,
++                        error=exc, at=kwargs.get("at", datetime.now(timezone.utc)),
++                    )
++                raise
++        return wrapper
++    return decorate
++
++
+ class InstitutionalDispatchAdmissionGateway:
+     """The only adapter selection path for INSTITUTIONAL_SANDBOX mode.
+ 
+@@ -57,16 +80,19 @@ class InstitutionalDispatchAdmissionGateway:
+         snapshot_reader: AuthoritativeSnapshotReader,
+         fence_reader: EconomicEffectFenceReader,
+         allow_pilot_adapters: bool = True,
++        security_audit: SecurityAuditWriter | None = None,
+     ) -> None:
+         self._registry = registry
+         self._wrappers = wrapper_store
+         self._verifier = wrapper_verifier
+         self._snapshots = snapshot_reader
+         self._fences = fence_reader
++        self._security_audit = security_audit
+         self._environments = {AdapterEnvironment.SANDBOX}
+         if allow_pilot_adapters:
+             self._environments.add(AdapterEnvironment.PILOT)
+ 
++    @_audit_rejection("PREFLIGHT")
+     def preflight(self, *, rtt_id: str, at: datetime) -> str:
+         """Verify trusted instruction, adapter and economic fence BEFORE decrypting endpoints.
+ 
+@@ -107,10 +133,13 @@ class InstitutionalDispatchAdmissionGateway:
+         )
+         return binding["request_sha256"]
+ 
++    @_audit_rejection("ADMIT")
+     def admit(self, request: ProviderExecutionRequest, *, at: datetime) -> InstitutionAdapterBridge:
+         if not isinstance(at, datetime) or at.tzinfo is None:
+             raise ValueError("institutional dispatch time must be timezone-aware")
+         instant = at.astimezone(timezone.utc)
++        if not hmac.compare_digest(request.calculated_request_sha256(), request.request_sha256):
++            raise PermissionError("PROVIDER_REQUEST_DIGEST_MISMATCH")
+         expected = self._snapshots.load(rtt_id=request.rtt_id, at=instant)
+         if expected.request_sha256 is None:
+             expected = replace(expected, request_sha256=request.request_sha256)
+diff --git a/railone_operations/models.py b/railone_operations/models.py
+index c2d9fb7..62b1eca 100644
+--- a/railone_operations/models.py
++++ b/railone_operations/models.py
+@@ -2,7 +2,9 @@
+ 
+ from __future__ import annotations
+ 
+-from dataclasses import dataclass, field
++from dataclasses import dataclass, field, fields
++import hashlib
++from railone_crypto.canonical_json import canonical_json_bytes
+ from datetime import datetime
+ from enum import StrEnum
+ 
+@@ -54,6 +56,16 @@ class ProviderExecutionRequest:
+     payer_account_reference: str = field(repr=False)
+     beneficiary_account_reference: str = field(repr=False)
+ 
++    def calculated_request_sha256(self) -> str:
++        """Hash the actual request bytes/values, including protected account refs.
++
++        Never accept a digest merely copied from an untrusted caller. The
++        return value is a digest; raw protected references must never be logged.
++        """
++        data = {f.name: getattr(self, f.name) for f in fields(self)
++                if f.name != "request_sha256"}
++        return hashlib.sha256(canonical_json_bytes(data)).hexdigest()
++
+ 
+ @dataclass(frozen=True, slots=True)
+ class ProviderSubmissionResult:
+diff --git a/railone_postgres/__init__.py b/railone_postgres/__init__.py
+index 8266543..0581583 100644
+--- a/railone_postgres/__init__.py
++++ b/railone_postgres/__init__.py
+@@ -21,12 +21,14 @@ from .sandbox import PostgresSandboxEffectStore
+ from .institutions import PostgresInstitutionManifestStore
+ from .dispatch_wrappers import PostgresDispatchWrapperStore
+ from .fencing import PostgresEconomicEffectFence, EconomicFenceViolation
++from .security_incidents import PostgresSecurityAuditStore
+ from .bank_analytics import BankMetric, PostgresBankMetricsPublisher, PostgresBankMetricsReader
+ from .certification import (
+     PostgresCertificationReportStore, PostgresCertificationRunRecorder,
+ )
+ 
+ __all__ = [
++    "PostgresSecurityAuditStore",
+     "PostgresDatabase",
+     "PostgresContractStore",
+     "PostgresExecutionStore",
+diff --git a/railone_postgres/contracts.py b/railone_postgres/contracts.py
+index 103ccb5..7b266b9 100644
+--- a/railone_postgres/contracts.py
++++ b/railone_postgres/contracts.py
+@@ -20,11 +20,14 @@ from .runtime import PostgresDatabase
+ 
+ _ACCEPTED_SELECT = """
+ SELECT u.quote_id, u.utt_id, u.signed_envelope,
+-       i.request_sha256, u.accepted_at, a.signed_envelope AS sender_authority
++       i.request_sha256, u.accepted_at, a.signed_envelope AS sender_authority,
++       r.signed_envelope AS receiver_authority
+ FROM railone.acceptance_idempotency i
+ JOIN railone.accepted_utts u ON u.utt_id = i.utt_id
+ JOIN railone.execution_authorities a
+   ON a.utt_id = u.utt_id AND a.authority_type = 'ETK_S'
++LEFT JOIN railone.execution_authorities r
++  ON r.utt_id = u.utt_id AND r.authority_type = 'ETK_R'
+ """
+ 
+ 
+@@ -120,6 +123,17 @@ class PostgresContractStore(ContractStore):
+                     json_text(authority.to_dict()), contract.accepted_at,
+                 ),
+             )
++            if contract.receiver_authority is not None:
++                receiver = contract.receiver_authority
++                cursor.execute(
++                    """INSERT INTO railone.execution_authorities
++                       (authority_id, authority_type, utt_id, payload_sha256,
++                        signed_envelope, created_at)
++                       VALUES (%s,'ETK_R',%s,%s,%s::jsonb,%s)""",
++                    (receiver.payload["etk_r_id"], contract.utt_id,
++                     receiver.protected["payload_sha256"],
++                     json_text(receiver.to_dict()), contract.accepted_at),
++                )
+             cursor.execute(
+                 """INSERT INTO railone.acceptance_idempotency
+                    (idempotency_key, request_sha256, utt_id, created_at)
+@@ -147,10 +161,26 @@ class PostgresContractStore(ContractStore):
+             return envelope_from_db(row["signed_envelope"])
+ 
+ 
++    def require_bilateral_authorities(self, utt_id: str) -> tuple[SignatureEnvelope, SignatureEnvelope]:
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                """SELECT authority_type, signed_envelope FROM railone.execution_authorities
++                   WHERE utt_id=%s AND authority_type IN ('ETK_S','ETK_R')
++                   ORDER BY authority_type""", (utt_id,),
++            )
++            rows = cursor.fetchall()
++            if [row["authority_type"] for row in rows] != ["ETK_R", "ETK_S"]:
++                raise PermissionError("PERSISTED_BILATERAL_AUTHORITIES_MISSING")
++            return envelope_from_db(rows[1]["signed_envelope"]), envelope_from_db(rows[0]["signed_envelope"])
++
++
+ def _accepted(row: Mapping[str, Any]) -> AcceptedContract:
+     return AcceptedContract(
+         signed_utt=envelope_from_db(row["signed_envelope"]),
+         sender_authority=envelope_from_db(row["sender_authority"]),
++        receiver_authority=(envelope_from_db(row["receiver_authority"])
++                            if row["receiver_authority"] is not None else None),
+         quote_id=str(row["quote_id"]), utt_id=str(row["utt_id"]),
+         request_sha256=str(row["request_sha256"]), accepted_at=row["accepted_at"],
+     )
++
+diff --git a/railone_postgres/dispatch_snapshot.py b/railone_postgres/dispatch_snapshot.py
+index 3148e4a..e1b4bad 100644
+--- a/railone_postgres/dispatch_snapshot.py
++++ b/railone_postgres/dispatch_snapshot.py
+@@ -7,6 +7,7 @@ from datetime import datetime
+ from typing import Any
+ 
+ from railone_contracts.models import AccountEndpoint, AccountRole, ContextType
++from railone_authority.bilateral import BilateralAuthorityService
+ from railone_crypto.signature_service import ArtifactType, SignatureEnvelope, SignatureService
+ from railone_execution.models import AttemptState, PlanStatus, require_aware
+ from railone_identity.models import IdentityStatus
+@@ -27,11 +28,12 @@ class PostgresDispatchSnapshotReader:
+ 
+     def __init__(
+         self, database: PostgresDatabase, *, signatures: SignatureService,
+-        core_owner_id: str,
++        core_owner_id: str, require_receiver_first: bool = False,
+     ) -> None:
+         self._database = database
+         self._signatures = signatures
+         self._core_owner_id = core_owner_id
++        self._require_receiver_first = require_receiver_first
+         self._contracts = PostgresContractStore(database)
+         self._executions = PostgresExecutionStore(database)
+         self._identities = PostgresIdentityRepository(database)
+@@ -106,26 +108,37 @@ class PostgresDispatchSnapshotReader:
+             raise PermissionError("signed RTT route does not match the accepted endpoints")
+ 
+         sender, receiver, fence = self._read_authority_and_fence(attempt.utt_id, utt["etk_s_id"])
+-        etk_s = self._verified(sender, ArtifactType.ETK_S, instant)
+-        etk_r = self._verified(receiver, ArtifactType.ETK_R, instant)
+-        epoch = int(instant.timestamp())
+-        if (etk_s["utt_id"], etk_s["etk_s_id"], etk_s["quote_id"],
+-                etk_s["sender_actor_type"], etk_s["sender_reference"],
+-                etk_s["amount_minor"], etk_s["currency"], etk_s["origin_context"],
+-                etk_s["authority_scope"], etk_s["status"]) != (
+-                attempt.utt_id, utt["etk_s_id"], utt["quote_id"], payer["actor_type"],
+-                sender_uid, utt["amount_minor"], utt["currency_from"], origin,
+-                "EXECUTE_UTT", "ACTIVE"):
+-            raise PermissionError("sender authority does not match the accepted UTT")
+-        if (etk_r["utt_id"], etk_r["etk_s_id"], etk_r["receiver_actor_type"],
+-                etk_r["receiver_reference"], etk_r["amount_minor"], etk_r["currency"],
+-                etk_r["status"]) != (
+-                attempt.utt_id, utt["etk_s_id"], recipient["actor_type"], recipient_uid,
+-                utt["amount_minor"], utt["currency_from"], "ACTIVE"):
+-            raise PermissionError("receiver authority does not match the accepted UTT")
+-        if not (etk_s["authorized_at"] <= etk_r["attested_at"] <= epoch
+-                < etk_r["expires_at"] <= etk_s["expires_at"]):
+-            raise PermissionError("bilateral authority is outside its dispatch window")
++        if utt.get("authority_version") == 2:
++            BilateralAuthorityService(self._signatures).verify_utt(
++                signed_utt=utt_envelope, sender=sender, receiver=receiver, at=instant,
++            )
++            if (utt.get("etk_r_id") != receiver.payload.get("etk_r_id")
++                    or utt.get("etk_s_id") != sender.payload.get("etk_s_id")):
++                raise PermissionError("persisted bilateral authorities do not match UTT")
++        else:
++            if self._require_receiver_first:
++                raise PermissionError("RECEIVER_FIRST_BILATERAL_V2_REQUIRED")
++            # Legacy ETK-S-first verification, retained only for existing fixtures.
++            etk_s = self._verified(sender, ArtifactType.ETK_S, instant)
++            etk_r = self._verified(receiver, ArtifactType.ETK_R, instant)
++            epoch = int(instant.timestamp())
++            if (etk_s["utt_id"], etk_s["etk_s_id"], etk_s["quote_id"],
++                    etk_s["sender_actor_type"], etk_s["sender_reference"],
++                    etk_s["amount_minor"], etk_s["currency"], etk_s["origin_context"],
++                    etk_s["authority_scope"], etk_s["status"]) != (
++                    attempt.utt_id, utt["etk_s_id"], utt["quote_id"], payer["actor_type"],
++                    sender_uid, utt["amount_minor"], utt["currency_from"], origin,
++                    "EXECUTE_UTT", "ACTIVE"):
++                raise PermissionError("sender authority does not match the accepted UTT")
++            if (etk_r["utt_id"], etk_r["etk_s_id"], etk_r["receiver_actor_type"],
++                    etk_r["receiver_reference"], etk_r["amount_minor"], etk_r["currency"],
++                    etk_r["status"]) != (
++                    attempt.utt_id, utt["etk_s_id"], recipient["actor_type"], recipient_uid,
++                    utt["amount_minor"], utt["currency_from"], "ACTIVE"):
++                raise PermissionError("receiver authority does not match the accepted UTT")
++            if not (etk_s["authorized_at"] <= etk_r["attested_at"] <= epoch
++                    < etk_r["expires_at"] <= etk_s["expires_at"]):
++                raise PermissionError("bilateral authority is outside its dispatch window")
+ 
+         manifest = self._manifests.require(route["adapter"])
+         provider_id = route["provider"].upper()
+diff --git a/railone_postgres/security_incidents.py b/railone_postgres/security_incidents.py
+new file mode 100644
+index 0000000..80dcb1d
+--- /dev/null
++++ b/railone_postgres/security_incidents.py
+@@ -0,0 +1,37 @@
++"""PostgreSQL append-only, redacted institutional admission audit sink."""
++
++from __future__ import annotations
++
++from datetime import datetime, timezone
++from uuid import uuid4
++
++from railone_security.incident_audit import rejection_code
++from .runtime import PostgresDatabase
++
++
++class PostgresSecurityAuditStore:
++    def __init__(self, database: PostgresDatabase) -> None:
++        self._database = database
++
++    def record_rejection(
++        self, *, event_type: str, operation: str, correlation_ref: str,
++        error: Exception, at: datetime,
++    ) -> None:
++        if event_type not in {"INSTITUTION_DISPATCH_REJECTED", "BILATERAL_AUTH_REJECTED"}:
++            raise ValueError("invalid security event type")
++        if operation not in {"ACCEPT", "PLAN", "RTT_CREATE", "PREFLIGHT", "ADMIT"}:
++            raise ValueError("invalid security operation")
++        # Correlation references are safe bounded IDs. Never persist arbitrary
++        # exception messages or attacker-supplied payload content.
++        safe_ref = correlation_ref if (isinstance(correlation_ref, str)
++                  and 1 <= len(correlation_ref) <= 128
++                  and all(c.isascii() and (c.isalnum() or c in '-_:') for c in correlation_ref)) else "INVALID-REFERENCE"
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute(
++                """INSERT INTO railone.institution_security_audit
++                   (event_id, occurred_at, event_type, operation,
++                    correlation_ref, reason_code)
++                   VALUES (%s,%s,%s,%s,%s,%s)""",
++                (uuid4(), at.astimezone(timezone.utc), event_type, operation,
++                 safe_ref, rejection_code(error)),
++            )
+diff --git a/railone_sandbox/deployment.py b/railone_sandbox/deployment.py
+index 86a5e16..885cd5a 100644
+--- a/railone_sandbox/deployment.py
++++ b/railone_sandbox/deployment.py
+@@ -29,6 +29,7 @@ from railone_postgres import (
+     PostgresTransactionHistoryStore, psycopg_connection_factory,
+ )
+ from railone_postgres.dispatch_snapshot import PostgresDispatchSnapshotReader
++from railone_postgres.security_incidents import PostgresSecurityAuditStore
+ from railone_postgres.runtime import ConnectionFactory
+ from railone_security import (
+     EncryptedAccountEndpointVault, EncryptedContactBindingVault,
+@@ -125,10 +126,30 @@ class DeployedSandboxRuntime:
+     def apply_migrations(self) -> None:
+         self.migrations.apply_all()
+ 
++    def receiver_first_p2p_acceptance(
++        self, *, signatures: SignatureService,
++        utt_signing_key_id: str, authority_signing_key_id: str,
++    ):
++        """Strict sandbox acceptance boundary: ETK-R precedes ETK-S and UTT.
++
++        The caller must supply independently authenticated P2P signing keys.
++        This method does not expose or generate those private keys.
++        """
++        from railone_authority.service import ExecutionAuthorityService
++        from railone_contracts.acceptance_service import QuoteAcceptanceService
++        return QuoteAcceptanceService(
++            signatures=signatures, authority=ExecutionAuthorityService(signatures),
++            store=self.contracts, utt_signing_key_id=utt_signing_key_id,
++            authority_signing_key_id=authority_signing_key_id,
++            require_bilateral_p2p=True,
++            security_audit=PostgresSecurityAuditStore(self.database),
++        )
++
+     def institutional_dispatcher(
+         self, *, signatures: SignatureService, registry: InstitutionAdapterRegistry,
+         event_signing_key_id: str, wrapper_signing_key_id: str,
+         trusted_no_effect_signing_keys: frozenset[str], core_owner_id: str = "RAILONE",
++        require_receiver_first: bool = True,
+     ) -> ProviderSubmissionCoordinator:
+         """Compose an internal sandbox dispatcher for provisioned signed instructions."""
+         verifier = DispatchWrapperService(
+@@ -141,8 +162,11 @@ class DeployedSandboxRuntime:
+             wrapper_verifier=verifier,
+             snapshot_reader=PostgresDispatchSnapshotReader(
+                 self.database, signatures=signatures, core_owner_id=core_owner_id,
++                require_receiver_first=require_receiver_first,
+             ),
+             allow_pilot_adapters=False,
++            security_audit=(PostgresSecurityAuditStore(self.database)
++                            if require_receiver_first else None),
+             fence_reader=PostgresEconomicEffectFence(
+                 self.database, signatures=signatures,
+                 trusted_no_effect_signing_keys=trusted_no_effect_signing_keys,
+@@ -170,14 +194,19 @@ class DeployedSandboxRuntime:
+                     )
+                     row = cursor.fetchone()
+                 checks["postgres"] = "UP"
++                latest = str(row["version"]) if row is not None else ""
+                 checks["migration_0010"] = (
+-                    "UP" if row is not None and str(row["version"]) == "0010" else "DOWN"
++                    "UP" if latest.isdigit() and int(latest) >= 10 else "DOWN"
++                )
++                checks["migration_0016"] = (
++                    "UP" if latest.isdigit() and int(latest) >= 16 else "DOWN"
+                 )
+             finally:
+                 connection.close()
+         except Exception:
+             checks["postgres"] = "DOWN"
+             checks["migration_0010"] = "DOWN"
++            checks["migration_0016"] = "DOWN"
+         supervisor = self.supervisor.status()
+         checks["effect_worker"] = (
+             "DOWN" if supervisor.state is SupervisorState.STOPPED else
+diff --git a/railone_security/incident_audit.py b/railone_security/incident_audit.py
+new file mode 100644
+index 0000000..8731795
+--- /dev/null
++++ b/railone_security/incident_audit.py
+@@ -0,0 +1,35 @@
++"""Redacted security-event reporting for sandbox admission boundaries.
++
++No exception message or untrusted request body is written to the database.
++The log is append-only at the application schema level, not an external WORM log.
++"""
++
++from __future__ import annotations
++
++from datetime import datetime, timezone
++from typing import Protocol
++from uuid import uuid4
++
++
++class SecurityAuditWriter(Protocol):
++    def record_rejection(
++        self, *, event_type: str, operation: str, correlation_ref: str,
++        error: Exception, at: datetime,
++    ) -> None: ...
++
++
++def rejection_code(error: Exception) -> str:
++    """Bounded allowlist: never leak raw error strings into operational logs."""
++    prefix = str(error).split(':', 1)[0]
++    recognized = {
++        "BILATERAL_SIGNATURE_INVALID", "BILATERAL_SIGNER_OWNER_MISMATCH",
++        "RECEIVER_AUTHORITY_SCOPE_INVALID", "RECEIVER_QUOTE_BINDING_MISMATCH",
++        "RECEIVER_AUTHORITY_NOT_ACTIVE", "BILATERAL_QUOTE_BINDING_MISMATCH",
++        "BILATERAL_CHAIN_BROKEN", "BILATERAL_AUTHORITY_EXPIRED_OR_REORDERED",
++        "BILATERAL_AUTHORITY_ID_MISMATCH", "BILATERAL_UTT_REQUIRED",
++        "BILATERAL_RECEIVER_ACCEPTANCE_REQUIRED",
++        "BILATERAL_P2P_AUTHORITIES_REQUIRED", "PROVIDER_REQUEST_DIGEST_MISMATCH",
++        "RECEIVER_FIRST_BILATERAL_V2_REQUIRED",
++        "PERSISTED_BILATERAL_AUTHORITIES_MISSING",
++    }
++    return prefix if prefix in recognized else "BOUNDARY_VALIDATION_REJECTED"
+diff --git a/scripts/check_repository_convergence.py b/scripts/check_repository_convergence.py
+index c1f21cd..f6ceb1d 100644
+--- a/scripts/check_repository_convergence.py
++++ b/scripts/check_repository_convergence.py
+@@ -66,6 +66,7 @@ EXPECTED_MIGRATIONS = [
+     "0013_signed_institution_dispatch_wrappers.sql",
+     "0014_drop_plaintext_secret_fingerprints.sql",
+     "0015_durable_effect_fences_and_bank_analytics.sql",
++    "0016_institution_security_audit.sql",
+ ]
+ 
+ 
+@@ -98,7 +99,7 @@ def validate() -> list[str]:
+     migrations = sorted(path.name for path in (ROOT / "migrations").glob("*.sql"))
+     if migrations != EXPECTED_MIGRATIONS:
+         errors.append(
+-            "migration chain differs from extended immutable 0001-0015 sequence: "
++            "migration chain differs from extended immutable 0001-0016 sequence: "
+             + ", ".join(migrations)
+         )
+ 
+diff --git a/scripts/run_compromised_institution_harness.py b/scripts/run_compromised_institution_harness.py
+new file mode 100644
+index 0000000..fc99d5f
+--- /dev/null
++++ b/scripts/run_compromised_institution_harness.py
+@@ -0,0 +1,65 @@
++"""Emit an actionable, redacted JSON-lines institutional compromise report.
++
++Usage: python scripts/run_compromised_institution_harness.py
++This is a synthetic sandbox harness. Its events are in-memory audit observations;
++use the disposable PostgreSQL integration test to validate durable storage.
++"""
++
++from __future__ import annotations
++
++import json
++import sys
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
++from tests.test_compromised_institution_harness import CompromisedInstitutionHarnessTests
++
++
++CASES = (
++    "test_00_strict_idempotency_cannot_return_legacy_p2p_utt",
++    "test_01_receiver_first_bilateral_to_signed_utt_and_rtt",
++    "test_02_missing_receiver_approval_blocks_utt",
++    "test_04_receiver_signature_tampering_fails_and_is_audited",
++    "test_05_receiver_authority_cannot_be_replayed_on_another_quote",
++    "test_07_revoked_receiver_key_blocks_plan",
++    "test_08_mutated_persisted_etk_blocks_rtt_after_plan",
++    "test_09_route_endpoint_substitution_not_eligible",
++    "test_10_bilateral_authority_expiration_blocks_new_rtt",
++    "test_12_compromised_adapter_cannot_redirect_resolved_beneficiary",
++    "test_13_unknown_provider_outcome_must_keep_economic_hold",
++    "test_14_non_idempotent_crash_never_redispatches",
++    "test_15_receiver_consent_without_sender_signature_cannot_mint_utt",
++    "test_16_rogue_valid_signer_cannot_claim_sender_authority",
++)
++
++
++def main() -> int:
++    failures = 0
++    for name in CASES:
++        f = CompromisedInstitutionHarnessTests(name)
++        try:
++            f.setUp()
++            getattr(f, name)()
++            result = "PASS"
++            details = {}
++        except Exception as exc:
++            failures += 1
++            result = "FAIL"
++            details = {"exception_type": type(exc).__name__}
++        record = {
++            "scenario": name.removeprefix("test_"),
++            "result": result,
++            "created_utts": len(f.contracts._utts),
++            "created_rtts": len(f.executions._attempts),
++            "redacted_audit_events": f.audit.events,
++            **details,
++        }
++        print(json.dumps(record, sort_keys=True))
++    print(json.dumps({"suite": "RAILONE_COMPROMISED_INSTITUTION_V2",
++                      "cases": len(CASES), "failed": failures,
++                      "outcome": "PASS" if failures == 0 else "FAIL"}))
++    return 1 if failures else 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/test_bilateral_postgres_live.py b/tests/test_bilateral_postgres_live.py
+new file mode 100644
+index 0000000..a09d282
+--- /dev/null
++++ b/tests/test_bilateral_postgres_live.py
+@@ -0,0 +1,88 @@
++"""Disposable database proof that P2P v2 persists both ETKs before execution.
++
++Never run against production. Requires RAILONE_TEST_DATABASE_URL and
++RAILONE_ALLOW_TEST_SCHEMA_RESET=1; integration resets the railone schemas.
++"""
++
++from __future__ import annotations
++
++import os
++import unittest
++from datetime import timedelta
++from dataclasses import replace
++from pathlib import Path
++
++from railone_authority import ExecutionAuthorityService
++from railone_contracts import QuoteAcceptanceService
++from railone_execution import ExecutionPlanningService, RttAttemptService
++from railone_postgres import (
++    PostgresContractStore, PostgresDatabase, PostgresExecutionStore,
++    MigrationRunner, psycopg_connection_factory,
++)
++from railone_postgres.security_incidents import PostgresSecurityAuditStore
++import tests.test_compromised_institution_harness as synthetic
++
++
++_DSN = os.environ.get("RAILONE_TEST_DATABASE_URL", "")
++_RESET = os.environ.get("RAILONE_ALLOW_TEST_SCHEMA_RESET") == "1"
++
++
++@unittest.skipUnless(_DSN and _RESET, "disposable PostgreSQL required")
++class BilateralPostgresLiveTests(unittest.TestCase):
++    def test_receiver_first_persists_etk_r_and_etk_s_and_blocks_compromise(self):
++        # Fixtures are shared only for cryptographic inputs. No in-memory
++        # execution store is used for the actual database operations.
++        fixture = synthetic.CompromisedInstitutionHarnessTests("test_01_receiver_first_bilateral_to_signed_utt_and_rtt")
++        fixture.setUp()
++        connect = psycopg_connection_factory(_DSN)
++        connection = connect()
++        try:
++            with connection.cursor() as cursor:
++                cursor.execute("DROP SCHEMA IF EXISTS railone_bank CASCADE")
++                cursor.execute("DROP SCHEMA IF EXISTS railone CASCADE")
++            connection.commit()
++        finally:
++            connection.close()
++        MigrationRunner(connection_factory=connect, migrations_directory=Path(__file__).resolve().parents[1]/"migrations").apply_all()
++        database = PostgresDatabase(connect)
++        contracts = PostgresContractStore(database)
++        executions = PostgresExecutionStore(database)
++        audit = PostgresSecurityAuditStore(database)
++        acceptance = QuoteAcceptanceService(
++            signatures=fixture.signatures, authority=ExecutionAuthorityService(fixture.signatures),
++            store=contracts, utt_signing_key_id="core", authority_signing_key_id="core",
++            require_bilateral_p2p=True, security_audit=audit,
++        )
++        receiver = fixture.receiver()
++        contract = acceptance.accept(fixture.command(receiver), at=fixture.now+timedelta(seconds=10)).contract
++        stored_sender, stored_receiver = contracts.require_bilateral_authorities(contract.utt_id)
++        self.assertEqual(stored_receiver.payload["etk_r_id"], receiver.payload["etk_r_id"])
++        self.assertEqual(stored_sender.payload["etk_r_digest"], receiver.protected["payload_sha256"])
++        self.assertEqual(contracts.require_utt(contract.utt_id).payload["authority_version"], 2)
++        plan = ExecutionPlanningService(
++            signatures=fixture.signatures, contracts=contracts, executions=executions,
++        ).build_plan(utt_id=contract.utt_id, candidates=(fixture.route(),),
++                     at=fixture.now+timedelta(seconds=11))
++        attempt = RttAttemptService(
++            signatures=fixture.signatures, contracts=contracts,
++            executions=executions, rtt_signing_key_id="core",
++            endpoints=fixture.directory,
++        ).start_next(utt_id=contract.utt_id, at=fixture.now+timedelta(seconds=12))
++        self.assertEqual(attempt.plan_id, plan.plan_id)
++        with database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute("SELECT authority_type FROM railone.execution_authorities WHERE utt_id=%s ORDER BY authority_type", (contract.utt_id,))
++            self.assertEqual([row["authority_type"] for row in cursor.fetchall()], ["ETK_R", "ETK_S"])
++        # A distinct, tampered acceptance must be rejected and journaled; it
++        # cannot create a second UTT or enter institutional dispatch.
++        new_quote = fixture.make_quote(replace(fixture.terms, request_id="REQ-ATTACKED", amount_minor=200000))
++        with self.assertRaisesRegex(PermissionError, "RECEIVER_QUOTE_BINDING_MISMATCH"):
++            acceptance.accept(fixture.command(receiver, quote=new_quote), at=fixture.now+timedelta(seconds=10))
++        with database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute("SELECT reason_code FROM railone.institution_security_audit ORDER BY occurred_at DESC LIMIT 1")
++            self.assertEqual(cursor.fetchone()["reason_code"], "RECEIVER_QUOTE_BINDING_MISMATCH")
++            cursor.execute("SELECT COUNT(*) AS n FROM railone.accepted_utts")
++            self.assertEqual(cursor.fetchone()["n"], 1)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_compromised_institution_harness.py b/tests/test_compromised_institution_harness.py
+new file mode 100644
+index 0000000..22e7251
+--- /dev/null
++++ b/tests/test_compromised_institution_harness.py
+@@ -0,0 +1,377 @@
++"""Receiver-first ETK -> UTT -> RTT and compromised institution conformance.
++
++Synthetic keys, no external funds. Tests fail if authorization can be bypassed.
++"""
++
++from __future__ import annotations
++
++import unittest
++from dataclasses import replace
++from datetime import datetime, timedelta, timezone
++from unittest.mock import Mock
++
++from railone_authority import ExecutionAuthorityService
++from railone_authority.bilateral import BilateralAuthorityService
++from railone_contracts import (
++    AccountRole, ActorReference, ContextType, InMemoryContractStore,
++    OriginContext, PaymentPurpose, QuoteAcceptanceCommand,
++    QuoteAcceptanceService, QuoteTerms,
++)
++from railone_crypto.key_provider import InMemoryEd25519KeyProvider, KeyPurpose
++from railone_crypto.signature_service import SignatureEnvelope, SignatureService, ArtifactType
++from railone_execution import (
++    ExecutionPlanningService, InMemoryExecutionStore, LinkStatus,
++    NoEligibleRouteError, RouteCandidate, RttAttemptService,
++)
++from railone_institutions.admission import InstitutionalDispatchAdmissionGateway
++from railone_security.incident_audit import rejection_code
++from tests.support import endpoint, quote_service
++from railone_partners import AccountBinding, PartnerInstitution, InMemoryPartnerDirectory
++
++
++class Recorder:
++    def __init__(self):
++        self.events = []
++
++    def record_rejection(self, **kwargs):
++        self.events.append({
++            "event_type": kwargs["event_type"],
++            "operation": kwargs["operation"],
++            "correlation_ref": kwargs["correlation_ref"],
++            "reason_code": rejection_code(kwargs["error"]),
++            "outcome": "DENIED",
++        })
++
++
++class CompromisedInstitutionHarnessTests(unittest.TestCase):
++    def setUp(self):
++        self.now = datetime(2026, 11, 11, 12, 0, tzinfo=timezone.utc)
++        self.keys = InMemoryEd25519KeyProvider()
++        for owner, name, purpose in (
++            ("R1CORE", "quote", KeyPurpose.QUOTE_SIGNING),
++            ("R1CORE", "core", KeyPurpose.EXECUTION_SIGNING),
++            ("CUID-SENDER", "sender", KeyPurpose.EXECUTION_SIGNING),
++            ("CUID-RECEIVER", "receiver", KeyPurpose.EXECUTION_SIGNING),
++            ("CUID-ROGUE", "rogue", KeyPurpose.EXECUTION_SIGNING),
++        ):
++            self.keys.generate(
++                key_id=name, owner_id=owner, purpose=purpose,
++                not_before=self.now-timedelta(days=1),
++                not_after=self.now+timedelta(days=2),
++            )
++        self.signatures = SignatureService(self.keys)
++        self.bilateral = BilateralAuthorityService(self.signatures)
++        self.contracts = InMemoryContractStore()
++        self.executions = InMemoryExecutionStore(self.contracts)
++        self.audit = Recorder()
++        self.accept = QuoteAcceptanceService(
++            signatures=self.signatures,
++            authority=ExecutionAuthorityService(self.signatures),
++            store=self.contracts,
++            utt_signing_key_id="core", authority_signing_key_id="core",
++            require_bilateral_p2p=True, security_audit=self.audit,
++        )
++        self.directory = InMemoryPartnerDirectory()
++        for institution, role in (("INST-SOURCE", AccountRole.DEBIT),
++                                  ("INST-DEST", AccountRole.CREDIT)):
++            self.directory.add_institution(PartnerInstitution(
++                institution_id=institution, display_name=institution,
++                country_codes=("KE",), currencies=("KES",),
++                supported_roles=(role,),
++            ))
++        from railone_contracts import AccountType
++        for binding, actor, institution, role in (
++            ("BIND-TZ", "CUID-SENDER", "INST-SOURCE", AccountRole.DEBIT),
++            ("BIND-KE", "CUID-RECEIVER", "INST-DEST", AccountRole.CREDIT),
++        ):
++            self.directory.add_binding(AccountBinding(
++                account_binding_id=binding, actor_id=actor,
++                institution_id=institution, role=role,
++                account_type=AccountType.BANK_ACCOUNT, currency="KES",
++                display_hint="****1111" if role is AccountRole.DEBIT else "****2222",
++                contact_binding_id=f"CONTACT-{binding}",
++                attestation_reference=f"ATTEST-{binding}",
++            ))
++        self.plan = ExecutionPlanningService(
++            signatures=self.signatures, contracts=self.contracts,
++            executions=self.executions, security_audit=self.audit,
++        )
++        self.attempt = RttAttemptService(
++            signatures=self.signatures, contracts=self.contracts,
++            executions=self.executions, rtt_signing_key_id="core",
++            endpoints=self.directory, security_audit=self.audit,
++        )
++        self.origin = OriginContext(
++            origin_system="RAILONE_CLIENT", origin_intent_id="TEST-P2P-001",
++            context_type=ContextType.P2P, purpose=PaymentPurpose.PERSON_TO_PERSON,
++            continuity_uid="CUID-SENDER",
++        )
++        self.terms = QuoteTerms(
++            request_id="REQ-SYNTH-001",
++            payer=ActorReference("PERSON", "CUID-SENDER", endpoint("BIND-TZ", AccountRole.DEBIT)),
++            beneficiary=ActorReference("PERSON", "CUID-RECEIVER", endpoint("BIND-KE", AccountRole.CREDIT)),
++            purpose=PaymentPurpose.PERSON_TO_PERSON,
++            amount_minor=125000, currency_from="KES", receive_amount_minor=124500,
++            currency_to="KES", total_fee_minor=500, routing_budget_minor=200,
++            fx_rate="1.0000", corridor_id="SYNTH-TZ-KE", service_level="STANDARD",
++            routing_policy_id="POLICY-SANDBOX", pricing_version="2026-SYNTH",
++        )
++        self.quote = self.make_quote()
++
++    def make_quote(self, terms=None):
++        return quote_service(self.signatures).issue_quote(
++            terms=terms or self.terms, signing_key_id="quote",
++            issued_at=self.now, expires_at=self.now + timedelta(seconds=60),
++        )
++
++    def receiver(self, quote=None, *, signing_key_id="receiver", expires=180):
++        return self.bilateral.issue_receiver_acceptance(
++            signed_quote=quote or self.quote, signing_key_id=signing_key_id,
++            accepted_at=self.now + timedelta(seconds=5),
++            expires_at=self.now + timedelta(seconds=expires),
++        )
++
++    def sender(self, receiver, quote=None):
++        return self.bilateral.issue_sender_authority(
++            signed_quote=quote or self.quote, receiver=receiver,
++            signing_key_id="sender",
++            authorized_at=self.now+timedelta(seconds=7),
++            expires_at=self.now+timedelta(seconds=120),
++        )
++
++    def command(self, receiver=None, quote=None, sender=None):
++        # Tests explicitly simulate external sender signing. A caller cannot
++        # ask RailOne acceptance to produce a payer signature on its behalf.
++        if sender is None and receiver is not None:
++            # The pristine receiver is used to model an attacker later
++            # substituting either the quote or ETK-R in the submitted request.
++            sender = self.sender(self.receiver())
++        return QuoteAcceptanceCommand(
++            signed_quote=quote or self.quote, origin=self.origin,
++            authorization_method="IDENTITY_SESSION_ATTESTATION",
++            authorization_reference="SESSION-SYNTH-001", idempotency_key="IDEM-P2P-SYNTH",
++            receiver_authority=receiver, sender_authority=sender,
++        )
++
++    def accept_valid(self):
++        return self.accept.accept(self.command(self.receiver()), at=self.now+timedelta(seconds=10))
++
++    def route(self, *, destination="INST-DEST"):
++        return RouteCandidate(
++            route_id="SYNTH-FAST", source_institution_id="INST-SOURCE",
++            destination_institution_id=destination, rail="SYNTHETIC",
++            provider="SYNTH-BANK", adapter="sandbox-synth-1",
++            currency_from="KES", currency_to="KES", min_amount_minor=1,
++            max_amount_minor=500000, latency_ms=200, congestion_bps=50,
++            liquidity_capacity_minor=1000000, throughput_headroom_bps=8500,
++            speed_bps=9600, estimated_cost_minor=100, link_status=LinkStatus.UP,
++            telemetry_observed_at=self.now,
++            telemetry_expires_at=self.now + timedelta(minutes=5),
++        )
++
++    def test_00_strict_idempotency_cannot_return_legacy_p2p_utt(self):
++        legacy = QuoteAcceptanceService(
++            signatures=self.signatures,
++            authority=ExecutionAuthorityService(self.signatures),
++            store=self.contracts,
++            utt_signing_key_id="core", authority_signing_key_id="core",
++            require_bilateral_p2p=False,
++        )
++        command = self.command(None)
++        prior = legacy.accept(command, at=self.now + timedelta(seconds=10))
++        self.assertNotEqual(prior.contract.signed_utt.payload.get("authority_version"), 2)
++        with self.assertRaisesRegex(PermissionError, "RECEIVER_FIRST_BILATERAL_V2_REQUIRED"):
++            self.accept.accept(command, at=self.now + timedelta(seconds=11))
++        self.assertEqual(len(self.contracts._utts), 1)
++
++    def test_01_receiver_first_bilateral_to_signed_utt_and_rtt(self):
++        r = self.receiver()
++        accepted = self.accept.accept(self.command(r), at=self.now+timedelta(seconds=10))
++        c = accepted.contract
++        self.assertEqual(c.signed_utt.payload["authority_version"], 2)
++        self.assertEqual(c.sender_authority.payload["etk_r_id"], r.payload["etk_r_id"])
++        self.assertLess(r.protected["iat"], c.sender_authority.protected["iat"])
++        self.assertLessEqual(c.sender_authority.protected["iat"], c.signed_utt.protected["iat"])
++        self.assertEqual(c.signed_utt.payload["etk_r_digest"], r.protected["payload_sha256"])
++        self.bilateral.verify_utt(signed_utt=c.signed_utt, sender=c.sender_authority,
++                                  receiver=c.receiver_authority, at=self.now+timedelta(seconds=11))
++        plan = self.plan.build_plan(utt_id=c.utt_id, candidates=(self.route(),),
++                                    at=self.now+timedelta(seconds=11))
++        rtt = self.attempt.start_next(utt_id=c.utt_id, at=self.now+timedelta(seconds=12))
++        self.assertEqual(rtt.plan_id, plan.plan_id)
++        self.assertEqual(rtt.signed_rtt.payload["utt_payload_sha256"], c.signed_utt.protected["payload_sha256"])
++        self.assertEqual(len(self.audit.events), 0)
++
++    def test_02_missing_receiver_approval_blocks_utt(self):
++        with self.assertRaisesRegex(PermissionError, "BILATERAL_RECEIVER_ACCEPTANCE_REQUIRED"):
++            self.accept.accept(self.command(None), at=self.now+timedelta(seconds=10))
++        self.assertFalse(self.contracts._utts)
++
++    def test_03_receiver_acceptance_cannot_be_signed_by_rogue_institution(self):
++        with self.assertRaisesRegex(PermissionError, "BILATERAL_SIGNER_OWNER_MISMATCH"):
++            self.receiver(signing_key_id="rogue")
++        self.assertFalse(self.contracts._utts)
++
++    def test_04_receiver_signature_tampering_fails_and_is_audited(self):
++        r = self.receiver()
++        bad = SignatureEnvelope(r.protected, {**r.payload, "amount_minor": 1}, r.signature)
++        with self.assertRaisesRegex(PermissionError, "BILATERAL_SIGNATURE_INVALID"):
++            self.accept.accept(self.command(bad), at=self.now+timedelta(seconds=10))
++        self.assertEqual(self.audit.events[0]["reason_code"], "BILATERAL_SIGNATURE_INVALID")
++        self.assertFalse(self.contracts._utts)
++
++    def test_05_receiver_authority_cannot_be_replayed_on_another_quote(self):
++        new_quote = self.make_quote(replace(self.terms, amount_minor=140000, request_id="REQ-ALTERED"))
++        with self.assertRaisesRegex(PermissionError, "RECEIVER_QUOTE_BINDING_MISMATCH"):
++            self.accept.accept(self.command(self.receiver(), quote=new_quote),
++                               at=self.now+timedelta(seconds=10))
++        self.assertEqual(self.audit.events[0]["reason_code"], "RECEIVER_QUOTE_BINDING_MISMATCH")
++        self.assertFalse(self.contracts._utts)
++
++    def test_06_expired_receiver_consent_prevents_utt(self):
++        r = self.receiver(expires=8)
++        with self.assertRaisesRegex(PermissionError, "RECEIVER_AUTHORITY_NOT_ACTIVE"):
++            self.accept.accept(self.command(r), at=self.now+timedelta(seconds=10))
++        self.assertFalse(self.contracts._utts)
++
++    def test_07_revoked_receiver_key_blocks_plan(self):
++        contract = self.accept_valid().contract
++        self.keys.revoke("receiver", reason="SYNTHETIC-COMPROMISE", revoked_at=self.now+timedelta(seconds=11))
++        with self.assertRaisesRegex(PermissionError, "BILATERAL_SIGNATURE_INVALID"):
++            self.plan.build_plan(utt_id=contract.utt_id, candidates=(self.route(),),
++                                 at=self.now+timedelta(seconds=12))
++        with self.assertRaises(LookupError):
++            self.executions.require_plan_for_utt(contract.utt_id)
++        self.assertEqual(self.audit.events[-1]["operation"], "PLAN")
++
++    def test_08_mutated_persisted_etk_blocks_rtt_after_plan(self):
++        contract = self.accept_valid().contract
++        self.plan.build_plan(utt_id=contract.utt_id, candidates=(self.route(),),
++                             at=self.now+timedelta(seconds=11))
++        bad = SignatureEnvelope(contract.sender_authority.protected,
++                                {**contract.sender_authority.payload, "amount_minor": 1},
++                                contract.sender_authority.signature)
++        self.contracts._contracts[contract.utt_id] = replace(contract, sender_authority=bad)
++        with self.assertRaisesRegex(PermissionError, "BILATERAL_SIGNATURE_INVALID"):
++            self.attempt.start_next(utt_id=contract.utt_id, at=self.now+timedelta(seconds=12))
++        plan = self.executions.require_plan_for_utt(contract.utt_id)
++        self.assertIsNone(plan.current_rtt_id)
++        self.assertEqual(plan.attempts_used, 0)
++        self.assertEqual(self.audit.events[-1]["operation"], "RTT_CREATE")
++
++    def test_09_route_endpoint_substitution_not_eligible(self):
++        contract = self.accept_valid().contract
++        with self.assertRaises(NoEligibleRouteError):
++            self.plan.build_plan(utt_id=contract.utt_id,
++                                 candidates=(self.route(destination="ATTACKER-BANK"),),
++                                 at=self.now+timedelta(seconds=11))
++        with self.assertRaises(LookupError):
++            self.executions.require_plan_for_utt(contract.utt_id)
++
++    def test_10_bilateral_authority_expiration_blocks_new_rtt(self):
++        contract = self.accept_valid().contract
++        self.plan.build_plan(utt_id=contract.utt_id, candidates=(self.route(),),
++                             at=self.now+timedelta(seconds=11))
++        with self.assertRaisesRegex(PermissionError, "BILATERAL_AUTHORITY_EXPIRED_OR_REORDERED"):
++            self.attempt.start_next(utt_id=contract.utt_id,
++                                    at=self.now+timedelta(seconds=181))
++        self.assertIsNone(self.executions.require_plan_for_utt(contract.utt_id).current_rtt_id)
++
++    def test_11_gateway_preflight_denial_produces_redacted_event(self):
++        recorder = Recorder()
++        snapshot = Mock()
++        snapshot.load.side_effect = PermissionError("RECEIVER_FIRST_BILATERAL_V2_REQUIRED")
++        gateway = InstitutionalDispatchAdmissionGateway(
++            registry=Mock(), wrapper_store=Mock(), wrapper_verifier=Mock(),
++            snapshot_reader=snapshot, fence_reader=Mock(), security_audit=recorder,
++        )
++        with self.assertRaisesRegex(PermissionError, "RECEIVER_FIRST_BILATERAL_V2_REQUIRED"):
++            gateway.preflight(rtt_id="RTT-ATTACK", at=self.now)
++        self.assertEqual(recorder.events, [{
++            "event_type": "INSTITUTION_DISPATCH_REJECTED", "operation": "PREFLIGHT",
++            "correlation_ref": "RTT-ATTACK", "reason_code": "RECEIVER_FIRST_BILATERAL_V2_REQUIRED",
++            "outcome": "DENIED",
++        }])
++
++    def test_12_compromised_adapter_cannot_redirect_resolved_beneficiary(self):
++        # Exercise the REAL institutional admission verifier using a valid
++        # pre-signed wrapper and then substituting a protected account endpoint.
++        import tests.test_institution_admission_gateway as fixtures
++        other = fixtures.InstitutionalAdmissionGatewayTests("test_signed_wrapper_and_verified_adapter_are_admitted")
++        other.setUp()
++        recorder = Recorder()
++        gateway = InstitutionalDispatchAdmissionGateway(
++            registry=other.registry, wrapper_store=other.wrappers,
++            wrapper_verifier=other.wrapper_service,
++            snapshot_reader=other.reader, fence_reader=other.fence,
++            security_audit=recorder,
++        )
++        mutated = replace(other.request, beneficiary_account_reference="ATTACKER-ACCOUNT")
++        with self.assertRaisesRegex(PermissionError, "PROVIDER_REQUEST_DIGEST_MISMATCH"):
++            gateway.admit(mutated, at=fixtures.NOW)
++        self.assertEqual(other.fence.calls, 0)
++        self.assertEqual(other.fence.reservations, [])
++        self.assertEqual(recorder.events[0]["event_type"], "INSTITUTION_DISPATCH_REJECTED")
++        self.assertEqual(recorder.events[0]["reason_code"], "PROVIDER_REQUEST_DIGEST_MISMATCH")
++        self.assertNotIn("ATTACKER-ACCOUNT", str(recorder.events))
++
++    def test_13_unknown_provider_outcome_must_keep_economic_hold(self):
++        from tests.test_durable_economic_fencing import (
++            FakeDatabase, EconomicFenceTests, NOW,
++        )
++        scenario = EconomicFenceTests("test_provider_acceptance_is_not_release")
++        scenario.setUp()
++        db = FakeDatabase(selected=({"fence_epoch": 1},))
++        scenario.fence(db).record_provider_outcome(
++            utt_id="UTT-TEST", rtt_id="RTT-TEST", outcome="UNKNOWN", at=NOW,
++        )
++        statements = [query for query, _ in db._cursor.executed]
++        self.assertTrue(any("rtt_operational_fences" in query for query in statements))
++        self.assertFalse(any("SET state='OPEN'" in query for query in statements))
++        self.assertEqual(db.commits, 1)
++
++    def test_14_non_idempotent_crash_never_redispatches(self):
++        from tests.test_provider_operations import (
++            ProviderOperationsTests, FakeProviderAdapter, ProviderSubmissionState,
++        )
++        fixture = ProviderOperationsTests("test_non_idempotent_dispatch_recovery_blocks_a_second_provider_call")
++        fixture.setUp()
++        prepared, _ = fixture.coordinator.prepare(
++            rtt_id=fixture.rtt_id, at=fixture.now + timedelta(seconds=22),
++        )
++        fixture.operations._submissions_by_rtt[fixture.rtt_id] = replace(
++            prepared, state=ProviderSubmissionState.DISPATCHING,
++            dispatch_attempts=1, version=prepared.version + 1,
++            updated_at=fixture.now + timedelta(seconds=22),
++        )
++        adapter = FakeProviderAdapter(supports_idempotency=False)
++        record = fixture.coordinator.dispatch(
++            rtt_id=fixture.rtt_id, adapter=adapter,
++            at=fixture.now + timedelta(seconds=23),
++        )
++        self.assertEqual(record.state, ProviderSubmissionState.UNKNOWN)
++        self.assertEqual(record.normalized_code, "NON_IDEMPOTENT_RECOVERY_BLOCKED")
++        self.assertEqual(adapter.calls, 0)
++
++    def test_15_receiver_consent_without_sender_signature_cannot_mint_utt(self):
++        command = replace(self.command(self.receiver()), sender_authority=None)
++        with self.assertRaisesRegex(PermissionError, "BILATERAL_P2P_AUTHORITIES_REQUIRED"):
++            self.accept.accept(command, at=self.now+timedelta(seconds=10))
++        self.assertEqual(self.audit.events[-1]["reason_code"], "BILATERAL_P2P_AUTHORITIES_REQUIRED")
++        self.assertEqual(len(self.contracts._utts), 0)
++
++    def test_16_rogue_valid_signer_cannot_claim_sender_authority(self):
++        receiver = self.receiver()
++        sender = self.sender(receiver)
++        forged = self.signatures.sign_artifact(
++            artifact_type=ArtifactType.ETK_S, payload=sender.payload,
++            key_id="rogue", issued_at=self.now+timedelta(seconds=7),
++        )
++        with self.assertRaisesRegex(PermissionError, "BILATERAL_SIGNER_OWNER_MISMATCH"):
++            self.accept.accept(self.command(receiver, sender=forged),
++                               at=self.now+timedelta(seconds=10))
++        self.assertEqual(len(self.contracts._utts), 0)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_institution_admission_gateway.py b/tests/test_institution_admission_gateway.py
+index ebaf92d..21f73f8 100644
+--- a/tests/test_institution_admission_gateway.py
++++ b/tests/test_institution_admission_gateway.py
+@@ -95,6 +95,10 @@ class InstitutionalAdmissionGatewayTests(unittest.TestCase):
+         self.registry.register(self.adapter, signed_manifest)
+         body_sections = sections()
+         body_sections["execution_binding"]["adapter_manifest_digest"] = signed_manifest.signature.protected["payload_sha256"]
++        # Bind the genuine provider request fields, including private account
++        # references, before issuing the canonical dispatch wrapper.
++        provisional = provider_request(body_sections)
++        body_sections["execution_binding"]["request_sha256"] = provisional.calculated_request_sha256()
+         self.wrapper = CanonicalDispatchWrapper.build(
+             issued_at_epoch=int(NOW.timestamp()), expires_at_epoch=int(NOW.timestamp()) + 30,
+             **body_sections,
+diff --git a/tests/test_postgres_institutional_dispatch.py b/tests/test_postgres_institutional_dispatch.py
+index 37899b8..0955cf4 100644
+--- a/tests/test_postgres_institutional_dispatch.py
++++ b/tests/test_postgres_institutional_dispatch.py
+@@ -127,7 +127,7 @@ class PostgresInstitutionalDispatchTests(unittest.TestCase):
+             signatures=fixture.signatures, registry=self.registry,
+             event_signing_key_id=KEY_ID, wrapper_signing_key_id=KEY_ID,
+             trusted_no_effect_signing_keys=frozenset({"synthetic-no-effect-signer"}),
+-            core_owner_id="R1CORE",
++            core_owner_id="R1CORE", require_receiver_first=False,
+         )
+ 
+     def provision_wrapper(self, *, request_digest=None):

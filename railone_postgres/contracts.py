@@ -20,11 +20,14 @@ from .runtime import PostgresDatabase
 
 _ACCEPTED_SELECT = """
 SELECT u.quote_id, u.utt_id, u.signed_envelope,
-       i.request_sha256, u.accepted_at, a.signed_envelope AS sender_authority
+       i.request_sha256, u.accepted_at, a.signed_envelope AS sender_authority,
+       r.signed_envelope AS receiver_authority
 FROM railone.acceptance_idempotency i
 JOIN railone.accepted_utts u ON u.utt_id = i.utt_id
 JOIN railone.execution_authorities a
   ON a.utt_id = u.utt_id AND a.authority_type = 'ETK_S'
+LEFT JOIN railone.execution_authorities r
+  ON r.utt_id = u.utt_id AND r.authority_type = 'ETK_R'
 """
 
 
@@ -120,6 +123,17 @@ class PostgresContractStore(ContractStore):
                     json_text(authority.to_dict()), contract.accepted_at,
                 ),
             )
+            if contract.receiver_authority is not None:
+                receiver = contract.receiver_authority
+                cursor.execute(
+                    """INSERT INTO railone.execution_authorities
+                       (authority_id, authority_type, utt_id, payload_sha256,
+                        signed_envelope, created_at)
+                       VALUES (%s,'ETK_R',%s,%s,%s::jsonb,%s)""",
+                    (receiver.payload["etk_r_id"], contract.utt_id,
+                     receiver.protected["payload_sha256"],
+                     json_text(receiver.to_dict()), contract.accepted_at),
+                )
             cursor.execute(
                 """INSERT INTO railone.acceptance_idempotency
                    (idempotency_key, request_sha256, utt_id, created_at)
@@ -147,10 +161,26 @@ class PostgresContractStore(ContractStore):
             return envelope_from_db(row["signed_envelope"])
 
 
+    def require_bilateral_authorities(self, utt_id: str) -> tuple[SignatureEnvelope, SignatureEnvelope]:
+        with self._database.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT authority_type, signed_envelope FROM railone.execution_authorities
+                   WHERE utt_id=%s AND authority_type IN ('ETK_S','ETK_R')
+                   ORDER BY authority_type""", (utt_id,),
+            )
+            rows = cursor.fetchall()
+            if [row["authority_type"] for row in rows] != ["ETK_R", "ETK_S"]:
+                raise PermissionError("PERSISTED_BILATERAL_AUTHORITIES_MISSING")
+            return envelope_from_db(rows[1]["signed_envelope"]), envelope_from_db(rows[0]["signed_envelope"])
+
+
 def _accepted(row: Mapping[str, Any]) -> AcceptedContract:
     return AcceptedContract(
         signed_utt=envelope_from_db(row["signed_envelope"]),
         sender_authority=envelope_from_db(row["sender_authority"]),
+        receiver_authority=(envelope_from_db(row["receiver_authority"])
+                            if row["receiver_authority"] is not None else None),
         quote_id=str(row["quote_id"]), utt_id=str(row["utt_id"]),
         request_sha256=str(row["request_sha256"]), accepted_at=row["accepted_at"],
     )
+
