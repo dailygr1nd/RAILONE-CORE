@@ -7,10 +7,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from threading import RLock
+from uuid import uuid4
 from typing import Callable, Protocol, TypeVar
 
 from railone_crypto.canonical_json import canonical_json_bytes
 from railone_crypto.signature_service import ArtifactType, SignatureEnvelope, SignatureService
+from railone_contracts.store import IdempotencyConflictError, QuoteAlreadyAcceptedError
 
 from .auth import AccessTokenError, AccessTokenService, AuthenticatedPrincipal
 
@@ -172,6 +174,12 @@ class AuthenticatedRequestGuard:
                 status_code=403, reason_code=type(exc).__name__.upper(), at=instant,
             )
             raise
+        except (IdempotencyConflictError, QuoteAlreadyAcceptedError) as exc:
+            self._audit(
+                request=request, principal=principal, outcome=ApiAuditOutcome.DENIED,
+                status_code=409, reason_code=type(exc).__name__.upper(), at=instant,
+            )
+            raise
         except LookupError as exc:
             self._audit(
                 request=request, principal=principal, outcome=ApiAuditOutcome.DENIED,
@@ -210,6 +218,7 @@ class AuthenticatedRequestGuard:
             "status_code": status_code,
             "reason_code": reason_code,
             "occurred_at": int(at.timestamp()),
+            "audit_nonce": uuid4().hex,
         }
         audit_id = "APIAUD-" + hashlib.sha256(
             canonical_json_bytes(core)

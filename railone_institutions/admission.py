@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import hmac
 from dataclasses import replace
+from functools import wraps
+from railone_security.incident_audit import SecurityAuditWriter
 from datetime import datetime, timezone
 from typing import Protocol
 
@@ -43,6 +45,27 @@ class EconomicEffectFenceReader(Protocol):
     ) -> None: ...
 
 
+def _audit_rejection(operation):
+    """Journal boundary denials without weakening rejection semantics."""
+    def decorate(fn):
+        @wraps(fn)
+        def wrapper(self, *args, **kwargs):
+            try:
+                return fn(self, *args, **kwargs)
+            except Exception as exc:
+                if self._security_audit is not None:
+                    request = args[0] if args else kwargs.get("request")
+                    ref = kwargs.get("rtt_id") or getattr(request, "rtt_id", "UNKNOWN")
+                    self._security_audit.record_rejection(
+                        event_type="INSTITUTION_DISPATCH_REJECTED",
+                        operation=operation, correlation_ref=ref,
+                        error=exc, at=kwargs.get("at", datetime.now(timezone.utc)),
+                    )
+                raise
+        return wrapper
+    return decorate
+
+
 class InstitutionalDispatchAdmissionGateway:
     """The only adapter selection path for INSTITUTIONAL_SANDBOX mode.
 
@@ -57,16 +80,19 @@ class InstitutionalDispatchAdmissionGateway:
         snapshot_reader: AuthoritativeSnapshotReader,
         fence_reader: EconomicEffectFenceReader,
         allow_pilot_adapters: bool = True,
+        security_audit: SecurityAuditWriter | None = None,
     ) -> None:
         self._registry = registry
         self._wrappers = wrapper_store
         self._verifier = wrapper_verifier
         self._snapshots = snapshot_reader
         self._fences = fence_reader
+        self._security_audit = security_audit
         self._environments = {AdapterEnvironment.SANDBOX}
         if allow_pilot_adapters:
             self._environments.add(AdapterEnvironment.PILOT)
 
+    @_audit_rejection("PREFLIGHT")
     def preflight(self, *, rtt_id: str, at: datetime) -> str:
         """Verify trusted instruction, adapter and economic fence BEFORE decrypting endpoints.
 
@@ -107,10 +133,13 @@ class InstitutionalDispatchAdmissionGateway:
         )
         return binding["request_sha256"]
 
+    @_audit_rejection("ADMIT")
     def admit(self, request: ProviderExecutionRequest, *, at: datetime) -> InstitutionAdapterBridge:
         if not isinstance(at, datetime) or at.tzinfo is None:
             raise ValueError("institutional dispatch time must be timezone-aware")
         instant = at.astimezone(timezone.utc)
+        if not hmac.compare_digest(request.calculated_request_sha256(), request.request_sha256):
+            raise PermissionError("PROVIDER_REQUEST_DIGEST_MISMATCH")
         expected = self._snapshots.load(rtt_id=request.rtt_id, at=instant)
         if expected.request_sha256 is None:
             expected = replace(expected, request_sha256=request.request_sha256)

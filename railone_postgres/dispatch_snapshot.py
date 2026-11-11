@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from railone_contracts.models import AccountEndpoint, AccountRole, ContextType
+from railone_authority.bilateral import BilateralAuthorityService
 from railone_crypto.signature_service import ArtifactType, SignatureEnvelope, SignatureService
 from railone_execution.models import AttemptState, PlanStatus, require_aware
 from railone_identity.models import IdentityStatus
@@ -27,11 +28,12 @@ class PostgresDispatchSnapshotReader:
 
     def __init__(
         self, database: PostgresDatabase, *, signatures: SignatureService,
-        core_owner_id: str,
+        core_owner_id: str, require_sender_first: bool = False,
     ) -> None:
         self._database = database
         self._signatures = signatures
         self._core_owner_id = core_owner_id
+        self._require_sender_first = require_sender_first
         self._contracts = PostgresContractStore(database)
         self._executions = PostgresExecutionStore(database)
         self._identities = PostgresIdentityRepository(database)
@@ -106,26 +108,40 @@ class PostgresDispatchSnapshotReader:
             raise PermissionError("signed RTT route does not match the accepted endpoints")
 
         sender, receiver, fence = self._read_authority_and_fence(attempt.utt_id, utt["etk_s_id"])
-        etk_s = self._verified(sender, ArtifactType.ETK_S, instant)
-        etk_r = self._verified(receiver, ArtifactType.ETK_R, instant)
-        epoch = int(instant.timestamp())
-        if (etk_s["utt_id"], etk_s["etk_s_id"], etk_s["quote_id"],
-                etk_s["sender_actor_type"], etk_s["sender_reference"],
-                etk_s["amount_minor"], etk_s["currency"], etk_s["origin_context"],
-                etk_s["authority_scope"], etk_s["status"]) != (
-                attempt.utt_id, utt["etk_s_id"], utt["quote_id"], payer["actor_type"],
-                sender_uid, utt["amount_minor"], utt["currency_from"], origin,
-                "EXECUTE_UTT", "ACTIVE"):
-            raise PermissionError("sender authority does not match the accepted UTT")
-        if (etk_r["utt_id"], etk_r["etk_s_id"], etk_r["receiver_actor_type"],
-                etk_r["receiver_reference"], etk_r["amount_minor"], etk_r["currency"],
-                etk_r["status"]) != (
-                attempt.utt_id, utt["etk_s_id"], recipient["actor_type"], recipient_uid,
-                utt["amount_minor"], utt["currency_from"], "ACTIVE"):
-            raise PermissionError("receiver authority does not match the accepted UTT")
-        if not (etk_s["authorized_at"] <= etk_r["attested_at"] <= epoch
-                < etk_r["expires_at"] <= etk_s["expires_at"]):
-            raise PermissionError("bilateral authority is outside its dispatch window")
+        if utt.get("authority_version") == 2:
+            # Superseded v2 signed in the opposite order; fail closed.
+            raise PermissionError("RECEIVER_FIRST_V2_DEPRECATED")
+        if utt.get("authority_version") == 3:
+            BilateralAuthorityService(self._signatures).verify_utt(
+                signed_utt=utt_envelope, sender=sender, receiver=receiver, at=instant,
+            )
+            if (utt.get("etk_r_id") != receiver.payload.get("etk_r_id")
+                    or utt.get("etk_s_id") != sender.payload.get("etk_s_id")):
+                raise PermissionError("persisted bilateral authorities do not match UTT")
+        else:
+            if self._require_sender_first:
+                raise PermissionError("SENDER_FIRST_BILATERAL_V3_REQUIRED")
+            # Legacy ETK-S-first verification, retained only for existing fixtures.
+            etk_s = self._verified(sender, ArtifactType.ETK_S, instant)
+            etk_r = self._verified(receiver, ArtifactType.ETK_R, instant)
+            epoch = int(instant.timestamp())
+            if (etk_s["utt_id"], etk_s["etk_s_id"], etk_s["quote_id"],
+                    etk_s["sender_actor_type"], etk_s["sender_reference"],
+                    etk_s["amount_minor"], etk_s["currency"], etk_s["origin_context"],
+                    etk_s["authority_scope"], etk_s["status"]) != (
+                    attempt.utt_id, utt["etk_s_id"], utt["quote_id"], payer["actor_type"],
+                    sender_uid, utt["amount_minor"], utt["currency_from"], origin,
+                    "EXECUTE_UTT", "ACTIVE"):
+                raise PermissionError("sender authority does not match the accepted UTT")
+            if (etk_r["utt_id"], etk_r["etk_s_id"], etk_r["receiver_actor_type"],
+                    etk_r["receiver_reference"], etk_r["amount_minor"], etk_r["currency"],
+                    etk_r["status"]) != (
+                    attempt.utt_id, utt["etk_s_id"], recipient["actor_type"], recipient_uid,
+                    utt["amount_minor"], utt["currency_from"], "ACTIVE"):
+                raise PermissionError("receiver authority does not match the accepted UTT")
+            if not (etk_s["authorized_at"] <= etk_r["attested_at"] <= epoch
+                    < etk_r["expires_at"] <= etk_s["expires_at"]):
+                raise PermissionError("bilateral authority is outside its dispatch window")
 
         manifest = self._manifests.require(route["adapter"])
         provider_id = route["provider"].upper()

@@ -97,6 +97,7 @@ class ProviderOperationsTests(unittest.TestCase):
             not_after=self.now + timedelta(days=90),
         )
         self.signatures = SignatureService(keys)
+        self.keys = keys  # Synthetic institutional keys for the strict v3 fixture.
         self.contracts = InMemoryContractStore()
         self.executions = InMemoryExecutionStore(self.contracts)
         self.operations = InMemoryOperationsStore()
@@ -119,7 +120,9 @@ class ProviderOperationsTests(unittest.TestCase):
             event_signing_key_id="R1CORE:execution:2026-01",
         )
 
-    def _create_current_rtt(self, *, institutional=False) -> str:
+    def _create_current_rtt(self, *, institutional=False, sender_first=False) -> str:
+        if sender_first and not institutional:
+            raise ValueError("sender_first fixture requires institutional P2P")
         payer_id = "CUID-" + "A" * 32 if institutional else "MER002"
         beneficiary_id = "CUID-" + "B" * 32 if institutional else "SUP001"
         purpose = PaymentPurpose.PERSON_TO_PERSON if institutional else PaymentPurpose.SUPPLIER_PAYMENT
@@ -163,12 +166,41 @@ class ProviderOperationsTests(unittest.TestCase):
             issued_at=self.now,
             expires_at=self.now + timedelta(minutes=1),
         )
+        # Strict institutional fixtures exercise the real externally signed
+        # sender-first v3 protocol; ordinary merchant fixtures keep the v0.16
+        # acceptance semantics they were originally written to test.
+        sender_authority = receiver_authority = None
+        if sender_first:
+            from railone_authority.bilateral import BilateralAuthorityService
+            for key_id, owner_id in (
+                ("fixture-payer-v3", payer_id),
+                ("fixture-receiver-v3", beneficiary_id),
+            ):
+                self.keys.generate(
+                    key_id=key_id, owner_id=owner_id,
+                    purpose=KeyPurpose.EXECUTION_SIGNING,
+                    not_before=self.now - timedelta(days=1),
+                    not_after=self.now + timedelta(days=2),
+                )
+            bilateral = BilateralAuthorityService(self.signatures)
+            sender_authority = bilateral.issue_sender_authority(
+                signed_quote=quote, signing_key_id="fixture-payer-v3",
+                authorized_at=self.now + timedelta(seconds=5),
+                expires_at=self.now + timedelta(minutes=2),
+            )
+            receiver_authority = bilateral.issue_receiver_acceptance(
+                signed_quote=quote, sender=sender_authority,
+                signing_key_id="fixture-receiver-v3",
+                accepted_at=self.now + timedelta(seconds=7),
+                expires_at=self.now + timedelta(minutes=2),
+            )
         contract = QuoteAcceptanceService(
             signatures=self.signatures,
             authority=ExecutionAuthorityService(self.signatures),
             store=self.contracts,
             utt_signing_key_id="R1CORE:execution:2026-01",
             authority_signing_key_id="R1CORE:execution:2026-01",
+            require_bilateral_p2p=sender_first,
         ).accept(
             QuoteAcceptanceCommand(
                 signed_quote=quote,
@@ -176,6 +208,8 @@ class ProviderOperationsTests(unittest.TestCase):
                 authorization_method="MERCHANT_ACTOR_ATTESTATION",
                 authorization_reference="AUTH-OPS-001",
                 idempotency_key="IDEM-OPS-001",
+                sender_authority=sender_authority,
+                receiver_authority=receiver_authority,
             ),
             at=self.now + timedelta(seconds=10),
         ).contract
@@ -220,6 +254,31 @@ class ProviderOperationsTests(unittest.TestCase):
             at=self.now + timedelta(seconds=21),
         )
         return attempt.rtt_id
+
+    def test_sender_first_institutional_fixture_persists_bilateral_before_rtt(self) -> None:
+        """Guard the exact synthetic fixture used by live dispatch tests."""
+        from functools import partial
+        from railone_authority.bilateral import BilateralAuthorityService
+
+        fixture = ProviderOperationsTests(
+            "test_preparation_is_idempotent_and_uses_stable_provider_key"
+        )
+        fixture._create_current_rtt = partial(
+            fixture._create_current_rtt, institutional=True, sender_first=True,
+        )
+        fixture.setUp()
+        attempt = fixture.executions.require_attempt(fixture.rtt_id)
+        utt = fixture.contracts.require_utt(attempt.utt_id)
+        sender, receiver = fixture.contracts.require_bilateral_authorities(attempt.utt_id)
+        self.assertEqual(utt.payload["authority_version"], 3)
+        self.assertLess(sender.protected["iat"], receiver.protected["iat"])
+        self.assertEqual(
+            receiver.payload["etk_s_digest"], sender.protected["payload_sha256"],
+        )
+        BilateralAuthorityService(fixture.signatures).verify_utt(
+            signed_utt=utt, sender=sender, receiver=receiver,
+            at=fixture.now + timedelta(seconds=22),
+        )
 
     def test_preparation_is_idempotent_and_uses_stable_provider_key(self) -> None:
         first, first_request = self.coordinator.prepare(
