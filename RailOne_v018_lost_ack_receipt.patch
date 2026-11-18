@@ -1,0 +1,93 @@
+--- a/railone_callbacks/mpesa.py
++++ b/railone_callbacks/mpesa.py
+@@ -125,6 +125,14 @@
+             self.provider_id, conversation_id
+         )
+         if submission is None:
++            # Preserve a receipt without assigning an unverified UTT or retaining the body.
++            self._inbox.ingest(
++                provider_id=self.provider_id,
++                provider_event_id=f"MPESA-UNMATCHED-{callback_type}-{raw_hash}",
++                payload_sha256=raw_hash,
++                normalized_payload={"reason": "UNMATCHED_SUBMISSION", "callback_type": callback_type},
++                signature_valid=True, received_at=instant,
++            )
+             raise LookupError("M-PESA callback has no matching provider submission")
+         context = dict(submission.provider_context)
+         if context.get("originator_conversation_id") != normalized["originator_conversation_id"]:
+--- a/tests/test_postgres_live.py
++++ b/tests/test_postgres_live.py
+@@ -231,7 +231,11 @@
+         self.setUpClass()
+         self._exercise_submission(mpesa_callback=False)
+ 
+-    def _exercise_submission(self, *, mpesa_callback):
++    def test_mpesa_lost_ack_preserves_hold_and_unmatched_receipt(self):
++        self.setUpClass()
++        self._exercise_submission(mpesa_callback=True, lose_ack=True)
++
++    def _exercise_submission(self, *, mpesa_callback, lose_ack=False):
+         now = datetime(2026, 7, 14, 19, 0, tzinfo=timezone.utc)
+         keys = InMemoryEd25519KeyProvider()
+         keys.generate(
+@@ -367,10 +371,19 @@
+             from tests.test_mpesa_adapter import FakeTransport, HttpResponse, adapter
+             from railone_institutions import InstitutionAdapterBridge
+             from railone_providers import mpesa_b2c_institution_plugin
+-            underlying = adapter(FakeTransport(
++            class LostAcknowledgement(FakeTransport):
++                def request(self, **kwargs):
++                    response = super().request(**kwargs)
++                    if kwargs["method"] == "POST":
++                        raise TimeoutError("payment sent; response lost")
++                    return response
++
++            transport_factory = LostAcknowledgement if lose_ack else FakeTransport
++            transport = transport_factory(
+                 HttpResponse(200, b'{"access_token":"synthetic","expires_in":"3599"}'),
+                 HttpResponse(200, b'{"ResponseCode":"0","ConversationID":"AG_001",'
+-                                  b'"OriginatorConversationID":"R1_ORIGIN_001"}')))
++                                  b'"OriginatorConversationID":"R1_ORIGIN_001"}'))
++            underlying = adapter(transport)
+             payment_adapter = InstitutionAdapterBridge(mpesa_b2c_institution_plugin(
+                 underlying, source_institution_ids=("BANK-001",), destination_institution_ids=("MNO-001",)))
+         submission = coordinator.dispatch(
+@@ -378,7 +391,7 @@
+         )
+         fence.record_provider_outcome(
+             utt_id=contract.utt_id, rtt_id=attempt.rtt_id,
+-            outcome="ACCEPTED", at=now + timedelta(seconds=5),
++            outcome=submission.state.value, at=now + timedelta(seconds=5),
+         )
+         with self.assertRaises(EconomicFenceViolation):
+             fence.assert_dispatch_safe(
+@@ -409,6 +422,29 @@
+                 data["Result"]["ConversationID"] = submission.external_reference
+                 return json.dumps(data).encode()
+             when = now + timedelta(seconds=6)
++            if lose_ack:
++                self.assertEqual(submission.state.value, "UNKNOWN")
++                self.assertIsNone(submission.external_reference)
++                body = envelope(0, transaction_id="TXN-UNMATCHED", transaction_amount=100)
++                for _ in range(2):
++                    with self.assertRaises(LookupError):
++                        processor.process_result(raw_body=body, ingress_signature=signature(body), at=when)
++                with self.assertRaises(EconomicFenceViolation):
++                    reserve_once()
++                with database.transaction() as con:
++                    receipts = con.execute("SELECT raw_payload,signature_valid,applied_at FROM "
++                                           "railone.provider_callback_inbox WHERE provider_id='MPESA-KE'").fetchall()
++                    self.assertEqual(receipts, [dict(raw_payload={"reason": "UNMATCHED_SUBMISSION",
++                                                                 "callback_type": "RESULT"},
++                                                     signature_valid=True, applied_at=None)])
++                    for table in ("settlement_evidence", "sms_notification_outbox"):
++                        self.assertEqual(con.execute(f"SELECT count(*) AS n FROM railone.{table} "
++                                                     "WHERE utt_id=%s", (contract.utt_id,)).fetchone()["n"], 0)
++                    self.assertEqual(con.execute("SELECT state FROM railone.utt_economic_fences WHERE utt_id=%s",
++                                                 (contract.utt_id,)).fetchone()["state"], "HELD")
++                self.assertEqual(sum(call["method"] == "POST" for call in transport.calls), 1)
++                return
++
+             timeout = callback_body(2001)
+             result = processor.process_timeout(raw_body=timeout, ingress_signature=signature(timeout), at=when)
+             self.assertEqual(result.disposition, "RECONCILIATION_REQUIRED")

@@ -148,7 +148,7 @@ class DeployedSandboxRuntime:
     def authenticated_p2p_facade(
         self, *, signatures: SignatureService, access_tokens,
         utt_signing_key_id: str, authority_signing_key_id: str,
-        api_audit_signing_key_id: str,
+        api_audit_signing_key_id: str, enable_avia_merchant: bool = False,
     ):
         """Compose the strict sender-first API atop durable PostgreSQL stores.
 
@@ -162,6 +162,10 @@ class DeployedSandboxRuntime:
         from railone_authority.bilateral import BilateralAuthorityService
         from railone_history import TransactionHistoryService
         from railone_postgres import PostgresApiAuditStore, PostgresRateLimitStore
+        from railone_api.avia import AviaMerchantApi
+        acceptance = self.sender_first_p2p_acceptance(
+            signatures=signatures, utt_signing_key_id=utt_signing_key_id,
+            authority_signing_key_id=authority_signing_key_id)
         return RailOneApiFacade(
             guard=AuthenticatedRequestGuard(
                 tokens=access_tokens,
@@ -172,13 +176,10 @@ class DeployedSandboxRuntime:
             ),
             history=TransactionHistoryService(self.history),
             outcomes=self.projections,
+            avia_merchant=AviaMerchantApi(acceptance) if enable_avia_merchant else None,
             bilateral_p2p=BilateralP2PApi(
                 bilateral=BilateralAuthorityService(signatures),
-                acceptance=self.sender_first_p2p_acceptance(
-                    signatures=signatures,
-                    utt_signing_key_id=utt_signing_key_id,
-                    authority_signing_key_id=authority_signing_key_id,
-                ),
+                acceptance=acceptance,
             ),
         )
 

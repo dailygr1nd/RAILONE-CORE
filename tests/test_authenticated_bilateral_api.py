@@ -73,7 +73,9 @@ class AuthenticatedBilateralApiTests(unittest.TestCase):
             audits=self.audits, signatures=self.signatures,
             audit_signing_key_id="api-audit",
         )
+        from railone_api.avia import AviaMerchantApi
         self.facade = RailOneApiFacade(
+            avia_merchant=AviaMerchantApi(self.fx.accept),
             guard=self.guard,
             history=TransactionHistoryService(InMemoryTransactionHistoryStore()),
             outcomes=InMemoryProviderOutcomeProjectionStore(),
@@ -110,6 +112,42 @@ class AuthenticatedBilateralApiTests(unittest.TestCase):
             json=self._body() if body is None else body,
             headers=self._headers(token, key=key),
         )
+
+    def test_avia_operations_and_cross_channel_denials(self):
+        from railone_api.avia import PURPOSES, branch_permission
+        for operation, purpose in PURPOSES.items():
+            with self.subTest(operation=operation):
+                terms = replace(self.fx.terms, purpose=purpose, request_id=operation,
+                                payer=replace(self.fx.terms.payer, actor_type="MERCHANT", actor_id="MER001"),
+                                beneficiary=replace(self.fx.terms.beneficiary,
+                                    actor_type="BRANCH" if operation == "BRANCH_FUND_TRANSFER" else "SUPPLIER",
+                                    actor_id="BR002" if operation == "BRANCH_FUND_TRANSFER" else "SUP001"))
+                quote = self.fx.make_quote(terms)
+                body = dict(operation=operation, signed_quote=quote.to_dict(), branch_id="BR001",
+                            origin_intent_id="AVIA-"+operation)
+                debit = branch_permission("debit", "MER001", "BR001", quote.payload["payer"]["endpoint"])
+                credit = branch_permission("credit", "MER001", "BR002", quote.payload["beneficiary"]["endpoint"])
+                def service(permissions, merchant="MER001"):
+                    return self.tokens.issue(principal_id="AVIA-SVC", principal_type=PrincipalType.MERCHANT_SERVICE,
+                        scopes=ActorScopes(merchant_ids=(merchant,), branch_ids=("BR001","BR002"),
+                                           permissions=permissions), key_id="api-token", at=self.fx.now)
+                def post(token, request):
+                    return self.client.post("/v1/avia/merchant/utts", json=request,
+                        headers=self._headers(token, key="IDEM-"+operation))
+                grants = ("avia."+operation, debit, credit)
+                token = service(grants)
+                self.assertEqual(self._post("utts", token, key="IDEM-P2P-DENY").status_code, 403)
+                self.assertEqual(post(self.sender_token, body).status_code, 403)
+                self.assertEqual(post(service(grants, "OTHER"), body).status_code, 403)
+                self.assertEqual(post(service((debit, credit)), body).status_code, 403)
+                self.assertEqual(post(token, {**body, "branch_id":"BR002"}).status_code, 403)
+                if operation == "BRANCH_FUND_TRANSFER":
+                    self.assertEqual(post(service(grants[:-1]), body).status_code, 403)
+                accepted = post(token, body)
+                self.assertEqual(accepted.status_code, 200, accepted.text)
+                self.assertFalse(accepted.json()["replayed"])
+                replay = post(token, body)
+                self.assertEqual(replay.json(), {**accepted.json(), "replayed":True})
 
     def test_sender_receiver_then_utt_and_idempotent_replay(self):
         s = self._post("etk-s/verify", self.sender_token)

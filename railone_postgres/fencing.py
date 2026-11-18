@@ -297,38 +297,48 @@ class PostgresEconomicEffectFence:
             )
             if cursor.fetchone() is None:
                 raise EconomicFenceViolation("settlement UTT is not recognized")
-            cursor.execute(
-                """SELECT fence_epoch FROM railone.utt_economic_fences
-                   WHERE utt_id=%s AND current_rtt_id=%s AND state='HELD' FOR UPDATE""",
-                (utt_id, rtt_id),
-            )
-            row = cursor.fetchone()
-            if row is None:
-                raise EconomicFenceViolation("late or mismatched settlement needs operator escalation")
-            cursor.execute(
-                """SELECT 1 FROM railone.settlement_evidence AS e
-                   JOIN railone.provider_submissions AS s ON
-                       s.provider_id=e.provider_id AND
-                       s.external_reference=e.provider_transaction_id
-                   WHERE e.evidence_id=%s AND e.utt_id=%s AND s.rtt_id=%s""",
-                (evidence_id, utt_id, rtt_id),
-            )
-            if cursor.fetchone() is None:
-                raise EconomicFenceViolation("settlement evidence is not correlated to reserved RTT")
-            cursor.execute(
-                """UPDATE railone.utt_economic_fences
-                   SET state='FINALIZED',version=version+1,updated_at=%s
-                   WHERE utt_id=%s AND state='HELD'""", (instant, utt_id),
-            )
-            cursor.execute(
-                """UPDATE railone.rtt_operational_fences SET state='SETTLED',updated_at=%s
-                   WHERE rtt_id=%s AND state IN ('RESERVED','UNKNOWN','ACCEPTED_FOR_PROCESSING','REJECTED')""",
-                (instant, rtt_id),
-            )
-            if cursor.rowcount != 1:
-                raise EconomicFenceViolation("cannot finalize RTT operational fence")
-            self._event(cursor, utt_id, rtt_id, row["fence_epoch"],
-                        "SETTLED", evidence_id, instant)
+            self.finalize_locked(cursor, utt_id, rtt_id, evidence_id, instant)
+
+    @staticmethod
+    def finalize_locked(cursor, utt_id, rtt_id, evidence_id, instant):
+        """Caller holds the accepted UTT row lock until transaction commit."""
+        cursor.execute(
+            """SELECT fence_epoch,state FROM railone.utt_economic_fences
+               WHERE utt_id=%s AND current_rtt_id=%s FOR UPDATE""",
+            (utt_id, rtt_id),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            raise EconomicFenceViolation("late or mismatched settlement needs operator escalation")
+        if row["state"] == "FINALIZED":
+            cursor.execute("SELECT 1 FROM railone.economic_fence_events WHERE utt_id=%s "
+                           "AND rtt_id=%s AND event_type='SETTLED' AND evidence_id=%s",
+                           (utt_id, rtt_id, evidence_id))
+            if cursor.fetchone() is not None:
+                return
+        if row["state"] != "HELD":
+            raise EconomicFenceViolation("settlement conflicts with current fence")
+        cursor.execute(
+            """SELECT 1 FROM railone.correlated_settlement_evidence
+               WHERE evidence_id=%s AND utt_id=%s AND rtt_id=%s""",
+            (evidence_id, utt_id, rtt_id),
+        )
+        if cursor.fetchone() is None:
+            raise EconomicFenceViolation("settlement evidence is not correlated to reserved RTT")
+        cursor.execute(
+            """UPDATE railone.utt_economic_fences
+               SET state='FINALIZED',version=version+1,updated_at=%s
+               WHERE utt_id=%s AND state='HELD'""", (instant, utt_id),
+        )
+        cursor.execute(
+            """UPDATE railone.rtt_operational_fences SET state='SETTLED',updated_at=%s
+               WHERE rtt_id=%s AND state IN ('RESERVED','UNKNOWN','ACCEPTED_FOR_PROCESSING','REJECTED')""",
+            (instant, rtt_id),
+        )
+        if cursor.rowcount != 1:
+            raise EconomicFenceViolation("cannot finalize RTT operational fence")
+        PostgresEconomicEffectFence._event(cursor, utt_id, rtt_id, row["fence_epoch"],
+                    "SETTLED", evidence_id, instant)
 
     @staticmethod
     def _event(cursor, utt_id: str, rtt_id: str, epoch: int, kind: str,

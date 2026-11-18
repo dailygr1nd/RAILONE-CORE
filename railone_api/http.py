@@ -172,6 +172,22 @@ def create_app(
             _rate_headers(response, decision)
             return jsonable_encoder(result)
 
+    if facade.avia_merchant is not None:
+        @app.post("/v1/avia/merchant/utts")
+        def create_avia_utt(
+            response: Response,
+            body: dict = Body(...),
+            credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+            request_id: str | None = Header(default=None, alias="X-Request-ID"),
+            idempotency_key: str = Header(default="", alias="Idempotency-Key"),
+        ):
+            result, decision = facade.create_avia_utt(
+                bearer_token=_token(credentials), request_id=_request_id(request_id),
+                body=body, idempotency_key=idempotency_key,
+            )
+            _rate_headers(response, decision)
+            return jsonable_encoder(result)
+
     @app.get("/v1/auth/me")
     def me(
         response: Response,

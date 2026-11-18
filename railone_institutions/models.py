@@ -294,6 +294,8 @@ class InstitutionSubmissionResult:
     finality: FinalityLevel = FinalityLevel.NONE
     evidence: Mapping[str, Any] = field(default_factory=dict, repr=False)
 
+    originator_conversation_id: str | None = field(default=None, repr=False)
+
     def __post_init__(self) -> None:
         if self.outcome is InstitutionOutcome.ACCEPTED_FOR_PROCESSING and self.finality > FinalityLevel.PROCESSING:
             raise ValueError("provider acceptance cannot assert credit or settlement finality")

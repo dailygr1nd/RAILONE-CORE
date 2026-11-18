@@ -202,7 +202,7 @@ def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver,
 
 
 def exercise_institutional_dispatch(
-    test, database, *, scenario="accepted", report=None, http_bilateral=False, delegated=False, reconcile_no_effect=False,
+    test, database, *, scenario="accepted", report=None, http_bilateral=False, delegated=False, reconcile_no_effect=False, check_settlement=False,
 ):
     if scenario not in {"accepted", "timeout", "crash"}:
         raise ValueError("unsupported synthetic scenario")
@@ -398,6 +398,44 @@ def exercise_institutional_dispatch(
                        (attempt.utt_id,))
         test.assertEqual(cursor.fetchone()["total"], 0)
     emit(f"RTT state {expected_fence}; economic hold HELD; settlement evidence count 0")
+    if check_settlement:
+        from railone_crypto import KeyPurpose
+        from railone_crypto.signature_service import ArtifactType
+        from railone_notifications import SettlementEvidenceRecord
+        from railone_postgres import PostgresSettlementNotificationStore
+
+        fixture.keys.generate(key_id="test-settlement", owner_id="RECONCILIATION",
+                              purpose=KeyPurpose.SETTLEMENT_SIGNING,
+                              not_before=at-timedelta(days=1), not_after=at+timedelta(days=1))
+        with database.transaction() as connection:
+            reference = connection.execute("SELECT external_reference FROM railone.provider_submissions "
+                                           "WHERE rtt_id=%s", (fixture.rtt_id,)).fetchone()["external_reference"]
+        def record(reference):
+            fields = dict(evidence_id="SET-SANDBOX", utt_id=attempt.utt_id, provider_id="PROVIDER-FAST",
+                          provider_transaction_id=reference, callback_event_id="CALLBACK-SANDBOX")
+            signed = fixture.signatures.sign_artifact(
+                artifact_type=ArtifactType.SETTLEMENT_EVIDENCE, key_id="test-settlement",
+                payload={**fields, "rtt_id": fixture.rtt_id}, issued_at=at)
+            return SettlementEvidenceRecord(**fields, signed_evidence=signed, settled_at=at)
+        store = PostgresSettlementNotificationStore(database)
+        with test.assertRaises(EconomicFenceViolation):
+            store.commit_settlement(record("UNRELATED-REFERENCE"), ())
+        if scenario == "accepted":
+            test.assertTrue(reference)
+            evidence = record(reference)
+            test.assertFalse(store.commit_settlement(evidence, ())[2])
+            test.assertTrue(store.commit_settlement(evidence, ())[2])
+        with database.transaction() as connection:
+            settled = connection.execute("SELECT count(*) AS n FROM railone.fence_event_integrity "
+                                         "WHERE utt_id=%s AND event_type='SETTLED' AND valid",
+                                         (attempt.utt_id,)).fetchone()["n"]
+            test.assertEqual(settled, int(scenario == "accepted"))
+            row = connection.execute("SELECT state FROM railone.utt_economic_fences WHERE utt_id=%s",
+                                     (attempt.utt_id,)).fetchone()
+            test.assertEqual(row["state"], "FINALIZED" if scenario == "accepted" else "HELD")
+            count = connection.execute("SELECT count(*) AS n FROM railone.settlement_evidence "
+                                       "WHERE utt_id=%s", (attempt.utt_id,)).fetchone()["n"]
+            test.assertEqual(count, settled)
     if reconcile_no_effect:
         test.assertEqual(scenario, "timeout")
         from hashlib import sha256
@@ -437,6 +475,24 @@ def exercise_institutional_dispatch(
                                      "WHERE utt_id=%s AND event_type='VERIFIED_NO_EFFECT'",
                                      (attempt.utt_id,)).fetchone()
             test.assertEqual(row["n"], 1)
+        with database.transaction() as connection:
+            chain = connection.execute(
+                "SELECT event_type,valid FROM railone.fence_event_integrity "
+                "WHERE utt_id=%s ORDER BY chain_position", (attempt.utt_id,)
+            ).fetchall()
+            test.assertEqual([r["event_type"] for r in chain],
+                             ["RESERVED", "PROVIDER_UNKNOWN", "VERIFIED_NO_EFFECT"])
+            test.assertTrue(all(r["valid"] for r in chain))
+            # Rehash a changed copy without mutating the append-only stream.
+            matches = connection.execute(
+                """SELECT event_hash = railone.fence_event_hash(jsonb_populate_record(
+                       NULL::railone.economic_fence_events,
+                       to_jsonb(e) || jsonb_build_object('evidence_id','EVID-CHANGED'))) AS matches
+                   FROM railone.economic_fence_events e WHERE utt_id=%s AND chain_position=3""",
+                (attempt.utt_id,)
+            ).fetchone()
+            test.assertFalse(matches["matches"])
+        emit("Verified three linked economic fence records for this UTT")
         test.assertEqual(len(observed), 1)
         emit("Signed no-effect reconciliation released the hold at epoch 2; duplicate proof denied")
     if http_bilateral:

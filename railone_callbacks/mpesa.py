@@ -125,6 +125,14 @@ class MpesaCallbackProcessor:
             self.provider_id, conversation_id
         )
         if submission is None:
+            # Preserve a receipt without assigning an unverified UTT or retaining the body.
+            self._inbox.ingest(
+                provider_id=self.provider_id,
+                provider_event_id=f"MPESA-UNMATCHED-{callback_type}-{raw_hash}",
+                payload_sha256=raw_hash,
+                normalized_payload={"reason": "UNMATCHED_SUBMISSION", "callback_type": callback_type},
+                signature_valid=True, received_at=instant,
+            )
             raise LookupError("M-PESA callback has no matching provider submission")
         context = dict(submission.provider_context)
         if context.get("originator_conversation_id") != normalized["originator_conversation_id"]:

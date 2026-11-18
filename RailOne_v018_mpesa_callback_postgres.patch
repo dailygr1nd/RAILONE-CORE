@@ -1,0 +1,236 @@
+--- a/railone_institutions/legacy.py
++++ b/railone_institutions/legacy.py
+@@ -81,6 +81,7 @@
+         return InstitutionSubmissionResult(
+             outcome, result.code, result.external_reference,
+             FinalityLevel.PROCESSING if outcome is InstitutionOutcome.ACCEPTED_FOR_PROCESSING else FinalityLevel.NONE,
++            originator_conversation_id=dict(result.provider_context).get("originator_conversation_id"),
+         )
+ 
+     def query_status(self, *, external_reference: str) -> InstitutionStatusResult:
+--- a/railone_institutions/models.py
++++ b/railone_institutions/models.py
+@@ -294,6 +294,8 @@
+     finality: FinalityLevel = FinalityLevel.NONE
+     evidence: Mapping[str, Any] = field(default_factory=dict, repr=False)
+ 
++    originator_conversation_id: str | None = field(default=None, repr=False)
++
+     def __post_init__(self) -> None:
+         if self.outcome is InstitutionOutcome.ACCEPTED_FOR_PROCESSING and self.finality > FinalityLevel.PROCESSING:
+             raise ValueError("provider acceptance cannot assert credit or settlement finality")
+--- a/railone_institutions/spi.py
++++ b/railone_institutions/spi.py
+@@ -62,11 +62,15 @@
+         self._adapter.validate_instruction(instruction)
+         result = self._adapter.submit(instruction)
+         if result.outcome is InstitutionOutcome.ACCEPTED_FOR_PROCESSING:
++            context = (("adapter_binding_ref", self.binding_ref),)
++            if self.provider_id == "MPESA-KE" and result.originator_conversation_id:
++                context += (("originator_conversation_id", result.originator_conversation_id),
++                            ("amount_minor", str(request.amount_minor)))
+             return ProviderSubmissionResult(
+                 outcome=ProviderOutcome.ACCEPTED,
+                 code=result.code,
+                 external_reference=result.external_reference,
+-                provider_context=(("adapter_binding_ref", self.binding_ref),),
++                provider_context=context,
+             )
+         if result.outcome is InstitutionOutcome.REJECTED_RETRYABLE:
+             return ProviderSubmissionResult(
+--- a/railone_postgres/fencing.py
++++ b/railone_postgres/fencing.py
+@@ -319,19 +319,8 @@
+         if row["state"] != "HELD":
+             raise EconomicFenceViolation("settlement conflicts with current fence")
+         cursor.execute(
+-            """SELECT 1 FROM railone.settlement_evidence e
+-               JOIN railone.provider_submissions s ON s.utt_id=e.utt_id AND s.provider_id=e.provider_id
+-               LEFT JOIN railone.provider_callback_inbox c ON c.provider_id=e.provider_id
+-                    AND c.provider_event_id=e.callback_event_id AND c.signature_valid
+-               WHERE e.evidence_id=%s AND e.utt_id=%s AND s.rtt_id=%s
+-                 AND e.signed_evidence #>> '{payload,rtt_id}' = s.rtt_id
+-                 AND ((s.provider_id <> 'MPESA-KE' AND s.external_reference=e.provider_transaction_id)
+-                      OR (s.provider_id='MPESA-KE'
+-                          AND c.provider_event_id='MPESA-RESULT-' || s.external_reference
+-                          AND c.raw_payload->>'conversation_id'=s.external_reference
+-                          AND c.raw_payload->>'originator_conversation_id'=s.provider_context->>'originator_conversation_id'
+-                          AND c.raw_payload->>'transaction_id'=e.provider_transaction_id
+-                          AND c.raw_payload->'result_code'='0'::jsonb))""",
++            """SELECT 1 FROM railone.correlated_settlement_evidence
++               WHERE evidence_id=%s AND utt_id=%s AND rtt_id=%s""",
+             (evidence_id, utt_id, rtt_id),
+         )
+         if cursor.fetchone() is None:
+--- a/tests/test_postgres_live.py
++++ b/tests/test_postgres_live.py
+@@ -223,7 +223,15 @@
+         self.assertEqual(vault.resolve(institution_id="SYNTHETIC-INST",
+                                        account_binding_id="SYNTHETIC-BIND"), "SYNTHETIC-ENDPOINT")
+ 
++    def test_mpesa_callback_timeout_then_settlement(self):
++        self.setUpClass()
++        self._exercise_submission(mpesa_callback=True)
++
+     def test_contract_execution_submission_and_projection_round_trip(self):
++        self.setUpClass()
++        self._exercise_submission(mpesa_callback=False)
++
++    def _exercise_submission(self, *, mpesa_callback):
+         now = datetime(2026, 7, 14, 19, 0, tzinfo=timezone.utc)
+         keys = InMemoryEd25519KeyProvider()
+         keys.generate(
+@@ -255,7 +263,7 @@
+                 ),
+                 purpose=PaymentPurpose.SUPPLIER_PAYMENT,
+                 amount_minor=10_000, currency_from="KES",
+-                receive_amount_minor=9_950, currency_to="KES",
++                receive_amount_minor=10_000 if mpesa_callback else 9_950, currency_to="KES",
+                 total_fee_minor=50, routing_budget_minor=50, fx_rate="1.000000",
+                 corridor_id="KE-DOMESTIC", service_level="STANDARD",
+                 routing_policy_id="POLICY-KE-PILOT", pricing_version="2026-07",
+@@ -287,7 +295,7 @@
+         route = RouteCandidate(
+             route_id="MPESA", source_institution_id="BANK-001",
+             destination_institution_id="MNO-001", rail="MOBILE_MONEY",
+-            provider="MPESA-KE", adapter="mpesa-sandbox-v1",
++            provider="MPESA-KE", adapter="railone.mpesa.ke.b2c@1.0.0" if mpesa_callback else "mpesa-sandbox-v1",
+             currency_from="KES", currency_to="KES", min_amount_minor=100,
+             max_amount_minor=1_000_000, latency_ms=500, congestion_bps=100,
+             liquidity_capacity_minor=5_000_000, throughput_headroom_bps=9000,
+@@ -317,7 +325,7 @@
+         )
+         endpoint_resolver.register(
+             institution_id="MNO-001", account_binding_id="BIND-LIVE-PAYEE",
+-            provider_reference="PAYEE-REF",
++            provider_reference="254712345678" if mpesa_callback else "PAYEE-REF",
+         )
+         from railone_postgres import PostgresEconomicEffectFence, EconomicFenceViolation
+         from railone_crypto.signature_service import ArtifactType
+@@ -354,8 +362,19 @@
+         self.assertEqual(results.count("DENIED"), 1)
+         with self.assertRaises(EconomicFenceViolation):
+             reserve_once()
++        payment_adapter = AcceptedAdapter()
++        if mpesa_callback:
++            from tests.test_mpesa_adapter import FakeTransport, HttpResponse, adapter
++            from railone_institutions import InstitutionAdapterBridge
++            from railone_providers import mpesa_b2c_institution_plugin
++            underlying = adapter(FakeTransport(
++                HttpResponse(200, b'{"access_token":"synthetic","expires_in":"3599"}'),
++                HttpResponse(200, b'{"ResponseCode":"0","ConversationID":"AG_001",'
++                                  b'"OriginatorConversationID":"R1_ORIGIN_001"}')))
++            payment_adapter = InstitutionAdapterBridge(mpesa_b2c_institution_plugin(
++                underlying, source_institution_ids=("BANK-001",), destination_institution_ids=("MNO-001",)))
+         submission = coordinator.dispatch(
+-            rtt_id=attempt.rtt_id, adapter=AcceptedAdapter(), at=now + timedelta(seconds=4)
++            rtt_id=attempt.rtt_id, adapter=payment_adapter, at=now + timedelta(seconds=4)
+         )
+         fence.record_provider_outcome(
+             utt_id=contract.utt_id, rtt_id=attempt.rtt_id,
+@@ -367,6 +386,54 @@
+                 fence_epoch=1, release_evidence_ref=None,
+                 at=now + timedelta(seconds=5),
+             )
++        if mpesa_callback:
++            import json
++            from railone_callbacks import MpesaCallbackProcessor, MpesaIngressAuthenticator
++            from railone_notifications import SettlementNotificationService
++            from railone_postgres.callbacks import PostgresCallbackInboxStore
++            from railone_postgres.notifications import PostgresSettlementNotificationStore
++            from tests.test_mpesa_callbacks import FixedSecret, envelope, signature
++
++            keys.generate(key_id="sandbox-settlement", owner_id="RAILONE", purpose=KeyPurpose.SETTLEMENT_SIGNING,
++                          not_before=now-timedelta(days=1), not_after=now+timedelta(days=1))
++            processor = MpesaCallbackProcessor(
++                authenticator=MpesaIngressAuthenticator(FixedSecret()), inbox=PostgresCallbackInboxStore(database),
++                operations=operations, executions=executions, attempts=RttAttemptService(
++                    signatures=signatures, contracts=contracts, executions=executions,
++                    rtt_signing_key_id="R1CORE:execution:live"),
++                settlements=SettlementNotificationService(
++                    signatures=signatures, contracts=contracts, executions=executions,
++                    store=PostgresSettlementNotificationStore(database), settlement_signing_key_id="sandbox-settlement"))
++            def callback_body(code, **kwargs):
++                data = json.loads(envelope(code, **kwargs))
++                data["Result"]["ConversationID"] = submission.external_reference
++                return json.dumps(data).encode()
++            when = now + timedelta(seconds=6)
++            timeout = callback_body(2001)
++            result = processor.process_timeout(raw_body=timeout, ingress_signature=signature(timeout), at=when)
++            self.assertEqual(result.disposition, "RECONCILIATION_REQUIRED")
++            success = callback_body(0, transaction_id="TXN-SETTLED-123", transaction_amount=100)
++            unrelated = success.replace(submission.external_reference.encode(), b"OTHER-CONVERSATION")
++            with self.assertRaises(LookupError):
++                processor.process_result(raw_body=unrelated, ingress_signature=signature(unrelated), at=when)
++            with database.transaction() as con:
++                hold = con.execute("SELECT state FROM railone.utt_economic_fences WHERE utt_id=%s",
++                                   (contract.utt_id,)).fetchone()
++                self.assertEqual(hold["state"], "HELD")
++            for expected in ("CONFIRMED_SUCCESS", "ALREADY_APPLIED"):
++                result = processor.process_result(raw_body=success, ingress_signature=signature(success), at=when)
++                self.assertEqual((result.disposition, result.rtt_id), (expected, attempt.rtt_id))
++            with database.transaction() as con:
++                proof = con.execute("SELECT provider_transaction_id FROM railone.settlement_evidence "
++                                    "WHERE utt_id=%s", (contract.utt_id,)).fetchall()
++                self.assertEqual(proof, [{"provider_transaction_id": "TXN-SETTLED-123"}])
++                events = con.execute("SELECT valid FROM railone.fence_event_integrity WHERE utt_id=%s "
++                                     "AND event_type='SETTLED'", (contract.utt_id,)).fetchall()
++                self.assertEqual(events, [{"valid": True}])
++                notifications = con.execute("SELECT count(*) AS n FROM railone.sms_notification_outbox "
++                                            "WHERE utt_id=%s", (contract.utt_id,)).fetchone()
++                self.assertEqual(notifications["n"], 2)
++            return
+         # Synthetic no-effect assertion tests transition mechanics only; the
+         # real signer must first verify actual authenticated provider evidence.
+         evidence = signatures.sign_artifact(
+--- /dev/null
++++ b/migrations/0020_correlated_settlement_evidence.sql
+@@ -0,0 +1,48 @@
++BEGIN;
++CREATE VIEW railone.correlated_settlement_evidence AS
++SELECT e.evidence_id,e.utt_id,s.rtt_id FROM railone.settlement_evidence e
++               JOIN railone.provider_submissions s ON s.utt_id=e.utt_id AND s.provider_id=e.provider_id
++               LEFT JOIN railone.provider_callback_inbox c ON c.provider_id=e.provider_id
++                    AND c.provider_event_id=e.callback_event_id AND c.signature_valid
++               WHERE e.signed_evidence #>> '{payload,rtt_id}' = s.rtt_id
++                 AND ((s.provider_id <> 'MPESA-KE' AND s.external_reference=e.provider_transaction_id)
++                      OR (s.provider_id='MPESA-KE'
++                          AND c.provider_event_id='MPESA-RESULT-' || s.external_reference
++                          AND c.raw_payload->>'conversation_id'=s.external_reference
++                          AND c.raw_payload->>'originator_conversation_id'=s.provider_context->>'originator_conversation_id'
++                          AND c.raw_payload->>'transaction_id'=e.provider_transaction_id
++                          AND c.raw_payload->'result_code'='0'::jsonb));
++
++CREATE OR REPLACE FUNCTION railone.guard_rtt_operational_fence_update() RETURNS trigger
++LANGUAGE plpgsql AS $$
++BEGIN
++    IF NEW.rtt_id <> OLD.rtt_id OR NEW.utt_id <> OLD.utt_id
++       OR NEW.fence_epoch <> OLD.fence_epoch
++       OR NEW.request_sha256 <> OLD.request_sha256
++       OR NEW.created_at <> OLD.created_at THEN
++        RAISE EXCEPTION 'RTT operational fence identity cannot change';
++    END IF;
++    IF OLD.state = 'RESERVED'
++       AND NEW.state IN ('ACCEPTED_FOR_PROCESSING','REJECTED','UNKNOWN') THEN
++        RETURN NEW;
++    END IF;
++    IF OLD.state IN ('RESERVED','ACCEPTED_FOR_PROCESSING','REJECTED','UNKNOWN')
++       AND NEW.state = 'RELEASED_NO_EFFECT'
++       AND EXISTS (
++           SELECT 1 FROM railone.economic_fence_no_effect_evidence e
++           WHERE e.utt_id = OLD.utt_id AND e.rtt_id = OLD.rtt_id
++       ) THEN
++        RETURN NEW;
++    END IF;
++    IF OLD.state IN ('RESERVED','ACCEPTED_FOR_PROCESSING','REJECTED','UNKNOWN')
++       AND NEW.state = 'SETTLED'
++       AND EXISTS (
++           SELECT 1 FROM railone.correlated_settlement_evidence e
++           WHERE e.utt_id = OLD.utt_id AND e.rtt_id = OLD.rtt_id
++       ) THEN
++        RETURN NEW;
++    END IF;
++    RAISE EXCEPTION 'unsafe RTT operational fence transition';
++END;
++$$;
++COMMIT;
