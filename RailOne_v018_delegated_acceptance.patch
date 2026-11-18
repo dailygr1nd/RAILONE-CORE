@@ -1,0 +1,588 @@
+diff --git a/RAILONE_DELEGATED_ACCEPTANCE.md b/RAILONE_DELEGATED_ACCEPTANCE.md
+new file mode 100644
+index 0000000..206bdf2
+--- /dev/null
++++ b/RAILONE_DELEGATED_ACCEPTANCE.md
+@@ -0,0 +1,22 @@
++# Delegated receiver acceptance in the institutional sandbox
++
++A beneficiary may sign a version 1 receiving mandate authorizing one destination
++institution to accept inbound transfers to one verified account binding, in one
++currency, up to a limit per transfer and before an expiry. A mandate can cover
++multiple transfers. The beneficiary signs the grant before the sender signs
++ETK-S. A trusted operator provisions the signed grant in PostgreSQL and can
++revoke it there. This sandbox includes no public enrollment or revocation API.
++
++The institution signs ETK-R for the exact sender ETK-S and quote, with mode
++BENEFICIARY_PREAUTHORIZED and receiver_confirmed false. The authenticated
++receiver verification route checks the partner scope and signatures. UTT
++creation requires the payer principal. At acceptance PostgreSQL locks the
++registered grant, checks its contents, status and deadlines and commits the
++bilateral evidence, UTT and idempotency record together. A committed revocation
++blocks new acceptance. A later revocation preserves previously accepted UTTs.
++An absent beneficiary or passive credit supplies no delegation authority.
++
++Run the disposable sandbox with --http-bilateral --delegated and any of
++--scenario accepted, --scenario timeout or --scenario crash. Each run requires
++--reset-disposable-db and rebuilds the disposable schemas. Omitting --delegated
++exercises direct beneficiary acceptance.
+diff --git a/demo_sandbox.py b/demo_sandbox.py
+index 172dbe8..1673696 100644
+--- a/demo_sandbox.py
++++ b/demo_sandbox.py
+@@ -21,7 +21,10 @@ def main() -> int:
+         "--report-json", metavar="PATH",
+         help="Write a sanitized machine-readable evidence report on success.",
+     )
++    parser.add_argument("--delegated", action="store_true", help="Use beneficiary-mandated institutional acceptance.")
+     args = parser.parse_args()
++    if args.delegated and not args.http_bilateral:
++        parser.error("--delegated requires --http-bilateral")
+     if not args.reset_disposable_db:
+         parser.error("--reset-disposable-db is required; this demo rebuilds both RailOne schemas")
+     if not os.environ.get("RAILONE_TEST_DATABASE_URL"):
+@@ -49,7 +52,7 @@ def main() -> int:
+         exercise_institutional_dispatch(
+             test, PostgresDatabase(test.factory), scenario=args.scenario,
+             report=report,
+-            http_bilateral=args.http_bilateral,
++            http_bilateral=args.http_bilateral, delegated=args.delegated,
+         )
+     except Exception as exc:
+         # Avoid printing connection strings or raw account data from driver errors.
+@@ -64,7 +67,7 @@ def main() -> int:
+         path = Path(args.report_json)
+         evidence = {
+             "protocol": "RAILONE",
+-            "profile": "V0.17_INSTITUTIONAL_SANDBOX",
++            "profile": "V0.18_DELEGATED_SANDBOX" if args.delegated else "V0.17_INSTITUTIONAL_SANDBOX",
+             "custody_model": "NON_CUSTODIAL",
+             "transport": "IN_PROCESS_ASGI_HTTP" if args.http_bilateral else "INTERNAL_FIXTURE",
+             "scenario": args.scenario,
+diff --git a/migrations/0018_receiving_mandates.sql b/migrations/0018_receiving_mandates.sql
+new file mode 100644
+index 0000000..c414e30
+--- /dev/null
++++ b/migrations/0018_receiving_mandates.sql
+@@ -0,0 +1,23 @@
++BEGIN;
++CREATE TABLE railone.receiving_mandates (
++    mandate_id text PRIMARY KEY,
++    signed_grant jsonb NOT NULL,
++    revoked_at timestamptz,
++    CHECK ((signed_grant #>> '{payload,mandate_id}') IS NOT DISTINCT FROM mandate_id)
++);
++CREATE FUNCTION railone.guard_receiving_mandate() RETURNS trigger LANGUAGE plpgsql AS $$
++BEGIN
++    IF OLD.revoked_at IS NOT NULL OR NEW.revoked_at IS NULL
++       OR NEW.signed_grant IS DISTINCT FROM OLD.signed_grant
++       OR NEW.mandate_id IS DISTINCT FROM OLD.mandate_id THEN
++        RAISE EXCEPTION 'mandate permits only terminal revocation';
++    END IF;
++    RETURN NEW;
++END;
++$$;
++CREATE TRIGGER receiving_mandate_guard BEFORE UPDATE ON railone.receiving_mandates
++FOR EACH ROW EXECUTE FUNCTION railone.guard_receiving_mandate();
++CREATE TRIGGER receiving_mandate_no_delete BEFORE DELETE ON railone.receiving_mandates
++FOR EACH ROW EXECUTE FUNCTION railone.reject_append_only_mutation();
++REVOKE ALL ON railone.receiving_mandates FROM PUBLIC;
++COMMIT;
+diff --git a/railone_api/bilateral.py b/railone_api/bilateral.py
+index 63ad04a..95e666e 100644
+--- a/railone_api/bilateral.py
++++ b/railone_api/bilateral.py
+@@ -32,8 +32,7 @@ class BilateralP2PApi:
+     """Inject into RailOneApiFacade; all endpoints remain unavailable by default.
+ 
+     A HUMAN principal with a trusted continuity_uid claim represents the payer
+-    or beneficiary. Delegated institutional signing is deliberately out of scope
+-    until an explicit scoped delegation model is certified.
++    or beneficiary. A scoped partner can present its own delegated acceptance.
+     """
+ 
+     def __init__(
+@@ -74,7 +73,12 @@ class BilateralP2PApi:
+         quote = _envelope(request, "signed_quote")
+         sender = _envelope(request, "sender_authority")
+         receiver = _envelope(request, "receiver_authority")
+-        _principal_owns(principal, quote, "beneficiary")
++        if receiver.payload.get("participation_mode") == "BENEFICIARY_PREAUTHORIZED":
++            if (principal.principal_type is not PrincipalType.PARTNER_SERVICE
++                    or receiver.protected.get("iss") not in principal.scopes.partner_ids):
++                raise PermissionError("MANDATE_PARTNER_SCOPE_REQUIRED")
++        else:
++            _principal_owns(principal, quote, "beneficiary")
+         _verify(lambda: self._bilateral.verify_receiver(
+             signed_quote=quote, sender=sender, receiver=receiver, at=at,
+         ))
+@@ -98,9 +102,6 @@ class BilateralP2PApi:
+         sender = _envelope(request, "sender_authority")
+         receiver = _envelope(request, "receiver_authority")
+         _principal_owns(principal, quote, "payer")
+-        _verify(lambda: self._bilateral.verify_receiver(
+-            signed_quote=quote, sender=sender, receiver=receiver, at=at,
+-        ))
+         origin_intent_id = request.get("origin_intent_id")
+         if (not isinstance(origin_intent_id, str) or
+                 not 1 <= len(origin_intent_id) <= 128 or not origin_intent_id.strip()):
+@@ -113,10 +114,10 @@ class BilateralP2PApi:
+         command = QuoteAcceptanceCommand(
+             signed_quote=quote, sender_authority=sender, receiver_authority=receiver,
+             origin=origin, authorization_method="SIGNED_BILATERAL_ETK_V3",
+-            authorization_reference=receiver.payload["etk_r_id"],
++            authorization_reference=receiver.payload.get("etk_r_id"),
+             idempotency_key=idempotency_key,
+         )
+-        accepted = self._acceptance.accept(command, at=at)
++        accepted = _verify(lambda: self._acceptance.accept(command, at=at))
+         return {
+             "status": "ACCEPTED", "authority_version": 4,
+             "quote_id": accepted.contract.quote_id,
+@@ -165,9 +166,9 @@ def _principal_owns(
+         raise PermissionError("BILATERAL_ACTOR_SCOPE_MISMATCH")
+ 
+ 
+-def _verify(check) -> None:
++def _verify(check):
+     """Normalize malformed signed artifacts; never publish parsing details."""
+     try:
+-        check()
++        return check()
+     except (ValueError, TypeError, KeyError, AttributeError):
+         raise PermissionError("INVALID_BILATERAL_ARTIFACT") from None
+diff --git a/railone_authority/bilateral.py b/railone_authority/bilateral.py
+index 4e3a7d5..1ebc5f6 100644
+--- a/railone_authority/bilateral.py
++++ b/railone_authority/bilateral.py
+@@ -8,6 +8,7 @@ authorities before UTT creation; neither pre-UTT authority includes a UTT ID.
+ from __future__ import annotations
+ 
+ import hashlib
++from .mandates import MODE, receiver_owner
+ from datetime import datetime
+ from typing import Mapping, Any
+ 
+@@ -168,6 +169,7 @@ class BilateralAuthorityService:
+     def issue_receiver_acceptance(
+         self, *, signed_quote: SignatureEnvelope, sender: SignatureEnvelope,
+         signing_key_id: str, accepted_at: datetime, expires_at: datetime,
++        mandate: SignatureEnvelope | None = None,
+     ) -> SignatureEnvelope:
+         self.verify_sender(signed_quote=signed_quote, sender=sender, at=accepted_at)
+         epoch, expiry = _instant(accepted_at), _instant(expires_at)
+@@ -189,12 +191,16 @@ class BilateralAuthorityService:
+             "status": "ACTIVE",
+             "custody_model": "NON_CUSTODIAL",
+         }
++        if mandate is not None:
++            core.update(participation_mode=MODE, receiver_confirmed=False, mandate=mandate.to_dict())
++        owner = receiver_owner(self._signatures, core, quote,
++                               sender_epoch=sender.payload["authorized_at"], check_epoch=epoch)
+         signed = self._signatures.sign_artifact(
+             artifact_type=ArtifactType.ETK_R,
+             payload={"etk_r_id": _id("ETKR", core), **core},
+             key_id=signing_key_id, issued_at=accepted_at,
+         )
+-        _verified(self._signatures, signed, ArtifactType.ETK_R, quote["beneficiary"]["actor_id"])
++        _verified(self._signatures, signed, ArtifactType.ETK_R, owner)
+         return signed
+ 
+     def verify_receiver(
+@@ -204,13 +210,13 @@ class BilateralAuthorityService:
+         self.verify_sender(signed_quote=signed_quote, sender=sender, at=at)
+         epoch = _instant(at)
+         quote = signed_quote.payload
+-        r = _verified(self._signatures, receiver, ArtifactType.ETK_R, quote["beneficiary"]["actor_id"])
++        r = _verified(self._signatures, receiver, ArtifactType.ETK_R,
++                      receiver_owner(self._signatures, receiver.payload, quote,
++                                     sender_epoch=sender.payload["authorized_at"], check_epoch=epoch))
+         if any(r.get(k) != v for k, v in quote_commitment(quote).items()):
+             raise PermissionError("RECEIVER_QUOTE_BINDING_MISMATCH")
+         if (r.get("authority_version") != self.AUTHORITY_VERSION or
+                 r.get("authorization_scope") != "ACCEPT_SENDER_INTENT" or
+-                r.get("participation_mode") != "ACTIVE_ACCEPTANCE" or
+-                r.get("receiver_confirmed") is not True or
+                 r.get("status") != "ACTIVE" or
+                 r.get("custody_model") != "NON_CUSTODIAL" or
+                 r.get("etk_s_id") != sender.payload["etk_s_id"] or
+@@ -237,7 +243,9 @@ class BilateralAuthorityService:
+         if utt.get("authority_version") != self.AUTHORITY_VERSION or utt["origin"].get("context_type") != "P2P":
+             raise PermissionError("BILATERAL_UTT_REQUIRED")
+         s = _verified(self._signatures, sender, ArtifactType.ETK_S, utt["payer"]["actor_id"])
+-        r = _verified(self._signatures, receiver, ArtifactType.ETK_R, utt["beneficiary"]["actor_id"])
++        r = _verified(self._signatures, receiver, ArtifactType.ETK_R,
++                      receiver_owner(self._signatures, receiver.payload, utt,
++                                     sender_epoch=s["authorized_at"], check_epoch=utt["accepted_at"]))
+         self._verify_beneficiary(self._bound_evidence(s), utt, authorized_epoch=s.get("authorized_at"),
+                                  check_epoch=utt["accepted_at"])
+         expected = quote_commitment(utt)
+@@ -247,8 +255,6 @@ class BilateralAuthorityService:
+                 r.get("authority_version") != self.AUTHORITY_VERSION or
+                 s.get("authorization_scope") != "INITIATE_SIGNED_QUOTE" or
+                 r.get("authorization_scope") != "ACCEPT_SENDER_INTENT" or
+-                r.get("receiver_confirmed") is not True or
+-                r.get("participation_mode") != "ACTIVE_ACCEPTANCE" or
+                 s.get("status") != "ACTIVE" or r.get("status") != "ACTIVE" or
+                 s.get("custody_model") != "NON_CUSTODIAL" or r.get("custody_model") != "NON_CUSTODIAL" or
+                 r.get("etk_s_id") != s.get("etk_s_id") or
+diff --git a/railone_authority/mandates.py b/railone_authority/mandates.py
+new file mode 100644
+index 0000000..27f39e3
+--- /dev/null
++++ b/railone_authority/mandates.py
+@@ -0,0 +1,59 @@
++"""Beneficiary-signed, per-transfer inbound mandates for destination institutions."""
++from datetime import datetime
++from uuid import uuid4
++
++from railone_crypto.signature_service import ArtifactType, SignatureEnvelope
++
++MODE = "BENEFICIARY_PREAUTHORIZED"
++
++
++def grant(signatures, *, beneficiary, institution, account_binding_id, currency,
++          max_receive_minor, issued_at: datetime, expires_at: datetime, signing_key_id):
++    if (issued_at.tzinfo is None or expires_at.tzinfo is None
++            or int(expires_at.timestamp()) <= int(issued_at.timestamp())
++            or type(max_receive_minor) is not int or max_receive_minor <= 0):
++        raise ValueError("invalid mandate limit or validity")
++    body = dict(version=1, mandate_id=uuid4().hex, beneficiary=beneficiary,
++                institution=institution, account_binding_id=account_binding_id,
++                currency=currency, max_receive_minor=max_receive_minor,
++                expires_at=int(expires_at.timestamp()))
++    signature = signatures.sign_artifact(artifact_type=ArtifactType.RECEIVE_MANDATE,
++        payload=body, key_id=signing_key_id, issued_at=issued_at)
++    verify_grant(signatures, signature)
++    return signature
++
++
++def verify_grant(signatures, mandate):
++    p = mandate.payload
++    fields = {"version", "mandate_id", "beneficiary", "institution", "account_binding_id",
++              "currency", "max_receive_minor", "expires_at"}
++    if (not signatures.verify_artifact(mandate, expected_artifact_type=ArtifactType.RECEIVE_MANDATE).valid
++            or set(p) != fields or type(p["version"]) is not int or p["version"] != 1
++            or any(not isinstance(p[k], str) or not p[k].strip()
++                   for k in ("mandate_id", "beneficiary", "institution", "account_binding_id", "currency"))
++            or mandate.protected["iss"] != p["beneficiary"]
++            or type(p["expires_at"]) is not int or p["expires_at"] <= mandate.protected["iat"]
++            or type(p["max_receive_minor"]) is not int or p["max_receive_minor"] <= 0):
++        raise PermissionError("MANDATE_INVALID")
++
++
++def receiver_owner(signatures, receiver, terms, *, sender_epoch, check_epoch):
++    mode = receiver.get("participation_mode")
++    if mode == "ACTIVE_ACCEPTANCE" and receiver.get("receiver_confirmed") is True and "mandate" not in receiver:
++        return terms["beneficiary"]["actor_id"]
++    if mode != MODE or receiver.get("receiver_confirmed") is not False:
++        raise PermissionError("INVALID_RECEIVER_MODE")
++    try:
++        mandate = SignatureEnvelope.from_dict(receiver["mandate"])
++    except (AttributeError, KeyError, ValueError, TypeError) as exc:
++        raise PermissionError("MANDATE_INVALID") from exc
++    verify_grant(signatures, mandate)
++    p = mandate.payload
++    beneficiary = terms["beneficiary"]
++    endpoint = beneficiary["endpoint"]
++    if ((p["beneficiary"], p["institution"], p["account_binding_id"], p["currency"])
++            != (beneficiary["actor_id"], endpoint["institution_id"], endpoint["account_binding_id"], terms["currency_to"])
++            or terms["receive_amount_minor"] > p["max_receive_minor"]
++            or not mandate.protected["iat"] <= sender_epoch <= check_epoch < p["expires_at"]):
++        raise PermissionError("MANDATE_OUTSIDE_SCOPE")
++    return p["institution"]
+diff --git a/railone_contracts/acceptance_service.py b/railone_contracts/acceptance_service.py
+index b198335..200c96a 100644
+--- a/railone_contracts/acceptance_service.py
++++ b/railone_contracts/acceptance_service.py
+@@ -198,6 +198,8 @@ class QuoteAcceptanceService:
+                 signed_quote=command.signed_quote, sender=command.sender_authority,
+                 receiver=receiver, at=accepted_at,
+             )
++            if receiver.payload.get("participation_mode") == "BENEFICIARY_PREAUTHORIZED":
++                commercial_core["quote_expires_at"] = quote["expires_at"]
+             # ETK-S is independently signed by the payer; RailOne never
+             # signs a user's authorization just because an API caller named a key.
+             sender_authority = command.sender_authority
+diff --git a/railone_contracts/store.py b/railone_contracts/store.py
+index 16b2d2b..4082239 100644
+--- a/railone_contracts/store.py
++++ b/railone_contracts/store.py
+@@ -104,6 +104,9 @@ class InMemoryContractStore:
+             if contract.utt_id in self._utts:
+                 raise RuntimeError("UTT identifier collision")
+ 
++            if (contract.receiver_authority is not None and
++                    contract.receiver_authority.payload.get("participation_mode") == "BENEFICIARY_PREAUTHORIZED"):
++                raise PermissionError("DELEGATED_ACCEPTANCE_REQUIRES_DURABLE_MANDATE")
+             self._utts[contract.utt_id] = contract.signed_utt
+             self._contracts[contract.utt_id] = contract
+             self._quote_to_utt[contract.quote_id] = contract.utt_id
+diff --git a/railone_crypto/signature_service.py b/railone_crypto/signature_service.py
+index 607825b..b28f10e 100644
+--- a/railone_crypto/signature_service.py
++++ b/railone_crypto/signature_service.py
+@@ -20,6 +20,7 @@ from .key_provider import KeyPurpose, KeyStatus, SigningKeyProvider
+ 
+ class ArtifactType(StrEnum):
+     BENEFICIARY_VERIFICATION = "railone.beneficiary_verification"
++    RECEIVE_MANDATE = "railone.receive_mandate"
+     QUOTE = "railone.quote"
+     UTT = "railone.utt"
+     RTT = "railone.rtt"
+@@ -38,6 +39,7 @@ class ArtifactType(StrEnum):
+ 
+ _PURPOSE_BY_ARTIFACT = {
+     ArtifactType.BENEFICIARY_VERIFICATION: KeyPurpose.BENEFICIARY_VERIFICATION,
++    ArtifactType.RECEIVE_MANDATE: KeyPurpose.EXECUTION_SIGNING,
+     ArtifactType.QUOTE: KeyPurpose.QUOTE_SIGNING,
+     ArtifactType.UTT: KeyPurpose.EXECUTION_SIGNING,
+     ArtifactType.RTT: KeyPurpose.EXECUTION_SIGNING,
+diff --git a/railone_postgres/contracts.py b/railone_postgres/contracts.py
+index 67c269e..4f15f72 100644
+--- a/railone_postgres/contracts.py
++++ b/railone_postgres/contracts.py
+@@ -108,6 +108,22 @@ class PostgresContractStore(ContractStore):
+                 prior_utt = "UNKNOWN" if collision is None else collision["utt_id"]
+                 raise QuoteAlreadyAcceptedError(f"quote already accepted as {prior_utt}")
+ 
++            receiver = contract.receiver_authority
++            if receiver is not None and receiver.payload.get("participation_mode") == "BENEFICIARY_PREAUTHORIZED":
++                mandate = SignatureEnvelope.from_dict(receiver.payload["mandate"])
++                # Held until UTT, ETKs and idempotency commit. Revocation updates this same row.
++                cursor.execute("SELECT signed_grant, revoked_at FROM railone.receiving_mandates "
++                               "WHERE mandate_id=%s FOR UPDATE", (mandate.payload["mandate_id"],))
++                row = cursor.fetchone()
++                if (row is None or row["revoked_at"] is not None
++                        or row["signed_grant"] != mandate.to_dict()):
++                    raise PermissionError("MANDATE_UNAVAILABLE")
++                cursor.execute("SELECT clock_timestamp() < to_timestamp(%s) AS fresh",
++                               (min(utt.payload["quote_expires_at"], mandate.payload["expires_at"], receiver.payload["expires_at"],
++                                    contract.sender_authority.payload["expires_at"],
++                                    contract.sender_authority.payload["beneficiary_verification"]["payload"]["expires_at"]),))
++                if not cursor.fetchone()["fresh"]:
++                    raise PermissionError("MANDATE_EXPIRED")
+             authority = contract.sender_authority
+             authority_id = authority.payload.get("etk_s_id")
+             if not isinstance(authority_id, str) or not authority_id:
+@@ -149,6 +165,20 @@ class PostgresContractStore(ContractStore):
+                 raise RuntimeError("acceptance idempotency race requires transaction retry")
+             return contract, False
+ 
++    def register_receiving_mandate(self, mandate, *, signatures):
++        """Trusted provisioning of beneficiary-signed evidence, before delegated use."""
++        from railone_authority.mandates import verify_grant
++        verify_grant(signatures, mandate)
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute("INSERT INTO railone.receiving_mandates(mandate_id,signed_grant) VALUES (%s,%s::jsonb)",
++                           (mandate.payload["mandate_id"], json_text(mandate.to_dict())))
++
++    def revoke_receiving_mandate(self, mandate_id):
++        """Trusted operator revocation. Never expose as an unauthenticated endpoint."""
++        with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute("UPDATE railone.receiving_mandates SET revoked_at=clock_timestamp() "
++                           "WHERE mandate_id=%s AND revoked_at IS NULL", (mandate_id,))
++
+     def require_utt(self, utt_id: str) -> SignatureEnvelope:
+         with self._database.transaction() as connection, connection.cursor() as cursor:
+             cursor.execute(
+diff --git a/tests/institutional_live_support.py b/tests/institutional_live_support.py
+index 8b5f460..bff87cb 100644
+--- a/tests/institutional_live_support.py
++++ b/tests/institutional_live_support.py
+@@ -89,6 +89,27 @@ def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver,
+ 
+     payer_token = token(payer)
+     receiver_token = token(beneficiary)
++    if fixture.delegated:
++        from railone_authority.bilateral import BilateralAuthorityService
++        from railone_authority.mandates import grant
++        terms = signed_quote.payload
++        endpoint = terms["beneficiary"]["endpoint"]
++        institution = endpoint["institution_id"]
++        def new_grant():
++            return grant(fixture.signatures, beneficiary=beneficiary, institution=institution,
++                       account_binding_id=endpoint["account_binding_id"], currency=terms["currency_to"],
++                       max_receive_minor=terms["receive_amount_minor"], issued_at=now,
++                       expires_at=now + timedelta(minutes=4), signing_key_id="fixture-receiver-v3")
++        fixture.keys.generate(key_id="fixture-delegate", owner_id=institution,
++                              purpose=KeyPurpose.EXECUTION_SIGNING,
++                              not_before=now-timedelta(days=1), not_after=now+timedelta(days=1))
++        def sign_acceptance(mandate):
++            return BilateralAuthorityService(fixture.signatures).issue_receiver_acceptance(
++                signed_quote=signed_quote, sender=sender, mandate=mandate, signing_key_id="fixture-delegate",
++                accepted_at=now+timedelta(seconds=7), expires_at=now+timedelta(minutes=2))
++        mandate = new_grant()
++        receiver = sign_acceptance(mandate)
++        receiver_token = token(institution, partner=True)
+     hostile_token = token("AGG-COMPROMISED", partner=True)
+     body = {
+         "signed_quote": signed_quote.to_dict(),
+@@ -130,6 +151,37 @@ def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver,
+         test.assertEqual(cursor.fetchone()["n"], 0)
+     emit("Compromised partner impersonation and amount tampering denied before UTT")
+ 
++    if fixture.delegated:
++        denied = post("etk-r/verify", hostile_token)
++        test.assertEqual(denied.status_code, 403, denied.text)
++        denied = post("utts", payer_token, idem="IDEM-OPS-001")
++        test.assertEqual(denied.status_code, 403, denied.text)
++        # Establish an actual row-lock wait before allowing revocation to commit.
++        from concurrent.futures import ThreadPoolExecutor
++        from time import monotonic, sleep
++        revoked = new_grant()
++        fixture.contracts.register_receiving_mandate(revoked, signatures=fixture.signatures)
++        revoked_body = {**body, "receiver_authority": sign_acceptance(revoked).to_dict()}
++        with ThreadPoolExecutor(max_workers=1) as pool, test.factory() as locker:
++            locker.execute("UPDATE railone.receiving_mandates SET revoked_at=clock_timestamp() "
++                           "WHERE mandate_id=%s", (revoked.payload["mandate_id"],))
++            pending = pool.submit(post, "utts", payer_token, payload=revoked_body, idem="IDEM-OPS-001")
++            deadline = monotonic() + 5
++            while monotonic() < deadline:
++                if locker.execute("SELECT EXISTS (SELECT FROM pg_stat_activity WHERE "
++                                  "pg_backend_pid() = ANY(pg_blocking_pids(pid))) AS blocked").fetchone()["blocked"]:
++                    break
++                locker.execute("SELECT pg_stat_clear_snapshot()")
++                sleep(0.02)
++            else:
++                test.fail("acceptance did not block on the revocation")
++            locker.commit()
++            denied = pending.result(timeout=5)
++            test.assertEqual(denied.status_code, 403, denied.text)
++        with database.transaction() as connection:
++            for table in ("accepted_utts", "execution_authorities", "acceptance_idempotency"):
++                test.assertEqual(connection.execute(f"SELECT count(*) AS n FROM railone.{table}").fetchone()["n"], 0)
++        fixture.contracts.register_receiving_mandate(mandate, signatures=fixture.signatures)
+     response = post("utts", payer_token, idem="IDEM-OPS-001")
+     test.assertEqual(response.status_code, 200, response.text)
+     utt = response.json()
+@@ -139,6 +191,8 @@ def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver,
+         cursor.execute("SELECT COUNT(*) AS n FROM railone.accepted_utts")
+         test.assertEqual(cursor.fetchone()["n"], 1)
+     emit("Immutable bilateral UTT accepted by authenticated HTTP and persisted to PostgreSQL")
++    if fixture.delegated:
++        fixture.contracts.revoke_receiving_mandate(mandate.payload["mandate_id"])
+     replay = post("utts", payer_token, idem="IDEM-OPS-001")
+     test.assertEqual(replay.status_code, 200, replay.text)
+     test.assertTrue(replay.json()["replayed"])
+@@ -148,7 +202,7 @@ def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver,
+ 
+ 
+ def exercise_institutional_dispatch(
+-    test, database, *, scenario="accepted", report=None, http_bilateral=False,
++    test, database, *, scenario="accepted", report=None, http_bilateral=False, delegated=False,
+ ):
+     if scenario not in {"accepted", "timeout", "crash"}:
+         raise ValueError("unsupported synthetic scenario")
+@@ -169,6 +223,7 @@ def exercise_institutional_dispatch(
+         )
+ 
+     fixture._create_current_rtt = create
++    fixture.delegated = delegated
+     fixture.core_owner_id = "RAILONE"
+     if http_bilateral:
+         # The HTTP facade validates against the wall clock; unlike historical
+@@ -350,7 +405,8 @@ def exercise_institutional_dispatch(
+                 "WHERE route_template LIKE '/v1/bilateral/p2p/%'"
+             )
+             events = cursor.fetchall()
+-        test.assertEqual(len(events), 6)
+-        test.assertEqual(sum(event["status_code"] == 403 for event in events), 2)
++        expected_denials = 5 if delegated else 2
++        test.assertEqual(len(events), 4 + expected_denials)
++        test.assertEqual(sum(event["status_code"] == 403 for event in events), expected_denials)
+         test.assertEqual(sum(event["status_code"] == 200 for event in events), 4)
+-        emit("Authenticated API audit: 4 allowed, 2 denied; all durably recorded")
++        emit(f"Authenticated API audit: 4 allowed, {expected_denials} denied; all durably recorded")
+diff --git a/tests/test_postgres_live.py b/tests/test_postgres_live.py
+index 5d63ddf..28ade67 100644
+--- a/tests/test_postgres_live.py
++++ b/tests/test_postgres_live.py
+@@ -112,6 +112,24 @@ class LivePostgresRuntimeTests(unittest.TestCase):
+             migrations_directory=cls.migrations,
+         ).apply_all()
+ 
++    def test_delegated_dispatch_accepted(self):
++        from tests.institutional_live_support import exercise_institutional_dispatch
++        self.setUpClass()
++        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="accepted",
++                                        http_bilateral=True, delegated=True)
++
++    def test_delegated_dispatch_timeout(self):
++        from tests.institutional_live_support import exercise_institutional_dispatch
++        self.setUpClass()
++        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="timeout",
++                                        http_bilateral=True, delegated=True)
++
++    def test_delegated_dispatch_crash(self):
++        from tests.institutional_live_support import exercise_institutional_dispatch
++        self.setUpClass()
++        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="crash",
++                                        http_bilateral=True, delegated=True)
++
+     def test_v017_http_to_postgres_institutional_dispatch(self):
+         """End-to-end: actor-scoped HTTP -> bilateral UTT -> RTT -> fenced adapter."""
+         self.setUpClass()  # Explicit disposable reset; synthetic IDs are reused.
+diff --git a/tests/test_provider_operations.py b/tests/test_provider_operations.py
+index c5413a7..715f471 100644
+--- a/tests/test_provider_operations.py
++++ b/tests/test_provider_operations.py
+@@ -194,12 +194,13 @@ class ProviderOperationsTests(unittest.TestCase):
+                 authorized_at=self.now + timedelta(seconds=5),
+                 expires_at=self.now + timedelta(minutes=2),
+             )
+-            receiver_authority = bilateral.issue_receiver_acceptance(
+-                signed_quote=quote, sender=sender_authority,
+-                signing_key_id="fixture-receiver-v3",
+-                accepted_at=self.now + timedelta(seconds=7),
+-                expires_at=self.now + timedelta(minutes=2),
+-            )
++            if not getattr(self, "delegated", False):
++                receiver_authority = bilateral.issue_receiver_acceptance(
++                    signed_quote=quote, sender=sender_authority,
++                    signing_key_id="fixture-receiver-v3",
++                    accepted_at=self.now + timedelta(seconds=7),
++                    expires_at=self.now + timedelta(minutes=2),
++                )
+         # External acceptance is a test-only seam: the v0.17 integration
+         # harness supplies a genuine authenticated FastAPI -> PostgreSQL flow.
+         # Production services are never patched or replaced by this fixture.
+diff --git a/tests/test_receiving_mandates.py b/tests/test_receiving_mandates.py
+new file mode 100644
+index 0000000..c5aedf4
+--- /dev/null
++++ b/tests/test_receiving_mandates.py
+@@ -0,0 +1,33 @@
++import unittest
++from datetime import datetime, timedelta, timezone
++
++from railone_authority.mandates import MODE, grant, receiver_owner
++from railone_crypto.key_provider import InMemoryEd25519KeyProvider, KeyPurpose
++from railone_crypto.signature_service import SignatureService
++
++
++class ReceivingMandateTests(unittest.TestCase):
++    def test_scope_and_time_boundaries(self):
++        keys = InMemoryEd25519KeyProvider()
++        now = datetime.now(timezone.utc)
++        keys.generate(key_id="beneficiary-key", owner_id="B", purpose=KeyPurpose.EXECUTION_SIGNING,
++                      not_before=now-timedelta(days=1), not_after=now+timedelta(days=1))
++        signatures = SignatureService(keys)
++        arguments = dict(beneficiary="B", institution="I", account_binding_id="A", currency="TZS",
++                         max_receive_minor=100, issued_at=now, expires_at=now+timedelta(minutes=1),
++                         signing_key_id="beneficiary-key")
++        terms = {"beneficiary": {"actor_id": "B", "endpoint": {"institution_id": "I", "account_binding_id": "A"}},
++                 "receive_amount_minor": 100, "currency_to": "TZS"}
++        epoch = int(now.timestamp())
++
++        def check(**changes):
++            evidence = grant(signatures, **(arguments | changes))
++            receiver = dict(participation_mode=MODE, receiver_confirmed=False, mandate=evidence.to_dict())
++            return receiver_owner(signatures, receiver, terms, sender_epoch=epoch+2, check_epoch=epoch+4)
++
++        self.assertEqual(check(), "I")
++        for change in (dict(beneficiary="C"), dict(institution="J"), dict(account_binding_id="Z"),
++                       dict(currency="KES"), dict(max_receive_minor=99),
++                       dict(issued_at=now+timedelta(seconds=3)), dict(expires_at=now+timedelta(seconds=4))):
++            with self.subTest(change=change), self.assertRaises(PermissionError):
++                check(**change)

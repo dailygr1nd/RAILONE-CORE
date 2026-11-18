@@ -108,6 +108,22 @@ class PostgresContractStore(ContractStore):
                 prior_utt = "UNKNOWN" if collision is None else collision["utt_id"]
                 raise QuoteAlreadyAcceptedError(f"quote already accepted as {prior_utt}")
 
+            receiver = contract.receiver_authority
+            if receiver is not None and receiver.payload.get("participation_mode") == "BENEFICIARY_PREAUTHORIZED":
+                mandate = SignatureEnvelope.from_dict(receiver.payload["mandate"])
+                # Held until UTT, ETKs and idempotency commit. Revocation updates this same row.
+                cursor.execute("SELECT signed_grant, revoked_at FROM railone.receiving_mandates "
+                               "WHERE mandate_id=%s FOR UPDATE", (mandate.payload["mandate_id"],))
+                row = cursor.fetchone()
+                if (row is None or row["revoked_at"] is not None
+                        or row["signed_grant"] != mandate.to_dict()):
+                    raise PermissionError("MANDATE_UNAVAILABLE")
+                cursor.execute("SELECT clock_timestamp() < to_timestamp(%s) AS fresh",
+                               (min(utt.payload["quote_expires_at"], mandate.payload["expires_at"], receiver.payload["expires_at"],
+                                    contract.sender_authority.payload["expires_at"],
+                                    contract.sender_authority.payload["beneficiary_verification"]["payload"]["expires_at"]),))
+                if not cursor.fetchone()["fresh"]:
+                    raise PermissionError("MANDATE_EXPIRED")
             authority = contract.sender_authority
             authority_id = authority.payload.get("etk_s_id")
             if not isinstance(authority_id, str) or not authority_id:
@@ -148,6 +164,20 @@ class PostgresContractStore(ContractStore):
             if cursor.fetchone() is None:
                 raise RuntimeError("acceptance idempotency race requires transaction retry")
             return contract, False
+
+    def register_receiving_mandate(self, mandate, *, signatures):
+        """Trusted provisioning of beneficiary-signed evidence, before delegated use."""
+        from railone_authority.mandates import verify_grant
+        verify_grant(signatures, mandate)
+        with self._database.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute("INSERT INTO railone.receiving_mandates(mandate_id,signed_grant) VALUES (%s,%s::jsonb)",
+                           (mandate.payload["mandate_id"], json_text(mandate.to_dict())))
+
+    def revoke_receiving_mandate(self, mandate_id):
+        """Trusted operator revocation. Never expose as an unauthenticated endpoint."""
+        with self._database.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute("UPDATE railone.receiving_mandates SET revoked_at=clock_timestamp() "
+                           "WHERE mandate_id=%s AND revoked_at IS NULL", (mandate_id,))
 
     def require_utt(self, utt_id: str) -> SignatureEnvelope:
         with self._database.transaction() as connection, connection.cursor() as cursor:

@@ -89,6 +89,27 @@ def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver,
 
     payer_token = token(payer)
     receiver_token = token(beneficiary)
+    if fixture.delegated:
+        from railone_authority.bilateral import BilateralAuthorityService
+        from railone_authority.mandates import grant
+        terms = signed_quote.payload
+        endpoint = terms["beneficiary"]["endpoint"]
+        institution = endpoint["institution_id"]
+        def new_grant():
+            return grant(fixture.signatures, beneficiary=beneficiary, institution=institution,
+                       account_binding_id=endpoint["account_binding_id"], currency=terms["currency_to"],
+                       max_receive_minor=terms["receive_amount_minor"], issued_at=now,
+                       expires_at=now + timedelta(minutes=4), signing_key_id="fixture-receiver-v3")
+        fixture.keys.generate(key_id="fixture-delegate", owner_id=institution,
+                              purpose=KeyPurpose.EXECUTION_SIGNING,
+                              not_before=now-timedelta(days=1), not_after=now+timedelta(days=1))
+        def sign_acceptance(mandate):
+            return BilateralAuthorityService(fixture.signatures).issue_receiver_acceptance(
+                signed_quote=signed_quote, sender=sender, mandate=mandate, signing_key_id="fixture-delegate",
+                accepted_at=now+timedelta(seconds=7), expires_at=now+timedelta(minutes=2))
+        mandate = new_grant()
+        receiver = sign_acceptance(mandate)
+        receiver_token = token(institution, partner=True)
     hostile_token = token("AGG-COMPROMISED", partner=True)
     body = {
         "signed_quote": signed_quote.to_dict(),
@@ -130,6 +151,37 @@ def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver,
         test.assertEqual(cursor.fetchone()["n"], 0)
     emit("Compromised partner impersonation and amount tampering denied before UTT")
 
+    if fixture.delegated:
+        denied = post("etk-r/verify", hostile_token)
+        test.assertEqual(denied.status_code, 403, denied.text)
+        denied = post("utts", payer_token, idem="IDEM-OPS-001")
+        test.assertEqual(denied.status_code, 403, denied.text)
+        # Establish an actual row-lock wait before allowing revocation to commit.
+        from concurrent.futures import ThreadPoolExecutor
+        from time import monotonic, sleep
+        revoked = new_grant()
+        fixture.contracts.register_receiving_mandate(revoked, signatures=fixture.signatures)
+        revoked_body = {**body, "receiver_authority": sign_acceptance(revoked).to_dict()}
+        with ThreadPoolExecutor(max_workers=1) as pool, test.factory() as locker:
+            locker.execute("UPDATE railone.receiving_mandates SET revoked_at=clock_timestamp() "
+                           "WHERE mandate_id=%s", (revoked.payload["mandate_id"],))
+            pending = pool.submit(post, "utts", payer_token, payload=revoked_body, idem="IDEM-OPS-001")
+            deadline = monotonic() + 5
+            while monotonic() < deadline:
+                if locker.execute("SELECT EXISTS (SELECT FROM pg_stat_activity WHERE "
+                                  "pg_backend_pid() = ANY(pg_blocking_pids(pid))) AS blocked").fetchone()["blocked"]:
+                    break
+                locker.execute("SELECT pg_stat_clear_snapshot()")
+                sleep(0.02)
+            else:
+                test.fail("acceptance did not block on the revocation")
+            locker.commit()
+            denied = pending.result(timeout=5)
+            test.assertEqual(denied.status_code, 403, denied.text)
+        with database.transaction() as connection:
+            for table in ("accepted_utts", "execution_authorities", "acceptance_idempotency"):
+                test.assertEqual(connection.execute(f"SELECT count(*) AS n FROM railone.{table}").fetchone()["n"], 0)
+        fixture.contracts.register_receiving_mandate(mandate, signatures=fixture.signatures)
     response = post("utts", payer_token, idem="IDEM-OPS-001")
     test.assertEqual(response.status_code, 200, response.text)
     utt = response.json()
@@ -139,6 +191,8 @@ def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver,
         cursor.execute("SELECT COUNT(*) AS n FROM railone.accepted_utts")
         test.assertEqual(cursor.fetchone()["n"], 1)
     emit("Immutable bilateral UTT accepted by authenticated HTTP and persisted to PostgreSQL")
+    if fixture.delegated:
+        fixture.contracts.revoke_receiving_mandate(mandate.payload["mandate_id"])
     replay = post("utts", payer_token, idem="IDEM-OPS-001")
     test.assertEqual(replay.status_code, 200, replay.text)
     test.assertTrue(replay.json()["replayed"])
@@ -148,7 +202,7 @@ def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver,
 
 
 def exercise_institutional_dispatch(
-    test, database, *, scenario="accepted", report=None, http_bilateral=False,
+    test, database, *, scenario="accepted", report=None, http_bilateral=False, delegated=False,
 ):
     if scenario not in {"accepted", "timeout", "crash"}:
         raise ValueError("unsupported synthetic scenario")
@@ -169,6 +223,7 @@ def exercise_institutional_dispatch(
         )
 
     fixture._create_current_rtt = create
+    fixture.delegated = delegated
     fixture.core_owner_id = "RAILONE"
     if http_bilateral:
         # The HTTP facade validates against the wall clock; unlike historical
@@ -350,7 +405,8 @@ def exercise_institutional_dispatch(
                 "WHERE route_template LIKE '/v1/bilateral/p2p/%'"
             )
             events = cursor.fetchall()
-        test.assertEqual(len(events), 6)
-        test.assertEqual(sum(event["status_code"] == 403 for event in events), 2)
+        expected_denials = 5 if delegated else 2
+        test.assertEqual(len(events), 4 + expected_denials)
+        test.assertEqual(sum(event["status_code"] == 403 for event in events), expected_denials)
         test.assertEqual(sum(event["status_code"] == 200 for event in events), 4)
-        emit("Authenticated API audit: 4 allowed, 2 denied; all durably recorded")
+        emit(f"Authenticated API audit: 4 allowed, {expected_denials} denied; all durably recorded")

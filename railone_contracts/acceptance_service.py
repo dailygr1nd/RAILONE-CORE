@@ -198,6 +198,8 @@ class QuoteAcceptanceService:
                 signed_quote=command.signed_quote, sender=command.sender_authority,
                 receiver=receiver, at=accepted_at,
             )
+            if receiver.payload.get("participation_mode") == "BENEFICIARY_PREAUTHORIZED":
+                commercial_core["quote_expires_at"] = quote["expires_at"]
             # ETK-S is independently signed by the payer; RailOne never
             # signs a user's authorization just because an API caller named a key.
             sender_authority = command.sender_authority

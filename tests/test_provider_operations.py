@@ -194,12 +194,13 @@ class ProviderOperationsTests(unittest.TestCase):
                 authorized_at=self.now + timedelta(seconds=5),
                 expires_at=self.now + timedelta(minutes=2),
             )
-            receiver_authority = bilateral.issue_receiver_acceptance(
-                signed_quote=quote, sender=sender_authority,
-                signing_key_id="fixture-receiver-v3",
-                accepted_at=self.now + timedelta(seconds=7),
-                expires_at=self.now + timedelta(minutes=2),
-            )
+            if not getattr(self, "delegated", False):
+                receiver_authority = bilateral.issue_receiver_acceptance(
+                    signed_quote=quote, sender=sender_authority,
+                    signing_key_id="fixture-receiver-v3",
+                    accepted_at=self.now + timedelta(seconds=7),
+                    expires_at=self.now + timedelta(minutes=2),
+                )
         # External acceptance is a test-only seam: the v0.17 integration
         # harness supplies a genuine authenticated FastAPI -> PostgreSQL flow.
         # Production services are never patched or replaced by this fixture.

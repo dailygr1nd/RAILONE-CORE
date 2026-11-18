@@ -21,7 +21,10 @@ def main() -> int:
         "--report-json", metavar="PATH",
         help="Write a sanitized machine-readable evidence report on success.",
     )
+    parser.add_argument("--delegated", action="store_true", help="Use beneficiary-mandated institutional acceptance.")
     args = parser.parse_args()
+    if args.delegated and not args.http_bilateral:
+        parser.error("--delegated requires --http-bilateral")
     if not args.reset_disposable_db:
         parser.error("--reset-disposable-db is required; this demo rebuilds both RailOne schemas")
     if not os.environ.get("RAILONE_TEST_DATABASE_URL"):
@@ -49,7 +52,7 @@ def main() -> int:
         exercise_institutional_dispatch(
             test, PostgresDatabase(test.factory), scenario=args.scenario,
             report=report,
-            http_bilateral=args.http_bilateral,
+            http_bilateral=args.http_bilateral, delegated=args.delegated,
         )
     except Exception as exc:
         # Avoid printing connection strings or raw account data from driver errors.
@@ -64,7 +67,7 @@ def main() -> int:
         path = Path(args.report_json)
         evidence = {
             "protocol": "RAILONE",
-            "profile": "V0.17_INSTITUTIONAL_SANDBOX",
+            "profile": "V0.18_DELEGATED_SANDBOX" if args.delegated else "V0.17_INSTITUTIONAL_SANDBOX",
             "custody_model": "NON_CUSTODIAL",
             "transport": "IN_PROCESS_ASGI_HTTP" if args.http_bilateral else "INTERNAL_FIXTURE",
             "scenario": args.scenario,

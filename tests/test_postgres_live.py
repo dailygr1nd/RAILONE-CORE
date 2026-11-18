@@ -112,6 +112,24 @@ class LivePostgresRuntimeTests(unittest.TestCase):
             migrations_directory=cls.migrations,
         ).apply_all()
 
+    def test_delegated_dispatch_accepted(self):
+        from tests.institutional_live_support import exercise_institutional_dispatch
+        self.setUpClass()
+        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="accepted",
+                                        http_bilateral=True, delegated=True)
+
+    def test_delegated_dispatch_timeout(self):
+        from tests.institutional_live_support import exercise_institutional_dispatch
+        self.setUpClass()
+        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="timeout",
+                                        http_bilateral=True, delegated=True)
+
+    def test_delegated_dispatch_crash(self):
+        from tests.institutional_live_support import exercise_institutional_dispatch
+        self.setUpClass()
+        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="crash",
+                                        http_bilateral=True, delegated=True)
+
     def test_v017_http_to_postgres_institutional_dispatch(self):
         """End-to-end: actor-scoped HTTP -> bilateral UTT -> RTT -> fenced adapter."""
         self.setUpClass()  # Explicit disposable reset; synthetic IDs are reused.
