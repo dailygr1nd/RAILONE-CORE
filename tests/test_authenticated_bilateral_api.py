@@ -1,6 +1,7 @@
 """External, authenticated sender-first bilateral API sandbox conformance."""
 from __future__ import annotations
 
+from tests.support import beneficiary_evidence
 import unittest
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -35,8 +36,7 @@ class AuthenticatedBilateralApiTests(unittest.TestCase):
         self.fx = synthetic.CompromisedInstitutionHarnessTests(
             "test_01_sender_first_bilateral_to_signed_utt_and_rtt"
         )
-        self.fx.setUp()
-        self.fx.now = now
+        self.fx.initialize_at(now)
         self.fx.terms = replace(
             self.fx.terms,
             payer=replace(self.fx.terms.payer, actor_id=self.SENDER),
@@ -123,7 +123,7 @@ class AuthenticatedBilateralApiTests(unittest.TestCase):
         key = "IDEM-P2P-API-001"
         u = self._post("utts", self.sender_token, key=key)
         self.assertEqual(u.status_code, 200, u.text)
-        self.assertEqual(u.json()["authority_version"], 3)
+        self.assertEqual(u.json()["authority_version"], 4)
         self.assertFalse(u.json()["replayed"])
         replay = self._post("utts", self.sender_token, key=key)
         self.assertEqual(replay.status_code, 200, replay.text)
@@ -207,9 +207,25 @@ class AuthenticatedBilateralApiTests(unittest.TestCase):
         self.assertEqual(self.audits.audits()[-1].status_code, 403)
         self.assertNotIn("amount_minor", str(self.audits.audits()[-1].signed_audit.to_dict()))
 
+    def test_valid_sender_signature_without_bank_evidence_is_denied(self):
+        import hashlib
+        from railone_crypto.canonical_json import canonical_json_bytes
+        from railone_crypto.signature_service import ArtifactType
+        payload = dict(self.sender.payload)
+        del payload["beneficiary_verification"], payload["etk_s_id"]
+        sender_id = "ETKS-" + hashlib.sha256(canonical_json_bytes(payload)).hexdigest()[:32].upper()
+        signed = self.fx.signatures.sign_artifact(artifact_type=ArtifactType.ETK_S,
+            payload={"etk_s_id": sender_id, **payload}, key_id="api-sender",
+            issued_at=self.fx.now + timedelta(seconds=5))
+        body = self._body()
+        body["sender_authority"] = signed.to_dict()
+        self.assertEqual(self._post("utts", self.sender_token, body, key="IDEM-NO-BANK-PROOF").status_code, 403)
+        self.assertFalse(self.fx.contracts._utts)
+
     def test_etk_r_bound_to_wrong_etk_s_rejected(self):
         alternate = self.fx.bilateral.issue_sender_authority(
             signed_quote=self.fx.quote, signing_key_id="api-sender",
+            beneficiary_verification=beneficiary_evidence(self.signatures, self.fx.quote, self.fx.now),
             authorized_at=self.fx.now + timedelta(seconds=6),
             expires_at=self.fx.now + timedelta(seconds=45),
         )

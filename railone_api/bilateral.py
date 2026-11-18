@@ -118,7 +118,7 @@ class BilateralP2PApi:
         )
         accepted = self._acceptance.accept(command, at=at)
         return {
-            "status": "ACCEPTED", "authority_version": 3,
+            "status": "ACCEPTED", "authority_version": 4,
             "quote_id": accepted.contract.quote_id,
             "utt_id": accepted.contract.utt_id,
             "replayed": accepted.replayed,

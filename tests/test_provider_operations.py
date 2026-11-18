@@ -37,7 +37,7 @@ from railone_operations import (
     ProviderSubmissionState,
     RejectionDisposition,
 )
-from tests.support import endpoint, quote_service
+from tests.support import beneficiary_evidence, endpoint, quote_service
 
 
 class FakeProviderAdapter:
@@ -184,9 +184,13 @@ class ProviderOperationsTests(unittest.TestCase):
                     not_before=self.now - timedelta(days=1),
                     not_after=self.now + timedelta(days=2),
                 )
+            self.keys.generate(key_id="fixture-destination-verifier", owner_id="INST-DEST",
+                               purpose=KeyPurpose.BENEFICIARY_VERIFICATION,
+                               not_before=self.now-timedelta(days=1), not_after=self.now+timedelta(days=2))
             bilateral = BilateralAuthorityService(self.signatures)
             sender_authority = bilateral.issue_sender_authority(
                 signed_quote=quote, signing_key_id="fixture-payer-v3",
+                beneficiary_verification=beneficiary_evidence(self.signatures, quote, self.now),
                 authorized_at=self.now + timedelta(seconds=5),
                 expires_at=self.now + timedelta(minutes=2),
             )
@@ -282,7 +286,7 @@ class ProviderOperationsTests(unittest.TestCase):
         attempt = fixture.executions.require_attempt(fixture.rtt_id)
         utt = fixture.contracts.require_utt(attempt.utt_id)
         sender, receiver = fixture.contracts.require_bilateral_authorities(attempt.utt_id)
-        self.assertEqual(utt.payload["authority_version"], 3)
+        self.assertEqual(utt.payload["authority_version"], 4)
         self.assertLess(sender.protected["iat"], receiver.protected["iat"])
         self.assertEqual(
             receiver.payload["etk_s_digest"], sender.protected["payload_sha256"],

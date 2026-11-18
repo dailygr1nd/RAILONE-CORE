@@ -442,9 +442,41 @@ class LivePostgresRuntimeTests(unittest.TestCase):
                 bank_db = PostgresDatabase(psycopg_connection_factory(bank_dsn))
                 metrics = PostgresBankMetricsReader(bank_db).list_metrics()
                 self.assertEqual([m.metric_value for m in metrics], [expected_value])
-                with self.assertRaises(Exception):
-                    with bank_db.transaction() as connection, connection.cursor() as cursor:
-                        cursor.execute("SELECT * FROM railone.route_decision_records LIMIT 1")
+                from psycopg.errors import InsufficientPrivilege
+                with bank_db.transaction() as connection, connection.cursor() as cursor:
+                    cursor.execute(sql.SQL("SET LOCAL ROLE {}").format(sql.Identifier(read_role)))
+                    cursor.execute("SELECT metric_value FROM railone_bank.metrics")
+                    self.assertEqual([r["metric_value"] for r in cursor.fetchall()], [expected_value])
+                for statement in (
+                    "SELECT * FROM railone.route_decision_records LIMIT 1",
+                    "SELECT * FROM railone.execution_authorities LIMIT 1",
+                    "SELECT * FROM railone.institution_security_audit LIMIT 1",
+                    "SELECT * FROM railone.economic_fence_events LIMIT 1",
+                    "UPDATE railone.bank_analytics_principals SET enabled=true WHERE false",
+                    "DELETE FROM railone.bank_analytics_publications WHERE false",
+                ):
+                    with self.subTest(statement=statement), self.assertRaises(InsufficientPrivilege):
+                        with bank_db.transaction() as connection, connection.cursor() as cursor:
+                            cursor.execute(statement)
+
+            bank_a = PostgresDatabase(psycopg_connection_factory(
+                make_conninfo(_DSN, user=a_login, password=password_a)))
+            reader = PostgresBankMetricsReader(bank_a)
+            for status in ("PAUSED", "OFFBOARDED", "ACTIVE"):
+                with database.transaction() as connection, connection.cursor() as cursor:
+                    cursor.execute("UPDATE railone.partner_institutions SET status=%s, version=version+1, updated_at=now() WHERE institution_id=%s",
+                                   (status, a_id))
+                self.assertEqual([m.metric_value for m in reader.list_metrics()],
+                                 [25] if status == "ACTIVE" else [])
+            # A replacement login with identical name and group permissions
+            # has a different PostgreSQL role OID and must be enrolled again.
+            with database.transaction() as connection, connection.cursor() as cursor:
+                cursor.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(a_login)))
+                cursor.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
+                    sql.Identifier(a_login), sql.Literal(password_a)))
+                cursor.execute(sql.SQL("GRANT {} TO {}").format(
+                    sql.Identifier(read_role), sql.Identifier(a_login)))
+            self.assertEqual(list(reader.list_metrics()), [])
         finally:
             # Role setup is restricted to a disposable CI database with a
             # privileged migrator; remove test role grants and mappings afterward.

@@ -53,7 +53,7 @@ def _verify_bilateral_for_execution(
     security_audit: SecurityAuditWriter | None, operation: str,
 ) -> None:
     version = signed_utt.payload.get("authority_version")
-    if version not in (2, 3):
+    if version is None or version == 1:
         return  # Legacy v1 follows its existing separate authority controls.
     try:
         if version == 2:

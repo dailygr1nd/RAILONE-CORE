@@ -1,0 +1,441 @@
+--- a/railone_authority/bilateral.py
++++ b/railone_authority/bilateral.py
+@@ -1,4 +1,4 @@
+-"""Sender-first bilateral authority for P2P sandbox execution, version 3.
++"""Sender-first bilateral authority for P2P sandbox execution, version 4.
+ 
+ The sender signs the immutable quote commitment first. The receiver then signs
+ an acceptance that binds to the exact ETK-S digest. RailOne verifies both
+@@ -64,15 +64,48 @@
+     signature ownership is enforced at every verification boundary.
+     """
+ 
+-    AUTHORITY_VERSION = 3
++    AUTHORITY_VERSION = 4
+     MAX_TTL_SECONDS = 900
+ 
+     def __init__(self, signatures: SignatureService) -> None:
+         self._signatures = signatures
++
++    def _verify_beneficiary(self, evidence, quote, *, authorized_epoch, check_epoch):
++        if not isinstance(evidence, SignatureEnvelope):
++            raise PermissionError("BENEFICIARY_VERIFICATION_REQUIRED")
++        beneficiary = quote["beneficiary"]
++        endpoint = beneficiary["endpoint"]
++        body = _verified(self._signatures, evidence, ArtifactType.BENEFICIARY_VERIFICATION,
++                         endpoint["institution_id"])
++        issued = evidence.protected["iat"]
++        expiry = body.get("expires_at")
++        expected = {
++            "version": 1, "result": "IDENTITY_AND_ACCOUNT_MATCH",
++            "quote_id": quote["quote_id"], "beneficiary_actor_id": beneficiary["actor_id"],
++            "destination_sha256": _sha(endpoint), "currency": quote["currency_to"],
++        }
++        if (set(body) != set(expected) | {"expires_at", "verification_ref"}
++                or type(body.get("version")) is not int
++                or any(body.get(k) != v for k, v in expected.items())
++                or endpoint["role"] != "CREDIT"
++                or not isinstance(body.get("verification_ref"), str)
++                or not 1 <= len(body["verification_ref"].strip()) <= 128):
++            raise PermissionError("BENEFICIARY_VERIFICATION_MISMATCH")
++        if (type(expiry) is not int or type(authorized_epoch) is not int
++                or not issued <= authorized_epoch <= check_epoch < expiry
++                or expiry > issued + self.MAX_TTL_SECONDS):
++            raise PermissionError("BENEFICIARY_VERIFICATION_EXPIRED")
++
++    def _bound_evidence(self, sender):
++        try:
++            return SignatureEnvelope.from_dict(sender["beneficiary_verification"])
++        except (KeyError, TypeError, ValueError, AttributeError) as exc:
++            raise PermissionError("BENEFICIARY_VERIFICATION_REQUIRED") from exc
+ 
+     def issue_sender_authority(
+         self, *, signed_quote: SignatureEnvelope, signing_key_id: str,
+         authorized_at: datetime, expires_at: datetime,
++        beneficiary_verification: SignatureEnvelope | None = None,
+     ) -> SignatureEnvelope:
+         epoch, expiry = _instant(authorized_at), _instant(expires_at)
+         if not epoch < expiry <= epoch + self.MAX_TTL_SECONDS:
+@@ -85,7 +118,9 @@
+             raise PermissionError("SENDER_FIRST_FLOW_P2P_ONLY")
+         if not quote["issued_at"] <= epoch < quote["expires_at"]:
+             raise PermissionError("QUOTE_NOT_ACTIVE")
++        self._verify_beneficiary(beneficiary_verification, quote, authorized_epoch=epoch, check_epoch=epoch)
+         core = {
++            "beneficiary_verification": beneficiary_verification.to_dict(),
+             "authority_version": self.AUTHORITY_VERSION,
+             "authorization_scope": "INITIATE_SIGNED_QUOTE",
+             **quote_commitment(quote),
+@@ -128,6 +163,7 @@
+                 issued <= epoch < expiry and issued < expiry <= issued + self.MAX_TTL_SECONDS and
+                 sender.protected["iat"] == issued):
+             raise PermissionError("SENDER_AUTHORITY_NOT_ACTIVE")
++        self._verify_beneficiary(self._bound_evidence(s), quote, authorized_epoch=s.get("authorized_at"), check_epoch=epoch)
+ 
+     def issue_receiver_acceptance(
+         self, *, signed_quote: SignatureEnvelope, sender: SignatureEnvelope,
+@@ -202,6 +238,8 @@
+             raise PermissionError("BILATERAL_UTT_REQUIRED")
+         s = _verified(self._signatures, sender, ArtifactType.ETK_S, utt["payer"]["actor_id"])
+         r = _verified(self._signatures, receiver, ArtifactType.ETK_R, utt["beneficiary"]["actor_id"])
++        self._verify_beneficiary(self._bound_evidence(s), utt, authorized_epoch=s.get("authorized_at"),
++                                 check_epoch=utt["accepted_at"])
+         expected = quote_commitment(utt)
+         if any(s.get(k) != v or r.get(k) != v for k, v in expected.items()):
+             raise PermissionError("BILATERAL_QUOTE_BINDING_MISMATCH")
+--- a/railone_contracts/acceptance_service.py
++++ b/railone_contracts/acceptance_service.py
+@@ -118,9 +118,9 @@
+             # idempotency key matches an older acceptance record.
+             if (self._require_bilateral_p2p and
+                     command.origin.context_type is ContextType.P2P and
+-                    (existing.signed_utt.payload.get("authority_version") != 3 or
++                    (existing.signed_utt.payload.get("authority_version") != 4 or
+                      existing.receiver_authority is None)):
+-                raise PermissionError("SENDER_FIRST_BILATERAL_V3_REQUIRED")
++                raise PermissionError("SENDER_FIRST_BILATERAL_V4_REQUIRED")
+             return QuoteAcceptanceResult(existing, replayed=True)
+ 
+         if at is not None and at.tzinfo is None:
+@@ -202,7 +202,7 @@
+             # signs a user's authorization just because an API caller named a key.
+             sender_authority = command.sender_authority
+             commercial_core.update({
+-                "authority_version": 3,
++                "authority_version": 4,
+                 "etk_s_id": sender_authority.payload["etk_s_id"],
+                 "etk_r_id": receiver.payload["etk_r_id"],
+                 "etk_s_digest": sender_authority.protected["payload_sha256"],
+--- a/railone_crypto/key_provider.py
++++ b/railone_crypto/key_provider.py
+@@ -14,6 +14,7 @@
+ class KeyPurpose(StrEnum):
+     QUOTE_SIGNING = "QUOTE_SIGNING"
+     EXECUTION_SIGNING = "EXECUTION_SIGNING"
++    BENEFICIARY_VERIFICATION = "BENEFICIARY_VERIFICATION"
+     IDENTITY_SIGNING = "IDENTITY_SIGNING"
+     SETTLEMENT_SIGNING = "SETTLEMENT_SIGNING"
+     REPLAY_SIGNING = "REPLAY_SIGNING"
+--- a/railone_crypto/signature_service.py
++++ b/railone_crypto/signature_service.py
+@@ -19,6 +19,7 @@
+ 
+ 
+ class ArtifactType(StrEnum):
++    BENEFICIARY_VERIFICATION = "railone.beneficiary_verification"
+     QUOTE = "railone.quote"
+     UTT = "railone.utt"
+     RTT = "railone.rtt"
+@@ -36,6 +37,7 @@
+ 
+ 
+ _PURPOSE_BY_ARTIFACT = {
++    ArtifactType.BENEFICIARY_VERIFICATION: KeyPurpose.BENEFICIARY_VERIFICATION,
+     ArtifactType.QUOTE: KeyPurpose.QUOTE_SIGNING,
+     ArtifactType.UTT: KeyPurpose.EXECUTION_SIGNING,
+     ArtifactType.RTT: KeyPurpose.EXECUTION_SIGNING,
+--- a/railone_execution/service.py
++++ b/railone_execution/service.py
+@@ -53,7 +53,7 @@
+     security_audit: SecurityAuditWriter | None, operation: str,
+ ) -> None:
+     version = signed_utt.payload.get("authority_version")
+-    if version not in (2, 3):
++    if version is None or version == 1:
+         return  # Legacy v1 follows its existing separate authority controls.
+     try:
+         if version == 2:
+--- a/railone_api/bilateral.py
++++ b/railone_api/bilateral.py
+@@ -118,7 +118,7 @@
+         )
+         accepted = self._acceptance.accept(command, at=at)
+         return {
+-            "status": "ACCEPTED", "authority_version": 3,
++            "status": "ACCEPTED", "authority_version": 4,
+             "quote_id": accepted.contract.quote_id,
+             "utt_id": accepted.contract.utt_id,
+             "replayed": accepted.replayed,
+--- a/railone_postgres/dispatch_snapshot.py
++++ b/railone_postgres/dispatch_snapshot.py
+@@ -111,7 +111,7 @@
+         if utt.get("authority_version") == 2:
+             # Superseded v2 signed in the opposite order; fail closed.
+             raise PermissionError("RECEIVER_FIRST_V2_DEPRECATED")
+-        if utt.get("authority_version") == 3:
++        if utt.get("authority_version") == 4:
+             BilateralAuthorityService(self._signatures).verify_utt(
+                 signed_utt=utt_envelope, sender=sender, receiver=receiver, at=instant,
+             )
+@@ -119,8 +119,8 @@
+                     or utt.get("etk_s_id") != sender.payload.get("etk_s_id")):
+                 raise PermissionError("persisted bilateral authorities do not match UTT")
+         else:
+-            if self._require_sender_first:
+-                raise PermissionError("SENDER_FIRST_BILATERAL_V3_REQUIRED")
++            if self._require_sender_first or utt.get("authority_version") not in (None, 1):
++                raise PermissionError("SENDER_FIRST_BILATERAL_V4_REQUIRED")
+             # Legacy ETK-S-first verification, retained only for existing fixtures.
+             etk_s = self._verified(sender, ArtifactType.ETK_S, instant)
+             etk_r = self._verified(receiver, ArtifactType.ETK_R, instant)
+--- a/railone_security/incident_audit.py
++++ b/railone_security/incident_audit.py
+@@ -29,7 +29,8 @@
+         "BILATERAL_AUTHORITY_ID_MISMATCH", "BILATERAL_UTT_REQUIRED",
+         "BILATERAL_RECEIVER_ACCEPTANCE_REQUIRED",
+         "BILATERAL_P2P_AUTHORITIES_REQUIRED", "PROVIDER_REQUEST_DIGEST_MISMATCH",
+-        "SENDER_FIRST_BILATERAL_V3_REQUIRED", "RECEIVER_FIRST_V2_DEPRECATED",
++        "BENEFICIARY_VERIFICATION_REQUIRED", "BENEFICIARY_VERIFICATION_MISMATCH",
++        "BENEFICIARY_VERIFICATION_EXPIRED", "SENDER_FIRST_BILATERAL_V4_REQUIRED", "RECEIVER_FIRST_V2_DEPRECATED",
+         "SENDER_AUTHORITY_SCOPE_INVALID", "SENDER_QUOTE_BINDING_MISMATCH",
+         "SENDER_AUTHORITY_NOT_ACTIVE", "SENDER_FIRST_FLOW_P2P_ONLY",
+         "PERSISTED_BILATERAL_AUTHORITIES_MISSING",
+--- a/tests/institutional_live_support.py
++++ b/tests/institutional_live_support.py
+@@ -133,7 +133,7 @@
+     response = post("utts", payer_token, idem="IDEM-OPS-001")
+     test.assertEqual(response.status_code, 200, response.text)
+     utt = response.json()
+-    test.assertEqual(utt["authority_version"], 3)
++    test.assertEqual(utt["authority_version"], 4)
+     test.assertFalse(utt["replayed"])
+     with database.transaction() as connection, connection.cursor() as cursor:
+         cursor.execute("SELECT COUNT(*) AS n FROM railone.accepted_utts")
+@@ -238,7 +238,7 @@
+     # the bilateral lock. Verify that both v3 authorities were persisted
+     # atomically before creating the ExecutionPlan or RTT.
+     sender, receiver = fixture.contracts.require_bilateral_authorities(attempt.utt_id)
+-    test.assertEqual(utt["authority_version"], 3)
++    test.assertEqual(utt["authority_version"], 4)
+     test.assertEqual(receiver.payload["etk_s_digest"], sender.protected["payload_sha256"])
+     test.assertEqual(utt["etk_r_digest"], receiver.protected["payload_sha256"])
+ 
+--- a/tests/support.py
++++ b/tests/support.py
+@@ -29,3 +29,21 @@
+ 
+ def quote_service(signatures) -> QuoteService:
+     return QuoteService(signatures, allow_unverified_endpoints_for_tests=True)
++
++
++def beneficiary_evidence(signatures, quote, at, **changes):
++    """Simulate a destination institution's affirmative directory response."""
++    import hashlib
++    from railone_crypto.canonical_json import canonical_json_bytes
++    from railone_crypto.signature_service import ArtifactType
++    beneficiary = quote.payload["beneficiary"]
++    payload = {
++        "version": 1, "result": "IDENTITY_AND_ACCOUNT_MATCH",
++        "verification_ref": "SYNTHETIC-MATCH", "quote_id": quote.payload["quote_id"],
++        "beneficiary_actor_id": beneficiary["actor_id"],
++        "destination_sha256": hashlib.sha256(canonical_json_bytes(beneficiary["endpoint"])).hexdigest(),
++        "currency": quote.payload["currency_to"], "expires_at": int(at.timestamp()) + 120,
++        **changes,
++    }
++    return signatures.sign_artifact(artifact_type=ArtifactType.BENEFICIARY_VERIFICATION,
++                                    payload=payload, key_id="fixture-destination-verifier", issued_at=at)
+--- a/tests/test_authenticated_bilateral_api.py
++++ b/tests/test_authenticated_bilateral_api.py
+@@ -1,6 +1,7 @@
+ """External, authenticated sender-first bilateral API sandbox conformance."""
+ from __future__ import annotations
+ 
++from tests.support import beneficiary_evidence
+ import unittest
+ from dataclasses import replace
+ from datetime import datetime, timedelta, timezone
+@@ -122,7 +123,7 @@
+         key = "IDEM-P2P-API-001"
+         u = self._post("utts", self.sender_token, key=key)
+         self.assertEqual(u.status_code, 200, u.text)
+-        self.assertEqual(u.json()["authority_version"], 3)
++        self.assertEqual(u.json()["authority_version"], 4)
+         self.assertFalse(u.json()["replayed"])
+         replay = self._post("utts", self.sender_token, key=key)
+         self.assertEqual(replay.status_code, 200, replay.text)
+@@ -206,9 +207,25 @@
+         self.assertEqual(self.audits.audits()[-1].status_code, 403)
+         self.assertNotIn("amount_minor", str(self.audits.audits()[-1].signed_audit.to_dict()))
+ 
++    def test_valid_sender_signature_without_bank_evidence_is_denied(self):
++        import hashlib
++        from railone_crypto.canonical_json import canonical_json_bytes
++        from railone_crypto.signature_service import ArtifactType
++        payload = dict(self.sender.payload)
++        del payload["beneficiary_verification"], payload["etk_s_id"]
++        sender_id = "ETKS-" + hashlib.sha256(canonical_json_bytes(payload)).hexdigest()[:32].upper()
++        signed = self.fx.signatures.sign_artifact(artifact_type=ArtifactType.ETK_S,
++            payload={"etk_s_id": sender_id, **payload}, key_id="api-sender",
++            issued_at=self.fx.now + timedelta(seconds=5))
++        body = self._body()
++        body["sender_authority"] = signed.to_dict()
++        self.assertEqual(self._post("utts", self.sender_token, body, key="IDEM-NO-BANK-PROOF").status_code, 403)
++        self.assertFalse(self.fx.contracts._utts)
++
+     def test_etk_r_bound_to_wrong_etk_s_rejected(self):
+         alternate = self.fx.bilateral.issue_sender_authority(
+             signed_quote=self.fx.quote, signing_key_id="api-sender",
++            beneficiary_verification=beneficiary_evidence(self.signatures, self.fx.quote, self.fx.now),
+             authorized_at=self.fx.now + timedelta(seconds=6),
+             expires_at=self.fx.now + timedelta(seconds=45),
+         )
+--- a/tests/test_bilateral_postgres_live.py
++++ b/tests/test_bilateral_postgres_live.py
+@@ -60,7 +60,7 @@
+         stored_sender, stored_receiver = contracts.require_bilateral_authorities(contract.utt_id)
+         self.assertEqual(stored_receiver.payload["etk_r_id"], receiver.payload["etk_r_id"])
+         self.assertEqual(stored_receiver.payload["etk_s_digest"], sender.protected["payload_sha256"])
+-        self.assertEqual(contracts.require_utt(contract.utt_id).payload["authority_version"], 3)
++        self.assertEqual(contracts.require_utt(contract.utt_id).payload["authority_version"], 4)
+         plan = ExecutionPlanningService(
+             signatures=fixture.signatures, contracts=contracts, executions=executions,
+         ).build_plan(utt_id=contract.utt_id, candidates=(fixture.route(),),
+--- a/tests/test_compromised_institution_harness.py
++++ b/tests/test_compromised_institution_harness.py
+@@ -25,7 +25,7 @@
+ )
+ from railone_institutions.admission import InstitutionalDispatchAdmissionGateway
+ from railone_security.incident_audit import rejection_code
+-from tests.support import endpoint, quote_service
++from tests.support import beneficiary_evidence, endpoint, quote_service
+ from railone_partners import AccountBinding, PartnerInstitution, InMemoryPartnerDirectory
+ 
+ 
+@@ -51,6 +51,7 @@
+         self.now = instant
+         self.keys = InMemoryEd25519KeyProvider()
+         for owner, name, purpose in (
++            ("INST-DEST", "fixture-destination-verifier", KeyPurpose.BENEFICIARY_VERIFICATION),
+             ("R1CORE", "quote", KeyPurpose.QUOTE_SIGNING),
+             ("R1CORE", "core", KeyPurpose.EXECUTION_SIGNING),
+             ("CUID-SENDER", "sender", KeyPurpose.EXECUTION_SIGNING),
+@@ -130,6 +131,7 @@
+     def sender(self, quote=None, *, signing_key_id="sender", expires=180):
+         return self.bilateral.issue_sender_authority(
+             signed_quote=quote or self.quote, signing_key_id=signing_key_id,
++            beneficiary_verification=beneficiary_evidence(self.signatures, quote or self.quote, self.now),
+             authorized_at=self.now + timedelta(seconds=5),
+             expires_at=self.now + timedelta(seconds=expires),
+         )
+@@ -182,8 +184,8 @@
+         )
+         command = self.command(None)
+         prior = legacy.accept(command, at=self.now + timedelta(seconds=10))
+-        self.assertNotEqual(prior.contract.signed_utt.payload.get("authority_version"), 3)
+-        with self.assertRaisesRegex(PermissionError, "SENDER_FIRST_BILATERAL_V3_REQUIRED"):
++        self.assertNotEqual(prior.contract.signed_utt.payload.get("authority_version"), 4)
++        with self.assertRaisesRegex(PermissionError, "SENDER_FIRST_BILATERAL_V4_REQUIRED"):
+             self.accept.accept(command, at=self.now + timedelta(seconds=11))
+         self.assertEqual(len(self.contracts._utts), 1)
+ 
+@@ -192,7 +194,7 @@
+         r = self.receiver(s)
+         accepted = self.accept.accept(self.command(r, sender=s), at=self.now+timedelta(seconds=10))
+         c = accepted.contract
+-        self.assertEqual(c.signed_utt.payload["authority_version"], 3)
++        self.assertEqual(c.signed_utt.payload["authority_version"], 4)
+         self.assertEqual(c.receiver_authority.payload["etk_s_id"], s.payload["etk_s_id"])
+         self.assertLess(s.protected["iat"], c.receiver_authority.protected["iat"])
+         self.assertLessEqual(c.receiver_authority.protected["iat"], c.signed_utt.protected["iat"])
+@@ -286,16 +288,16 @@
+     def test_11_gateway_preflight_denial_produces_redacted_event(self):
+         recorder = Recorder()
+         snapshot = Mock()
+-        snapshot.load.side_effect = PermissionError("SENDER_FIRST_BILATERAL_V3_REQUIRED")
++        snapshot.load.side_effect = PermissionError("SENDER_FIRST_BILATERAL_V4_REQUIRED")
+         gateway = InstitutionalDispatchAdmissionGateway(
+             registry=Mock(), wrapper_store=Mock(), wrapper_verifier=Mock(),
+             snapshot_reader=snapshot, fence_reader=Mock(), security_audit=recorder,
+         )
+-        with self.assertRaisesRegex(PermissionError, "SENDER_FIRST_BILATERAL_V3_REQUIRED"):
++        with self.assertRaisesRegex(PermissionError, "SENDER_FIRST_BILATERAL_V4_REQUIRED"):
+             gateway.preflight(rtt_id="RTT-ATTACK", at=self.now)
+         self.assertEqual(recorder.events, [{
+             "event_type": "INSTITUTION_DISPATCH_REJECTED", "operation": "PREFLIGHT",
+-            "correlation_ref": "RTT-ATTACK", "reason_code": "SENDER_FIRST_BILATERAL_V3_REQUIRED",
++            "correlation_ref": "RTT-ATTACK", "reason_code": "SENDER_FIRST_BILATERAL_V4_REQUIRED",
+             "outcome": "DENIED",
+         }])
+ 
+@@ -378,12 +380,33 @@
+                                at=self.now+timedelta(seconds=10))
+         self.assertEqual(len(self.contracts._utts), 0)
+ 
++    def test_sender_rejects_missing_stale_or_mismatched_institution_evidence(self):
++        at = self.now + timedelta(seconds=5)
++        evidence = beneficiary_evidence(self.signatures, self.quote, self.now)
++        bad = [None, *(
++            beneficiary_evidence(self.signatures, self.quote, self.now, **changes)
++            for changes in ({"beneficiary_actor_id": "OTHER"}, {"destination_sha256": "0" * 64},
++                            {"result": "ACCOUNT_EXISTS"}, {"expires_at": int(at.timestamp())},
++                            {"quote_id": "ANOTHER-QUOTE"})
++        )]
++        self.keys.generate(key_id="other-bank", owner_id="OTHER-BANK",
++                           purpose=KeyPurpose.BENEFICIARY_VERIFICATION,
++                           not_before=self.now-timedelta(days=1), not_after=self.now+timedelta(days=1))
++        bad.append(self.signatures.sign_artifact(artifact_type=ArtifactType.BENEFICIARY_VERIFICATION,
++                   payload=evidence.payload, key_id="other-bank", issued_at=self.now))
++        for proof in bad:
++            with self.subTest(proof=proof), self.assertRaises(PermissionError):
++                self.bilateral.issue_sender_authority(signed_quote=self.quote, signing_key_id="sender",
++                    authorized_at=at, expires_at=at+timedelta(seconds=120), beneficiary_verification=proof)
++        self.assertFalse(self.contracts._utts)
++
+     def test_17_receiver_must_bind_exact_existing_sender_etk(self):
+         # Two legitimate independently signed sender intents: a receiver
+         # approving one cannot authorize the other.
+         original = self.sender()
+         changed_sender = self.bilateral.issue_sender_authority(
+             signed_quote=self.quote, signing_key_id="sender",
++            beneficiary_verification=beneficiary_evidence(self.signatures, self.quote, self.now),
+             authorized_at=self.now+timedelta(seconds=6),
+             expires_at=self.now+timedelta(seconds=180),
+         )
+--- a/tests/test_provider_operations.py
++++ b/tests/test_provider_operations.py
+@@ -37,7 +37,7 @@
+     ProviderSubmissionState,
+     RejectionDisposition,
+ )
+-from tests.support import endpoint, quote_service
++from tests.support import beneficiary_evidence, endpoint, quote_service
+ 
+ 
+ class FakeProviderAdapter:
+@@ -184,9 +184,13 @@
+                     not_before=self.now - timedelta(days=1),
+                     not_after=self.now + timedelta(days=2),
+                 )
++            self.keys.generate(key_id="fixture-destination-verifier", owner_id="INST-DEST",
++                               purpose=KeyPurpose.BENEFICIARY_VERIFICATION,
++                               not_before=self.now-timedelta(days=1), not_after=self.now+timedelta(days=2))
+             bilateral = BilateralAuthorityService(self.signatures)
+             sender_authority = bilateral.issue_sender_authority(
+                 signed_quote=quote, signing_key_id="fixture-payer-v3",
++                beneficiary_verification=beneficiary_evidence(self.signatures, quote, self.now),
+                 authorized_at=self.now + timedelta(seconds=5),
+                 expires_at=self.now + timedelta(minutes=2),
+             )
+@@ -282,7 +286,7 @@
+         attempt = fixture.executions.require_attempt(fixture.rtt_id)
+         utt = fixture.contracts.require_utt(attempt.utt_id)
+         sender, receiver = fixture.contracts.require_bilateral_authorities(attempt.utt_id)
+-        self.assertEqual(utt.payload["authority_version"], 3)
++        self.assertEqual(utt.payload["authority_version"], 4)
+         self.assertLess(sender.protected["iat"], receiver.protected["iat"])
+         self.assertEqual(
+             receiver.payload["etk_s_digest"], sender.protected["payload_sha256"],
+--- /dev/null
++++ b/docs/v018-beneficiary-verification.md
+@@ -0,0 +1,11 @@
++# v0.18 sandbox decision — beneficiary verification before ETK-S
++
++The strict P2P path uses authority format 4. Before signing ETK-S the sender checks a destination institution's Ed25519 verification envelope. Provision the institution's verification public key under its trusted institution ID with the dedicated BENEFICIARY_VERIFICATION purpose. Only a successful identity-and-account match may produce this artifact. The sandbox uses synthetic directory evidence. Real adapters must perform the underlying lookup and retain the supporting record.
++
++The evidence payload carries version 1, result IDENTITY_AND_ACCOUNT_MATCH, an opaque verification_ref, quote_id, beneficiary_actor_id, destination_sha256 (canonical JSON digest of the complete credit endpoint), currency and expires_at. The protected signature header supplies issuer and issuance time. The maximum evidence lifetime follows the sandbox's existing 900-second authority ceiling. The proof must be valid when signing ETK-S and at admission through UTT creation. Execution checks freshness at the UTT acceptance timestamp and continues to enforce current bilateral authority windows and key revocation.
++
++The signed institution evidence is embedded in ETK-S and persisted in the existing authority envelope. ETK-R binds the ETK-S digest. The signed UTT pins both authorities. PostgreSQL requires no schema migration. No new settlement or retry semantics are introduced.
++
++Format 3 records remain readable. Existing signed version 3 authorizations cannot be promoted into version 4 or dispatched on the upgraded institutional path. Drain or reconcile in-flight attempts before cutover. Uncertain economic effects require reconciliation before requesting fresh authorization. The historical v1 compatibility path is outside this strict profile. Deploy the institutional composition with sender-first enforcement enabled.
++
++Validation uses the authenticated HTTP sandbox and a disposable PostgreSQL database. Negative cases cover missing evidence, other institution, wrong actor or endpoint, account-existence-only result, wrong quote, expired evidence, and sender re-signing a payload without the proof.

@@ -1,0 +1,26 @@
+--- a/tests/test_compromised_institution_harness.py
++++ b/tests/test_compromised_institution_harness.py
+@@ -45,7 +45,10 @@
+ 
+ class CompromisedInstitutionHarnessTests(unittest.TestCase):
+     def setUp(self):
+-        self.now = datetime(2026, 11, 11, 12, 0, tzinfo=timezone.utc)
++        self.initialize_at(datetime(2026, 11, 11, 12, 0, tzinfo=timezone.utc))
++
++    def initialize_at(self, instant):
++        self.now = instant
+         self.keys = InMemoryEd25519KeyProvider()
+         for owner, name, purpose in (
+             ("R1CORE", "quote", KeyPurpose.QUOTE_SIGNING),
+--- a/tests/test_authenticated_bilateral_api.py
++++ b/tests/test_authenticated_bilateral_api.py
+@@ -35,8 +35,7 @@
+         self.fx = synthetic.CompromisedInstitutionHarnessTests(
+             "test_01_sender_first_bilateral_to_signed_utt_and_rtt"
+         )
+-        self.fx.setUp()
+-        self.fx.now = now
++        self.fx.initialize_at(now)
+         self.fx.terms = replace(
+             self.fx.terms,
+             payer=replace(self.fx.terms.payer, actor_id=self.SENDER),

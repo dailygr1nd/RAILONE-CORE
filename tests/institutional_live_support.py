@@ -133,7 +133,7 @@ def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver,
     response = post("utts", payer_token, idem="IDEM-OPS-001")
     test.assertEqual(response.status_code, 200, response.text)
     utt = response.json()
-    test.assertEqual(utt["authority_version"], 3)
+    test.assertEqual(utt["authority_version"], 4)
     test.assertFalse(utt["replayed"])
     with database.transaction() as connection, connection.cursor() as cursor:
         cursor.execute("SELECT COUNT(*) AS n FROM railone.accepted_utts")
@@ -238,7 +238,7 @@ def exercise_institutional_dispatch(
     # the bilateral lock. Verify that both v3 authorities were persisted
     # atomically before creating the ExecutionPlan or RTT.
     sender, receiver = fixture.contracts.require_bilateral_authorities(attempt.utt_id)
-    test.assertEqual(utt["authority_version"], 3)
+    test.assertEqual(utt["authority_version"], 4)
     test.assertEqual(receiver.payload["etk_s_digest"], sender.protected["payload_sha256"])
     test.assertEqual(utt["etk_r_digest"], receiver.protected["payload_sha256"])
 

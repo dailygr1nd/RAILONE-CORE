@@ -118,9 +118,9 @@ class QuoteAcceptanceService:
             # idempotency key matches an older acceptance record.
             if (self._require_bilateral_p2p and
                     command.origin.context_type is ContextType.P2P and
-                    (existing.signed_utt.payload.get("authority_version") != 3 or
+                    (existing.signed_utt.payload.get("authority_version") != 4 or
                      existing.receiver_authority is None)):
-                raise PermissionError("SENDER_FIRST_BILATERAL_V3_REQUIRED")
+                raise PermissionError("SENDER_FIRST_BILATERAL_V4_REQUIRED")
             return QuoteAcceptanceResult(existing, replayed=True)
 
         if at is not None and at.tzinfo is None:
@@ -202,7 +202,7 @@ class QuoteAcceptanceService:
             # signs a user's authorization just because an API caller named a key.
             sender_authority = command.sender_authority
             commercial_core.update({
-                "authority_version": 3,
+                "authority_version": 4,
                 "etk_s_id": sender_authority.payload["etk_s_id"],
                 "etk_r_id": receiver.payload["etk_r_id"],
                 "etk_s_digest": sender_authority.protected["payload_sha256"],
