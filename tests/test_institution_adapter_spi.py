@@ -222,6 +222,46 @@ class InstitutionAdapterSpiTests(unittest.TestCase):
         result = adapter.submit(instruction())
         self.assertEqual((result.outcome, result.finality), (InstitutionOutcome.ACCEPTED_FOR_PROCESSING, FinalityLevel.PROCESSING))
 
+    def test_shared_ip_preserves_destination_and_exact_adapter_pin(self):
+        for host in ("10.7.0.5", "[fd00::5]"):
+            with self.subTest(host=host):
+                url = f"https://{host}/payments"
+                registry = InstitutionAdapterRegistry(self.signer)
+                transports = {}
+                pins = {}
+                # Two institutions behind the same provider in the same corridor.
+                for destination in ("BANK-A", "BANK-B"):
+                    base = http_manifest()
+                    descriptor = replace(base.descriptor, adapter_id=f"adapter-{destination.lower()}")
+                    entry = replace(base, descriptor=descriptor, destination_institution_ids=(destination,))
+                    transport = QueueTransport(InstitutionHttpResponse(202, {}, b'{"status":"QUEUED"}'))
+                    adapter = GenericHttpInstitutionAdapter(
+                        descriptor=descriptor, manifest=entry,
+                        config=GenericHttpAdapterConfig(url, url + "/{reference}", 10),
+                        codec=CanonicalJsonCodec(), auth=SimulationNoAuth(AdapterEnvironment.SANDBOX),
+                        transport=transport, normalizer=ExplicitOutcomeNormalizer(
+                            submission_codes={"QUEUED": InstitutionOutcome.ACCEPTED_FOR_PROCESSING},
+                            status_codes={}),
+                    )
+                    registry.register(adapter, self.signer.sign(entry, issued_at=NOW))
+                    transports[destination] = transport
+                    pins[destination] = descriptor.binding_ref
+
+                for destination, other in (("BANK-A", "BANK-B"), ("BANK-B", "BANK-A")):
+                    query = AdapterEligibilityQuery("INST-SOURCE", destination, "KE", "KE",
+                                                    "DOMESTIC_BANK", "KES", "KES", 25_000)
+                    adapter = registry.resolve(pins[destination], at=NOW)
+                    self.assertEqual(registry.eligible(query, at=NOW), (adapter,))
+                    item = instruction(destination_institution_id=destination,
+                                       adapter_binding_ref=pins[destination])
+                    with self.assertRaises(ValueError):
+                        adapter.submit(replace(item, adapter_binding_ref=pins[other]))
+                    with self.assertRaises(ValueError):
+                        adapter.submit(replace(item, destination_institution_id=other))
+                    self.assertEqual(transports[destination].requests, [])
+                    adapter.submit(item)
+                    self.assertEqual([r.url for r in transports[destination].requests], [url])
+
     def test_transport_failure_after_dispatch_is_unknown_not_retryable(self):
         transport = QueueTransport(InstitutionTransportError("timeout"))
         adapter = GenericHttpInstitutionAdapter(
