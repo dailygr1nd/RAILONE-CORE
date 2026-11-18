@@ -62,11 +62,15 @@ class InstitutionAdapterBridge:
         self._adapter.validate_instruction(instruction)
         result = self._adapter.submit(instruction)
         if result.outcome is InstitutionOutcome.ACCEPTED_FOR_PROCESSING:
+            context = (("adapter_binding_ref", self.binding_ref),)
+            if self.provider_id == "MPESA-KE" and result.originator_conversation_id:
+                context += (("originator_conversation_id", result.originator_conversation_id),
+                            ("amount_minor", str(request.amount_minor)))
             return ProviderSubmissionResult(
                 outcome=ProviderOutcome.ACCEPTED,
                 code=result.code,
                 external_reference=result.external_reference,
-                provider_context=(("adapter_binding_ref", self.binding_ref),),
+                provider_context=context,
             )
         if result.outcome is InstitutionOutcome.REJECTED_RETRYABLE:
             return ProviderSubmissionResult(

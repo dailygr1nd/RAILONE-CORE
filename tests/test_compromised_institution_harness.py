@@ -25,7 +25,7 @@ from railone_execution import (
 )
 from railone_institutions.admission import InstitutionalDispatchAdmissionGateway
 from railone_security.incident_audit import rejection_code
-from tests.support import endpoint, quote_service
+from tests.support import beneficiary_evidence, endpoint, quote_service
 from railone_partners import AccountBinding, PartnerInstitution, InMemoryPartnerDirectory
 
 
@@ -45,9 +45,13 @@ class Recorder:
 
 class CompromisedInstitutionHarnessTests(unittest.TestCase):
     def setUp(self):
-        self.now = datetime(2026, 11, 11, 12, 0, tzinfo=timezone.utc)
+        self.initialize_at(datetime(2026, 11, 11, 12, 0, tzinfo=timezone.utc))
+
+    def initialize_at(self, instant):
+        self.now = instant
         self.keys = InMemoryEd25519KeyProvider()
         for owner, name, purpose in (
+            ("INST-DEST", "fixture-destination-verifier", KeyPurpose.BENEFICIARY_VERIFICATION),
             ("R1CORE", "quote", KeyPurpose.QUOTE_SIGNING),
             ("R1CORE", "core", KeyPurpose.EXECUTION_SIGNING),
             ("CUID-SENDER", "sender", KeyPurpose.EXECUTION_SIGNING),
@@ -127,6 +131,7 @@ class CompromisedInstitutionHarnessTests(unittest.TestCase):
     def sender(self, quote=None, *, signing_key_id="sender", expires=180):
         return self.bilateral.issue_sender_authority(
             signed_quote=quote or self.quote, signing_key_id=signing_key_id,
+            beneficiary_verification=beneficiary_evidence(self.signatures, quote or self.quote, self.now),
             authorized_at=self.now + timedelta(seconds=5),
             expires_at=self.now + timedelta(seconds=expires),
         )
@@ -179,8 +184,8 @@ class CompromisedInstitutionHarnessTests(unittest.TestCase):
         )
         command = self.command(None)
         prior = legacy.accept(command, at=self.now + timedelta(seconds=10))
-        self.assertNotEqual(prior.contract.signed_utt.payload.get("authority_version"), 3)
-        with self.assertRaisesRegex(PermissionError, "SENDER_FIRST_BILATERAL_V3_REQUIRED"):
+        self.assertNotEqual(prior.contract.signed_utt.payload.get("authority_version"), 4)
+        with self.assertRaisesRegex(PermissionError, "SENDER_FIRST_BILATERAL_V4_REQUIRED"):
             self.accept.accept(command, at=self.now + timedelta(seconds=11))
         self.assertEqual(len(self.contracts._utts), 1)
 
@@ -189,7 +194,7 @@ class CompromisedInstitutionHarnessTests(unittest.TestCase):
         r = self.receiver(s)
         accepted = self.accept.accept(self.command(r, sender=s), at=self.now+timedelta(seconds=10))
         c = accepted.contract
-        self.assertEqual(c.signed_utt.payload["authority_version"], 3)
+        self.assertEqual(c.signed_utt.payload["authority_version"], 4)
         self.assertEqual(c.receiver_authority.payload["etk_s_id"], s.payload["etk_s_id"])
         self.assertLess(s.protected["iat"], c.receiver_authority.protected["iat"])
         self.assertLessEqual(c.receiver_authority.protected["iat"], c.signed_utt.protected["iat"])
@@ -283,16 +288,16 @@ class CompromisedInstitutionHarnessTests(unittest.TestCase):
     def test_11_gateway_preflight_denial_produces_redacted_event(self):
         recorder = Recorder()
         snapshot = Mock()
-        snapshot.load.side_effect = PermissionError("SENDER_FIRST_BILATERAL_V3_REQUIRED")
+        snapshot.load.side_effect = PermissionError("SENDER_FIRST_BILATERAL_V4_REQUIRED")
         gateway = InstitutionalDispatchAdmissionGateway(
             registry=Mock(), wrapper_store=Mock(), wrapper_verifier=Mock(),
             snapshot_reader=snapshot, fence_reader=Mock(), security_audit=recorder,
         )
-        with self.assertRaisesRegex(PermissionError, "SENDER_FIRST_BILATERAL_V3_REQUIRED"):
+        with self.assertRaisesRegex(PermissionError, "SENDER_FIRST_BILATERAL_V4_REQUIRED"):
             gateway.preflight(rtt_id="RTT-ATTACK", at=self.now)
         self.assertEqual(recorder.events, [{
             "event_type": "INSTITUTION_DISPATCH_REJECTED", "operation": "PREFLIGHT",
-            "correlation_ref": "RTT-ATTACK", "reason_code": "SENDER_FIRST_BILATERAL_V3_REQUIRED",
+            "correlation_ref": "RTT-ATTACK", "reason_code": "SENDER_FIRST_BILATERAL_V4_REQUIRED",
             "outcome": "DENIED",
         }])
 
@@ -375,12 +380,33 @@ class CompromisedInstitutionHarnessTests(unittest.TestCase):
                                at=self.now+timedelta(seconds=10))
         self.assertEqual(len(self.contracts._utts), 0)
 
+    def test_sender_rejects_missing_stale_or_mismatched_institution_evidence(self):
+        at = self.now + timedelta(seconds=5)
+        evidence = beneficiary_evidence(self.signatures, self.quote, self.now)
+        bad = [None, *(
+            beneficiary_evidence(self.signatures, self.quote, self.now, **changes)
+            for changes in ({"beneficiary_actor_id": "OTHER"}, {"destination_sha256": "0" * 64},
+                            {"result": "ACCOUNT_EXISTS"}, {"expires_at": int(at.timestamp())},
+                            {"quote_id": "ANOTHER-QUOTE"})
+        )]
+        self.keys.generate(key_id="other-bank", owner_id="OTHER-BANK",
+                           purpose=KeyPurpose.BENEFICIARY_VERIFICATION,
+                           not_before=self.now-timedelta(days=1), not_after=self.now+timedelta(days=1))
+        bad.append(self.signatures.sign_artifact(artifact_type=ArtifactType.BENEFICIARY_VERIFICATION,
+                   payload=evidence.payload, key_id="other-bank", issued_at=self.now))
+        for proof in bad:
+            with self.subTest(proof=proof), self.assertRaises(PermissionError):
+                self.bilateral.issue_sender_authority(signed_quote=self.quote, signing_key_id="sender",
+                    authorized_at=at, expires_at=at+timedelta(seconds=120), beneficiary_verification=proof)
+        self.assertFalse(self.contracts._utts)
+
     def test_17_receiver_must_bind_exact_existing_sender_etk(self):
         # Two legitimate independently signed sender intents: a receiver
         # approving one cannot authorize the other.
         original = self.sender()
         changed_sender = self.bilateral.issue_sender_authority(
             signed_quote=self.quote, signing_key_id="sender",
+            beneficiary_verification=beneficiary_evidence(self.signatures, self.quote, self.now),
             authorized_at=self.now+timedelta(seconds=6),
             expires_at=self.now+timedelta(seconds=180),
         )

@@ -1,0 +1,202 @@
+--- a/railone_postgres/fencing.py
++++ b/railone_postgres/fencing.py
+@@ -297,38 +297,59 @@
+             )
+             if cursor.fetchone() is None:
+                 raise EconomicFenceViolation("settlement UTT is not recognized")
+-            cursor.execute(
+-                """SELECT fence_epoch FROM railone.utt_economic_fences
+-                   WHERE utt_id=%s AND current_rtt_id=%s AND state='HELD' FOR UPDATE""",
+-                (utt_id, rtt_id),
+-            )
+-            row = cursor.fetchone()
+-            if row is None:
+-                raise EconomicFenceViolation("late or mismatched settlement needs operator escalation")
+-            cursor.execute(
+-                """SELECT 1 FROM railone.settlement_evidence AS e
+-                   JOIN railone.provider_submissions AS s ON
+-                       s.provider_id=e.provider_id AND
+-                       s.external_reference=e.provider_transaction_id
+-                   WHERE e.evidence_id=%s AND e.utt_id=%s AND s.rtt_id=%s""",
+-                (evidence_id, utt_id, rtt_id),
+-            )
+-            if cursor.fetchone() is None:
+-                raise EconomicFenceViolation("settlement evidence is not correlated to reserved RTT")
+-            cursor.execute(
+-                """UPDATE railone.utt_economic_fences
+-                   SET state='FINALIZED',version=version+1,updated_at=%s
+-                   WHERE utt_id=%s AND state='HELD'""", (instant, utt_id),
+-            )
+-            cursor.execute(
+-                """UPDATE railone.rtt_operational_fences SET state='SETTLED',updated_at=%s
+-                   WHERE rtt_id=%s AND state IN ('RESERVED','UNKNOWN','ACCEPTED_FOR_PROCESSING','REJECTED')""",
+-                (instant, rtt_id),
+-            )
+-            if cursor.rowcount != 1:
+-                raise EconomicFenceViolation("cannot finalize RTT operational fence")
+-            self._event(cursor, utt_id, rtt_id, row["fence_epoch"],
+-                        "SETTLED", evidence_id, instant)
++            self.finalize_locked(cursor, utt_id, rtt_id, evidence_id, instant)
++
++    @staticmethod
++    def finalize_locked(cursor, utt_id, rtt_id, evidence_id, instant):
++        """Caller holds the accepted UTT row lock until transaction commit."""
++        cursor.execute(
++            """SELECT fence_epoch,state FROM railone.utt_economic_fences
++               WHERE utt_id=%s AND current_rtt_id=%s FOR UPDATE""",
++            (utt_id, rtt_id),
++        )
++        row = cursor.fetchone()
++        if row is None:
++            raise EconomicFenceViolation("late or mismatched settlement needs operator escalation")
++        if row["state"] == "FINALIZED":
++            cursor.execute("SELECT 1 FROM railone.economic_fence_events WHERE utt_id=%s "
++                           "AND rtt_id=%s AND event_type='SETTLED' AND evidence_id=%s",
++                           (utt_id, rtt_id, evidence_id))
++            if cursor.fetchone() is not None:
++                return
++        if row["state"] != "HELD":
++            raise EconomicFenceViolation("settlement conflicts with current fence")
++        cursor.execute(
++            """SELECT 1 FROM railone.settlement_evidence e
++               JOIN railone.provider_submissions s ON s.utt_id=e.utt_id AND s.provider_id=e.provider_id
++               LEFT JOIN railone.provider_callback_inbox c ON c.provider_id=e.provider_id
++                    AND c.provider_event_id=e.callback_event_id AND c.signature_valid
++               WHERE e.evidence_id=%s AND e.utt_id=%s AND s.rtt_id=%s
++                 AND e.signed_evidence #>> '{payload,rtt_id}' = s.rtt_id
++                 AND ((s.provider_id <> 'MPESA-KE' AND s.external_reference=e.provider_transaction_id)
++                      OR (s.provider_id='MPESA-KE'
++                          AND c.provider_event_id='MPESA-RESULT-' || s.external_reference
++                          AND c.raw_payload->>'conversation_id'=s.external_reference
++                          AND c.raw_payload->>'originator_conversation_id'=s.provider_context->>'originator_conversation_id'
++                          AND c.raw_payload->>'transaction_id'=e.provider_transaction_id
++                          AND c.raw_payload->'result_code'='0'::jsonb))""",
++            (evidence_id, utt_id, rtt_id),
++        )
++        if cursor.fetchone() is None:
++            raise EconomicFenceViolation("settlement evidence is not correlated to reserved RTT")
++        cursor.execute(
++            """UPDATE railone.utt_economic_fences
++               SET state='FINALIZED',version=version+1,updated_at=%s
++               WHERE utt_id=%s AND state='HELD'""", (instant, utt_id),
++        )
++        cursor.execute(
++            """UPDATE railone.rtt_operational_fences SET state='SETTLED',updated_at=%s
++               WHERE rtt_id=%s AND state IN ('RESERVED','UNKNOWN','ACCEPTED_FOR_PROCESSING','REJECTED')""",
++            (instant, rtt_id),
++        )
++        if cursor.rowcount != 1:
++            raise EconomicFenceViolation("cannot finalize RTT operational fence")
++        PostgresEconomicEffectFence._event(cursor, utt_id, rtt_id, row["fence_epoch"],
++                    "SETTLED", evidence_id, instant)
+ 
+     @staticmethod
+     def _event(cursor, utt_id: str, rtt_id: str, epoch: int, kind: str,
+--- a/railone_postgres/notifications.py
++++ b/railone_postgres/notifications.py
+@@ -10,6 +10,7 @@
+ from railone_security import EncryptedEnvelope, NotificationBodyProtector
+ 
+ from .codec import envelope_from_db, json_object, json_text
++from .fencing import PostgresEconomicEffectFence
+ from .runtime import PostgresDatabase
+ 
+ 
+@@ -34,6 +35,8 @@
+ 
+     def commit_settlement(self, evidence, notifications):
+         with self._database.transaction() as connection, connection.cursor() as cursor:
++            cursor.execute("SELECT utt_id FROM railone.accepted_utts WHERE utt_id=%s FOR UPDATE",
++                           (evidence.utt_id,))
+             cursor.execute(
+                 """INSERT INTO railone.settlement_evidence
+                    (evidence_id, utt_id, provider_id, provider_transaction_id,
+@@ -73,6 +76,11 @@
+                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                         _notification_params(notification, self._body_protector),
+                     )
++            cursor.execute("SELECT 1 FROM railone.utt_economic_fences WHERE utt_id=%s", (evidence.utt_id,))
++            if cursor.fetchone() is not None:
++                PostgresEconomicEffectFence.finalize_locked(
++                    cursor, evidence.utt_id, stored_evidence.signed_evidence.payload["rtt_id"],
++                    stored_evidence.evidence_id, stored_evidence.settled_at)
+             rows = []
+             for notification in notifications:
+                 cursor.execute(
+--- a/tests/institutional_live_support.py
++++ b/tests/institutional_live_support.py
+@@ -202,7 +202,7 @@
+ 
+ 
+ def exercise_institutional_dispatch(
+-    test, database, *, scenario="accepted", report=None, http_bilateral=False, delegated=False, reconcile_no_effect=False,
++    test, database, *, scenario="accepted", report=None, http_bilateral=False, delegated=False, reconcile_no_effect=False, check_settlement=False,
+ ):
+     if scenario not in {"accepted", "timeout", "crash"}:
+         raise ValueError("unsupported synthetic scenario")
+@@ -398,6 +398,44 @@
+                        (attempt.utt_id,))
+         test.assertEqual(cursor.fetchone()["total"], 0)
+     emit(f"RTT state {expected_fence}; economic hold HELD; settlement evidence count 0")
++    if check_settlement:
++        from railone_crypto import KeyPurpose
++        from railone_crypto.signature_service import ArtifactType
++        from railone_notifications import SettlementEvidenceRecord
++        from railone_postgres import PostgresSettlementNotificationStore
++
++        fixture.keys.generate(key_id="test-settlement", owner_id="RECONCILIATION",
++                              purpose=KeyPurpose.SETTLEMENT_SIGNING,
++                              not_before=at-timedelta(days=1), not_after=at+timedelta(days=1))
++        with database.transaction() as connection:
++            reference = connection.execute("SELECT external_reference FROM railone.provider_submissions "
++                                           "WHERE rtt_id=%s", (fixture.rtt_id,)).fetchone()["external_reference"]
++        def record(reference):
++            fields = dict(evidence_id="SET-SANDBOX", utt_id=attempt.utt_id, provider_id="PROVIDER-FAST",
++                          provider_transaction_id=reference, callback_event_id="CALLBACK-SANDBOX")
++            signed = fixture.signatures.sign_artifact(
++                artifact_type=ArtifactType.SETTLEMENT_EVIDENCE, key_id="test-settlement",
++                payload={**fields, "rtt_id": fixture.rtt_id}, issued_at=at)
++            return SettlementEvidenceRecord(**fields, signed_evidence=signed, settled_at=at)
++        store = PostgresSettlementNotificationStore(database)
++        with test.assertRaises(EconomicFenceViolation):
++            store.commit_settlement(record("UNRELATED-REFERENCE"), ())
++        if scenario == "accepted":
++            test.assertTrue(reference)
++            evidence = record(reference)
++            test.assertFalse(store.commit_settlement(evidence, ())[2])
++            test.assertTrue(store.commit_settlement(evidence, ())[2])
++        with database.transaction() as connection:
++            settled = connection.execute("SELECT count(*) AS n FROM railone.fence_event_integrity "
++                                         "WHERE utt_id=%s AND event_type='SETTLED' AND valid",
++                                         (attempt.utt_id,)).fetchone()["n"]
++            test.assertEqual(settled, int(scenario == "accepted"))
++            row = connection.execute("SELECT state FROM railone.utt_economic_fences WHERE utt_id=%s",
++                                     (attempt.utt_id,)).fetchone()
++            test.assertEqual(row["state"], "FINALIZED" if scenario == "accepted" else "HELD")
++            count = connection.execute("SELECT count(*) AS n FROM railone.settlement_evidence "
++                                       "WHERE utt_id=%s", (attempt.utt_id,)).fetchone()["n"]
++            test.assertEqual(count, settled)
+     if reconcile_no_effect:
+         test.assertEqual(scenario, "timeout")
+         from hashlib import sha256
+--- a/tests/test_postgres_live.py
++++ b/tests/test_postgres_live.py
+@@ -111,6 +111,18 @@
+             connection_factory=cls.factory,
+             migrations_directory=cls.migrations,
+         ).apply_all()
++
++    def test_settlement_correlation_accepted(self):
++        from tests.institutional_live_support import exercise_institutional_dispatch
++        self.setUpClass()
++        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="accepted",
++                                        http_bilateral=True, check_settlement=True)
++
++    def test_settlement_correlation_timeout(self):
++        from tests.institutional_live_support import exercise_institutional_dispatch
++        self.setUpClass()
++        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="timeout",
++                                        http_bilateral=True, check_settlement=True)
+ 
+     def test_unknown_reconciles_signed_no_effect_once(self):
+         from tests.institutional_live_support import exercise_institutional_dispatch

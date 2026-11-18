@@ -32,8 +32,7 @@ class BilateralP2PApi:
     """Inject into RailOneApiFacade; all endpoints remain unavailable by default.
 
     A HUMAN principal with a trusted continuity_uid claim represents the payer
-    or beneficiary. Delegated institutional signing is deliberately out of scope
-    until an explicit scoped delegation model is certified.
+    or beneficiary. A scoped partner can present its own delegated acceptance.
     """
 
     def __init__(
@@ -74,7 +73,12 @@ class BilateralP2PApi:
         quote = _envelope(request, "signed_quote")
         sender = _envelope(request, "sender_authority")
         receiver = _envelope(request, "receiver_authority")
-        _principal_owns(principal, quote, "beneficiary")
+        if receiver.payload.get("participation_mode") == "BENEFICIARY_PREAUTHORIZED":
+            if (principal.principal_type is not PrincipalType.PARTNER_SERVICE
+                    or receiver.protected.get("iss") not in principal.scopes.partner_ids):
+                raise PermissionError("MANDATE_PARTNER_SCOPE_REQUIRED")
+        else:
+            _principal_owns(principal, quote, "beneficiary")
         _verify(lambda: self._bilateral.verify_receiver(
             signed_quote=quote, sender=sender, receiver=receiver, at=at,
         ))
@@ -98,9 +102,6 @@ class BilateralP2PApi:
         sender = _envelope(request, "sender_authority")
         receiver = _envelope(request, "receiver_authority")
         _principal_owns(principal, quote, "payer")
-        _verify(lambda: self._bilateral.verify_receiver(
-            signed_quote=quote, sender=sender, receiver=receiver, at=at,
-        ))
         origin_intent_id = request.get("origin_intent_id")
         if (not isinstance(origin_intent_id, str) or
                 not 1 <= len(origin_intent_id) <= 128 or not origin_intent_id.strip()):
@@ -113,12 +114,12 @@ class BilateralP2PApi:
         command = QuoteAcceptanceCommand(
             signed_quote=quote, sender_authority=sender, receiver_authority=receiver,
             origin=origin, authorization_method="SIGNED_BILATERAL_ETK_V3",
-            authorization_reference=receiver.payload["etk_r_id"],
+            authorization_reference=receiver.payload.get("etk_r_id"),
             idempotency_key=idempotency_key,
         )
-        accepted = self._acceptance.accept(command, at=at)
+        accepted = _verify(lambda: self._acceptance.accept(command, at=at))
         return {
-            "status": "ACCEPTED", "authority_version": 3,
+            "status": "ACCEPTED", "authority_version": 4,
             "quote_id": accepted.contract.quote_id,
             "utt_id": accepted.contract.utt_id,
             "replayed": accepted.replayed,
@@ -165,9 +166,9 @@ def _principal_owns(
         raise PermissionError("BILATERAL_ACTOR_SCOPE_MISMATCH")
 
 
-def _verify(check) -> None:
+def _verify(check):
     """Normalize malformed signed artifacts; never publish parsing details."""
     try:
-        check()
+        return check()
     except (ValueError, TypeError, KeyError, AttributeError):
         raise PermissionError("INVALID_BILATERAL_ARTIFACT") from None

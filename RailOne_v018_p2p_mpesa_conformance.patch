@@ -1,0 +1,104 @@
+--- a/tests/test_postgres_live.py
++++ b/tests/test_postgres_live.py
+@@ -235,7 +235,11 @@
+         self.setUpClass()
+         self._exercise_submission(mpesa_callback=True, lose_ack=True)
+ 
+-    def _exercise_submission(self, *, mpesa_callback, lose_ack=False):
++    def test_sender_first_p2p_mpesa_callback_settles(self):
++        self.setUpClass()
++        self._exercise_submission(mpesa_callback=True, p2p=True)
++
++    def _exercise_submission(self, *, mpesa_callback, lose_ack=False, p2p=False):
+         now = datetime(2026, 7, 14, 19, 0, tzinfo=timezone.utc)
+         keys = InMemoryEd25519KeyProvider()
+         keys.generate(
+@@ -254,18 +258,21 @@
+         executions = PostgresExecutionStore(database)
+         operations = PostgresOperationsStore(database)
+ 
++        payer_id = "CUID-" + "A" * 32 if p2p else "MER002"
++        beneficiary_id = "CUID-" + "B" * 32 if p2p else "SUP001"
++        purpose = PaymentPurpose.PERSON_TO_PERSON if p2p else PaymentPurpose.SUPPLIER_PAYMENT
+         quote = quote_service(signatures).issue_quote(
+             terms=QuoteTerms(
+                 request_id="REQ-LIVE-001",
+                 payer=ActorReference(
+-                    "MERCHANT", "MER002",
++                    "PERSON" if p2p else "MERCHANT", payer_id,
+                     endpoint("BIND-LIVE-PAYER", AccountRole.DEBIT, institution_id="BANK-001"),
+                 ),
+                 beneficiary=ActorReference(
+-                    "SUPPLIER", "SUP001",
++                    "PERSON" if p2p else "SUPPLIER", beneficiary_id,
+                     endpoint("BIND-LIVE-PAYEE", AccountRole.CREDIT, institution_id="MNO-001"),
+                 ),
+-                purpose=PaymentPurpose.SUPPLIER_PAYMENT,
++                purpose=purpose,
+                 amount_minor=10_000, currency_from="KES",
+                 receive_amount_minor=10_000 if mpesa_callback else 9_950, currency_to="KES",
+                 total_fee_minor=50, routing_budget_minor=50, fx_rate="1.000000",
+@@ -275,27 +282,54 @@
+             signing_key_id="R1CORE:quote:live", issued_at=now,
+             expires_at=now + timedelta(minutes=5),
+         )
++        origin = OriginContext(
++            origin_system="AVIA", origin_intent_id="AVIA-LIVE-001",
++            context_type=ContextType.MERCHANT,
++            purpose=PaymentPurpose.SUPPLIER_PAYMENT,
++            merchant_id="MER002", branch_id="BR001",
++        )
++        authorities = {}
++        if p2p:
++            from railone_authority.bilateral import BilateralAuthorityService
++            from tests.support import beneficiary_evidence
++            origin = OriginContext(origin_system="RAILONE", origin_intent_id="P2P-MPESA-001",
++                                   context_type=ContextType.P2P, purpose=purpose, continuity_uid=payer_id)
++            for key_id, owner, key_purpose in (
++                ("sender", payer_id, KeyPurpose.EXECUTION_SIGNING),
++                ("receiver", beneficiary_id, KeyPurpose.EXECUTION_SIGNING),
++                ("fixture-destination-verifier", "MNO-001", KeyPurpose.BENEFICIARY_VERIFICATION),
++            ):
++                keys.generate(key_id=key_id, owner_id=owner, purpose=key_purpose,
++                              not_before=now-timedelta(days=1), not_after=now+timedelta(days=1))
++            bilateral = BilateralAuthorityService(signatures)
++            sender = bilateral.issue_sender_authority(
++                signed_quote=quote, signing_key_id="sender", authorized_at=now,
++                expires_at=now+timedelta(minutes=2),
++                beneficiary_verification=beneficiary_evidence(signatures, quote, now))
++            receiver = bilateral.issue_receiver_acceptance(
++                signed_quote=quote, sender=sender, signing_key_id="receiver",
++                accepted_at=now+timedelta(seconds=1), expires_at=now+timedelta(minutes=2))
++            authorities = {"sender_authority": sender, "receiver_authority": receiver}
+         contract = QuoteAcceptanceService(
+             signatures=signatures,
+             authority=ExecutionAuthorityService(signatures),
+-            store=contracts,
++            store=contracts, require_bilateral_p2p=p2p,
+             utt_signing_key_id="R1CORE:execution:live",
+             authority_signing_key_id="R1CORE:execution:live",
+         ).accept(
+             QuoteAcceptanceCommand(
+                 signed_quote=quote,
+-                origin=OriginContext(
+-                    origin_system="AVIA", origin_intent_id="AVIA-LIVE-001",
+-                    context_type=ContextType.MERCHANT,
+-                    purpose=PaymentPurpose.SUPPLIER_PAYMENT,
+-                    merchant_id="MER002", branch_id="BR001",
+-                ),
+-                authorization_method="MERCHANT_ACTOR_ATTESTATION",
+-                authorization_reference="AUTH-LIVE-001",
++                origin=origin,
++                authorization_method="SIGNED_BILATERAL_ETK_V3" if p2p else "MERCHANT_ACTOR_ATTESTATION",
++                authorization_reference=receiver.payload["etk_r_id"] if p2p else "AUTH-LIVE-001",
++                **authorities,
+                 idempotency_key="IDEM-LIVE-001",
+             ),
+             at=now + timedelta(seconds=1),
+         ).contract
++        if p2p:
++            self.assertEqual(contract.signed_utt.payload["authority_version"], 4)
++            self.assertEqual(contract.signed_utt.payload["etk_r_digest"], receiver.protected["payload_sha256"])
+         route = RouteCandidate(
+             route_id="MPESA", source_institution_id="BANK-001",
+             destination_institution_id="MNO-001", rail="MOBILE_MONEY",

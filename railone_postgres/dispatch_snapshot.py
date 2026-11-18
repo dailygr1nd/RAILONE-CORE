@@ -111,7 +111,7 @@ class PostgresDispatchSnapshotReader:
         if utt.get("authority_version") == 2:
             # Superseded v2 signed in the opposite order; fail closed.
             raise PermissionError("RECEIVER_FIRST_V2_DEPRECATED")
-        if utt.get("authority_version") == 3:
+        if utt.get("authority_version") == 4:
             BilateralAuthorityService(self._signatures).verify_utt(
                 signed_utt=utt_envelope, sender=sender, receiver=receiver, at=instant,
             )
@@ -119,8 +119,8 @@ class PostgresDispatchSnapshotReader:
                     or utt.get("etk_s_id") != sender.payload.get("etk_s_id")):
                 raise PermissionError("persisted bilateral authorities do not match UTT")
         else:
-            if self._require_sender_first:
-                raise PermissionError("SENDER_FIRST_BILATERAL_V3_REQUIRED")
+            if self._require_sender_first or utt.get("authority_version") not in (None, 1):
+                raise PermissionError("SENDER_FIRST_BILATERAL_V4_REQUIRED")
             # Legacy ETK-S-first verification, retained only for existing fixtures.
             etk_s = self._verified(sender, ArtifactType.ETK_S, instant)
             etk_r = self._verified(receiver, ArtifactType.ETK_R, instant)

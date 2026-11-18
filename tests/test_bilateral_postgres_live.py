@@ -60,7 +60,7 @@ class BilateralPostgresLiveTests(unittest.TestCase):
         stored_sender, stored_receiver = contracts.require_bilateral_authorities(contract.utt_id)
         self.assertEqual(stored_receiver.payload["etk_r_id"], receiver.payload["etk_r_id"])
         self.assertEqual(stored_receiver.payload["etk_s_digest"], sender.protected["payload_sha256"])
-        self.assertEqual(contracts.require_utt(contract.utt_id).payload["authority_version"], 3)
+        self.assertEqual(contracts.require_utt(contract.utt_id).payload["authority_version"], 4)
         plan = ExecutionPlanningService(
             signatures=fixture.signatures, contracts=contracts, executions=executions,
         ).build_plan(utt_id=contract.utt_id, candidates=(fixture.route(),),

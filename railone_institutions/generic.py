@@ -98,6 +98,8 @@ class GenericHttpInstitutionAdapter:
 
     def validate_instruction(self, instruction: InstitutionExecutionInstruction) -> None:
         manifest = self._manifest
+        if instruction.adapter_binding_ref != self.descriptor.binding_ref:
+            raise ValueError("instruction adapter binding does not match configured adapter")
         if instruction.provider_id.upper() != self.descriptor.provider_id.upper():
             raise ValueError("instruction provider does not match adapter")
         checks = (

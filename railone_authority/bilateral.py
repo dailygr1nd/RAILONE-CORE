@@ -1,4 +1,4 @@
-"""Sender-first bilateral authority for P2P sandbox execution, version 3.
+"""Sender-first bilateral authority for P2P sandbox execution, version 4.
 
 The sender signs the immutable quote commitment first. The receiver then signs
 an acceptance that binds to the exact ETK-S digest. RailOne verifies both
@@ -8,6 +8,7 @@ authorities before UTT creation; neither pre-UTT authority includes a UTT ID.
 from __future__ import annotations
 
 import hashlib
+from .mandates import MODE, receiver_owner
 from datetime import datetime
 from typing import Mapping, Any
 
@@ -64,15 +65,48 @@ class BilateralAuthorityService:
     signature ownership is enforced at every verification boundary.
     """
 
-    AUTHORITY_VERSION = 3
+    AUTHORITY_VERSION = 4
     MAX_TTL_SECONDS = 900
 
     def __init__(self, signatures: SignatureService) -> None:
         self._signatures = signatures
 
+    def _verify_beneficiary(self, evidence, quote, *, authorized_epoch, check_epoch):
+        if not isinstance(evidence, SignatureEnvelope):
+            raise PermissionError("BENEFICIARY_VERIFICATION_REQUIRED")
+        beneficiary = quote["beneficiary"]
+        endpoint = beneficiary["endpoint"]
+        body = _verified(self._signatures, evidence, ArtifactType.BENEFICIARY_VERIFICATION,
+                         endpoint["institution_id"])
+        issued = evidence.protected["iat"]
+        expiry = body.get("expires_at")
+        expected = {
+            "version": 1, "result": "IDENTITY_AND_ACCOUNT_MATCH",
+            "quote_id": quote["quote_id"], "beneficiary_actor_id": beneficiary["actor_id"],
+            "destination_sha256": _sha(endpoint), "currency": quote["currency_to"],
+        }
+        if (set(body) != set(expected) | {"expires_at", "verification_ref"}
+                or type(body.get("version")) is not int
+                or any(body.get(k) != v for k, v in expected.items())
+                or endpoint["role"] != "CREDIT"
+                or not isinstance(body.get("verification_ref"), str)
+                or not 1 <= len(body["verification_ref"].strip()) <= 128):
+            raise PermissionError("BENEFICIARY_VERIFICATION_MISMATCH")
+        if (type(expiry) is not int or type(authorized_epoch) is not int
+                or not issued <= authorized_epoch <= check_epoch < expiry
+                or expiry > issued + self.MAX_TTL_SECONDS):
+            raise PermissionError("BENEFICIARY_VERIFICATION_EXPIRED")
+
+    def _bound_evidence(self, sender):
+        try:
+            return SignatureEnvelope.from_dict(sender["beneficiary_verification"])
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            raise PermissionError("BENEFICIARY_VERIFICATION_REQUIRED") from exc
+
     def issue_sender_authority(
         self, *, signed_quote: SignatureEnvelope, signing_key_id: str,
         authorized_at: datetime, expires_at: datetime,
+        beneficiary_verification: SignatureEnvelope | None = None,
     ) -> SignatureEnvelope:
         epoch, expiry = _instant(authorized_at), _instant(expires_at)
         if not epoch < expiry <= epoch + self.MAX_TTL_SECONDS:
@@ -85,7 +119,9 @@ class BilateralAuthorityService:
             raise PermissionError("SENDER_FIRST_FLOW_P2P_ONLY")
         if not quote["issued_at"] <= epoch < quote["expires_at"]:
             raise PermissionError("QUOTE_NOT_ACTIVE")
+        self._verify_beneficiary(beneficiary_verification, quote, authorized_epoch=epoch, check_epoch=epoch)
         core = {
+            "beneficiary_verification": beneficiary_verification.to_dict(),
             "authority_version": self.AUTHORITY_VERSION,
             "authorization_scope": "INITIATE_SIGNED_QUOTE",
             **quote_commitment(quote),
@@ -128,10 +164,12 @@ class BilateralAuthorityService:
                 issued <= epoch < expiry and issued < expiry <= issued + self.MAX_TTL_SECONDS and
                 sender.protected["iat"] == issued):
             raise PermissionError("SENDER_AUTHORITY_NOT_ACTIVE")
+        self._verify_beneficiary(self._bound_evidence(s), quote, authorized_epoch=s.get("authorized_at"), check_epoch=epoch)
 
     def issue_receiver_acceptance(
         self, *, signed_quote: SignatureEnvelope, sender: SignatureEnvelope,
         signing_key_id: str, accepted_at: datetime, expires_at: datetime,
+        mandate: SignatureEnvelope | None = None,
     ) -> SignatureEnvelope:
         self.verify_sender(signed_quote=signed_quote, sender=sender, at=accepted_at)
         epoch, expiry = _instant(accepted_at), _instant(expires_at)
@@ -153,12 +191,16 @@ class BilateralAuthorityService:
             "status": "ACTIVE",
             "custody_model": "NON_CUSTODIAL",
         }
+        if mandate is not None:
+            core.update(participation_mode=MODE, receiver_confirmed=False, mandate=mandate.to_dict())
+        owner = receiver_owner(self._signatures, core, quote,
+                               sender_epoch=sender.payload["authorized_at"], check_epoch=epoch)
         signed = self._signatures.sign_artifact(
             artifact_type=ArtifactType.ETK_R,
             payload={"etk_r_id": _id("ETKR", core), **core},
             key_id=signing_key_id, issued_at=accepted_at,
         )
-        _verified(self._signatures, signed, ArtifactType.ETK_R, quote["beneficiary"]["actor_id"])
+        _verified(self._signatures, signed, ArtifactType.ETK_R, owner)
         return signed
 
     def verify_receiver(
@@ -168,13 +210,13 @@ class BilateralAuthorityService:
         self.verify_sender(signed_quote=signed_quote, sender=sender, at=at)
         epoch = _instant(at)
         quote = signed_quote.payload
-        r = _verified(self._signatures, receiver, ArtifactType.ETK_R, quote["beneficiary"]["actor_id"])
+        r = _verified(self._signatures, receiver, ArtifactType.ETK_R,
+                      receiver_owner(self._signatures, receiver.payload, quote,
+                                     sender_epoch=sender.payload["authorized_at"], check_epoch=epoch))
         if any(r.get(k) != v for k, v in quote_commitment(quote).items()):
             raise PermissionError("RECEIVER_QUOTE_BINDING_MISMATCH")
         if (r.get("authority_version") != self.AUTHORITY_VERSION or
                 r.get("authorization_scope") != "ACCEPT_SENDER_INTENT" or
-                r.get("participation_mode") != "ACTIVE_ACCEPTANCE" or
-                r.get("receiver_confirmed") is not True or
                 r.get("status") != "ACTIVE" or
                 r.get("custody_model") != "NON_CUSTODIAL" or
                 r.get("etk_s_id") != sender.payload["etk_s_id"] or
@@ -201,7 +243,11 @@ class BilateralAuthorityService:
         if utt.get("authority_version") != self.AUTHORITY_VERSION or utt["origin"].get("context_type") != "P2P":
             raise PermissionError("BILATERAL_UTT_REQUIRED")
         s = _verified(self._signatures, sender, ArtifactType.ETK_S, utt["payer"]["actor_id"])
-        r = _verified(self._signatures, receiver, ArtifactType.ETK_R, utt["beneficiary"]["actor_id"])
+        r = _verified(self._signatures, receiver, ArtifactType.ETK_R,
+                      receiver_owner(self._signatures, receiver.payload, utt,
+                                     sender_epoch=s["authorized_at"], check_epoch=utt["accepted_at"]))
+        self._verify_beneficiary(self._bound_evidence(s), utt, authorized_epoch=s.get("authorized_at"),
+                                 check_epoch=utt["accepted_at"])
         expected = quote_commitment(utt)
         if any(s.get(k) != v or r.get(k) != v for k, v in expected.items()):
             raise PermissionError("BILATERAL_QUOTE_BINDING_MISMATCH")
@@ -209,8 +255,6 @@ class BilateralAuthorityService:
                 r.get("authority_version") != self.AUTHORITY_VERSION or
                 s.get("authorization_scope") != "INITIATE_SIGNED_QUOTE" or
                 r.get("authorization_scope") != "ACCEPT_SENDER_INTENT" or
-                r.get("receiver_confirmed") is not True or
-                r.get("participation_mode") != "ACTIVE_ACCEPTANCE" or
                 s.get("status") != "ACTIVE" or r.get("status") != "ACTIVE" or
                 s.get("custody_model") != "NON_CUSTODIAL" or r.get("custody_model") != "NON_CUSTODIAL" or
                 r.get("etk_s_id") != s.get("etk_s_id") or

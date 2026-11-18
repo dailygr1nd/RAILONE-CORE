@@ -19,6 +19,8 @@ from .key_provider import KeyPurpose, KeyStatus, SigningKeyProvider
 
 
 class ArtifactType(StrEnum):
+    BENEFICIARY_VERIFICATION = "railone.beneficiary_verification"
+    RECEIVE_MANDATE = "railone.receive_mandate"
     QUOTE = "railone.quote"
     UTT = "railone.utt"
     RTT = "railone.rtt"
@@ -36,6 +38,8 @@ class ArtifactType(StrEnum):
 
 
 _PURPOSE_BY_ARTIFACT = {
+    ArtifactType.BENEFICIARY_VERIFICATION: KeyPurpose.BENEFICIARY_VERIFICATION,
+    ArtifactType.RECEIVE_MANDATE: KeyPurpose.EXECUTION_SIGNING,
     ArtifactType.QUOTE: KeyPurpose.QUOTE_SIGNING,
     ArtifactType.UTT: KeyPurpose.EXECUTION_SIGNING,
     ArtifactType.RTT: KeyPurpose.EXECUTION_SIGNING,

@@ -1,6 +1,7 @@
 """External, authenticated sender-first bilateral API sandbox conformance."""
 from __future__ import annotations
 
+from tests.support import beneficiary_evidence
 import unittest
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -35,8 +36,7 @@ class AuthenticatedBilateralApiTests(unittest.TestCase):
         self.fx = synthetic.CompromisedInstitutionHarnessTests(
             "test_01_sender_first_bilateral_to_signed_utt_and_rtt"
         )
-        self.fx.setUp()
-        self.fx.now = now
+        self.fx.initialize_at(now)
         self.fx.terms = replace(
             self.fx.terms,
             payer=replace(self.fx.terms.payer, actor_id=self.SENDER),
@@ -73,7 +73,9 @@ class AuthenticatedBilateralApiTests(unittest.TestCase):
             audits=self.audits, signatures=self.signatures,
             audit_signing_key_id="api-audit",
         )
+        from railone_api.avia import AviaMerchantApi
         self.facade = RailOneApiFacade(
+            avia_merchant=AviaMerchantApi(self.fx.accept),
             guard=self.guard,
             history=TransactionHistoryService(InMemoryTransactionHistoryStore()),
             outcomes=InMemoryProviderOutcomeProjectionStore(),
@@ -111,6 +113,42 @@ class AuthenticatedBilateralApiTests(unittest.TestCase):
             headers=self._headers(token, key=key),
         )
 
+    def test_avia_operations_and_cross_channel_denials(self):
+        from railone_api.avia import PURPOSES, branch_permission
+        for operation, purpose in PURPOSES.items():
+            with self.subTest(operation=operation):
+                terms = replace(self.fx.terms, purpose=purpose, request_id=operation,
+                                payer=replace(self.fx.terms.payer, actor_type="MERCHANT", actor_id="MER001"),
+                                beneficiary=replace(self.fx.terms.beneficiary,
+                                    actor_type="BRANCH" if operation == "BRANCH_FUND_TRANSFER" else "SUPPLIER",
+                                    actor_id="BR002" if operation == "BRANCH_FUND_TRANSFER" else "SUP001"))
+                quote = self.fx.make_quote(terms)
+                body = dict(operation=operation, signed_quote=quote.to_dict(), branch_id="BR001",
+                            origin_intent_id="AVIA-"+operation)
+                debit = branch_permission("debit", "MER001", "BR001", quote.payload["payer"]["endpoint"])
+                credit = branch_permission("credit", "MER001", "BR002", quote.payload["beneficiary"]["endpoint"])
+                def service(permissions, merchant="MER001"):
+                    return self.tokens.issue(principal_id="AVIA-SVC", principal_type=PrincipalType.MERCHANT_SERVICE,
+                        scopes=ActorScopes(merchant_ids=(merchant,), branch_ids=("BR001","BR002"),
+                                           permissions=permissions), key_id="api-token", at=self.fx.now)
+                def post(token, request):
+                    return self.client.post("/v1/avia/merchant/utts", json=request,
+                        headers=self._headers(token, key="IDEM-"+operation))
+                grants = ("avia."+operation, debit, credit)
+                token = service(grants)
+                self.assertEqual(self._post("utts", token, key="IDEM-P2P-DENY").status_code, 403)
+                self.assertEqual(post(self.sender_token, body).status_code, 403)
+                self.assertEqual(post(service(grants, "OTHER"), body).status_code, 403)
+                self.assertEqual(post(service((debit, credit)), body).status_code, 403)
+                self.assertEqual(post(token, {**body, "branch_id":"BR002"}).status_code, 403)
+                if operation == "BRANCH_FUND_TRANSFER":
+                    self.assertEqual(post(service(grants[:-1]), body).status_code, 403)
+                accepted = post(token, body)
+                self.assertEqual(accepted.status_code, 200, accepted.text)
+                self.assertFalse(accepted.json()["replayed"])
+                replay = post(token, body)
+                self.assertEqual(replay.json(), {**accepted.json(), "replayed":True})
+
     def test_sender_receiver_then_utt_and_idempotent_replay(self):
         s = self._post("etk-s/verify", self.sender_token)
         self.assertEqual(s.status_code, 200, s.text)
@@ -123,7 +161,7 @@ class AuthenticatedBilateralApiTests(unittest.TestCase):
         key = "IDEM-P2P-API-001"
         u = self._post("utts", self.sender_token, key=key)
         self.assertEqual(u.status_code, 200, u.text)
-        self.assertEqual(u.json()["authority_version"], 3)
+        self.assertEqual(u.json()["authority_version"], 4)
         self.assertFalse(u.json()["replayed"])
         replay = self._post("utts", self.sender_token, key=key)
         self.assertEqual(replay.status_code, 200, replay.text)
@@ -207,9 +245,25 @@ class AuthenticatedBilateralApiTests(unittest.TestCase):
         self.assertEqual(self.audits.audits()[-1].status_code, 403)
         self.assertNotIn("amount_minor", str(self.audits.audits()[-1].signed_audit.to_dict()))
 
+    def test_valid_sender_signature_without_bank_evidence_is_denied(self):
+        import hashlib
+        from railone_crypto.canonical_json import canonical_json_bytes
+        from railone_crypto.signature_service import ArtifactType
+        payload = dict(self.sender.payload)
+        del payload["beneficiary_verification"], payload["etk_s_id"]
+        sender_id = "ETKS-" + hashlib.sha256(canonical_json_bytes(payload)).hexdigest()[:32].upper()
+        signed = self.fx.signatures.sign_artifact(artifact_type=ArtifactType.ETK_S,
+            payload={"etk_s_id": sender_id, **payload}, key_id="api-sender",
+            issued_at=self.fx.now + timedelta(seconds=5))
+        body = self._body()
+        body["sender_authority"] = signed.to_dict()
+        self.assertEqual(self._post("utts", self.sender_token, body, key="IDEM-NO-BANK-PROOF").status_code, 403)
+        self.assertFalse(self.fx.contracts._utts)
+
     def test_etk_r_bound_to_wrong_etk_s_rejected(self):
         alternate = self.fx.bilateral.issue_sender_authority(
             signed_quote=self.fx.quote, signing_key_id="api-sender",
+            beneficiary_verification=beneficiary_evidence(self.signatures, self.fx.quote, self.fx.now),
             authorized_at=self.fx.now + timedelta(seconds=6),
             expires_at=self.fx.now + timedelta(seconds=45),
         )

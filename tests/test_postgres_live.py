@@ -112,6 +112,42 @@ class LivePostgresRuntimeTests(unittest.TestCase):
             migrations_directory=cls.migrations,
         ).apply_all()
 
+    def test_settlement_correlation_accepted(self):
+        from tests.institutional_live_support import exercise_institutional_dispatch
+        self.setUpClass()
+        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="accepted",
+                                        http_bilateral=True, check_settlement=True)
+
+    def test_settlement_correlation_timeout(self):
+        from tests.institutional_live_support import exercise_institutional_dispatch
+        self.setUpClass()
+        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="timeout",
+                                        http_bilateral=True, check_settlement=True)
+
+    def test_unknown_reconciles_signed_no_effect_once(self):
+        from tests.institutional_live_support import exercise_institutional_dispatch
+        self.setUpClass()
+        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="timeout",
+                                        http_bilateral=True, reconcile_no_effect=True)
+
+    def test_delegated_dispatch_accepted(self):
+        from tests.institutional_live_support import exercise_institutional_dispatch
+        self.setUpClass()
+        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="accepted",
+                                        http_bilateral=True, delegated=True)
+
+    def test_delegated_dispatch_timeout(self):
+        from tests.institutional_live_support import exercise_institutional_dispatch
+        self.setUpClass()
+        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="timeout",
+                                        http_bilateral=True, delegated=True)
+
+    def test_delegated_dispatch_crash(self):
+        from tests.institutional_live_support import exercise_institutional_dispatch
+        self.setUpClass()
+        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="crash",
+                                        http_bilateral=True, delegated=True)
+
     def test_v017_http_to_postgres_institutional_dispatch(self):
         """End-to-end: actor-scoped HTTP -> bilateral UTT -> RTT -> fenced adapter."""
         self.setUpClass()  # Explicit disposable reset; synthetic IDs are reused.
@@ -187,7 +223,50 @@ class LivePostgresRuntimeTests(unittest.TestCase):
         self.assertEqual(vault.resolve(institution_id="SYNTHETIC-INST",
                                        account_binding_id="SYNTHETIC-BIND"), "SYNTHETIC-ENDPOINT")
 
+    def test_merchant_and_individual_http_channels_on_postgres(self):
+        from fastapi.testclient import TestClient
+        from railone_sandbox.deployment import DeployedSandboxConfig, compose_deployed_sandbox
+        from tests.test_authenticated_bilateral_api import AuthenticatedBilateralApiTests
+        from tests.test_deployed_sandbox_composition import NoopConsumer, NoopKeyClient
+        self.setUpClass()
+        case = AuthenticatedBilateralApiTests("test_avia_operations_and_cross_channel_denials")
+        case.setUp()
+        config = DeployedSandboxConfig(
+            database_url="postgresql://synthetic", migrations_directory=self.migrations,
+            account_endpoint_key_id="synthetic-endpoint", contact_destination_key_id="synthetic-contact",
+            provider_credential_key_id="synthetic-credential", notification_body_key_id="synthetic-body",
+            worker_id="sandbox-api")
+        runtime = compose_deployed_sandbox(config=config, key_client=NoopKeyClient(),
+                                           effect_consumer=NoopConsumer(), connection_factory=self.factory)
+        facade = runtime.authenticated_p2p_facade(signatures=case.signatures, access_tokens=case.tokens,
+                    utt_signing_key_id="core", authority_signing_key_id="core",
+                    api_audit_signing_key_id="api-audit", enable_avia_merchant=True)
+        with TestClient(case.create_app(facade=facade)) as case.client:
+            case.test_avia_operations_and_cross_channel_denials()
+            response = case._post("utts", case.sender_token, key="IDEM-INDIVIDUAL-POSTGRES")
+            self.assertEqual(response.status_code, 200, response.text)
+        with self.factory() as connection:
+            rows = connection.execute("SELECT signed_envelope #>> '{payload,origin,context_type}' AS channel, "
+                                      "count(*) AS n FROM railone.accepted_utts GROUP BY 1").fetchall()
+            self.assertEqual({row["channel"]:row["n"] for row in rows}, {"MERCHANT":2,"P2P":1})
+
+    def test_mpesa_callback_timeout_then_settlement(self):
+        self.setUpClass()
+        self._exercise_submission(mpesa_callback=True)
+
     def test_contract_execution_submission_and_projection_round_trip(self):
+        self.setUpClass()
+        self._exercise_submission(mpesa_callback=False)
+
+    def test_mpesa_lost_ack_preserves_hold_and_unmatched_receipt(self):
+        self.setUpClass()
+        self._exercise_submission(mpesa_callback=True, lose_ack=True)
+
+    def test_sender_first_p2p_mpesa_callback_settles(self):
+        self.setUpClass()
+        self._exercise_submission(mpesa_callback=True, p2p=True)
+
+    def _exercise_submission(self, *, mpesa_callback, lose_ack=False, p2p=False):
         now = datetime(2026, 7, 14, 19, 0, tzinfo=timezone.utc)
         keys = InMemoryEd25519KeyProvider()
         keys.generate(
@@ -206,20 +285,23 @@ class LivePostgresRuntimeTests(unittest.TestCase):
         executions = PostgresExecutionStore(database)
         operations = PostgresOperationsStore(database)
 
+        payer_id = "CUID-" + "A" * 32 if p2p else "MER002"
+        beneficiary_id = "CUID-" + "B" * 32 if p2p else "SUP001"
+        purpose = PaymentPurpose.PERSON_TO_PERSON if p2p else PaymentPurpose.SUPPLIER_PAYMENT
         quote = quote_service(signatures).issue_quote(
             terms=QuoteTerms(
                 request_id="REQ-LIVE-001",
                 payer=ActorReference(
-                    "MERCHANT", "MER002",
+                    "PERSON" if p2p else "MERCHANT", payer_id,
                     endpoint("BIND-LIVE-PAYER", AccountRole.DEBIT, institution_id="BANK-001"),
                 ),
                 beneficiary=ActorReference(
-                    "SUPPLIER", "SUP001",
+                    "PERSON" if p2p else "SUPPLIER", beneficiary_id,
                     endpoint("BIND-LIVE-PAYEE", AccountRole.CREDIT, institution_id="MNO-001"),
                 ),
-                purpose=PaymentPurpose.SUPPLIER_PAYMENT,
+                purpose=purpose,
                 amount_minor=10_000, currency_from="KES",
-                receive_amount_minor=9_950, currency_to="KES",
+                receive_amount_minor=10_000 if mpesa_callback else 9_950, currency_to="KES",
                 total_fee_minor=50, routing_budget_minor=50, fx_rate="1.000000",
                 corridor_id="KE-DOMESTIC", service_level="STANDARD",
                 routing_policy_id="POLICY-KE-PILOT", pricing_version="2026-07",
@@ -227,31 +309,58 @@ class LivePostgresRuntimeTests(unittest.TestCase):
             signing_key_id="R1CORE:quote:live", issued_at=now,
             expires_at=now + timedelta(minutes=5),
         )
+        origin = OriginContext(
+            origin_system="AVIA", origin_intent_id="AVIA-LIVE-001",
+            context_type=ContextType.MERCHANT,
+            purpose=PaymentPurpose.SUPPLIER_PAYMENT,
+            merchant_id="MER002", branch_id="BR001",
+        )
+        authorities = {}
+        if p2p:
+            from railone_authority.bilateral import BilateralAuthorityService
+            from tests.support import beneficiary_evidence
+            origin = OriginContext(origin_system="RAILONE", origin_intent_id="P2P-MPESA-001",
+                                   context_type=ContextType.P2P, purpose=purpose, continuity_uid=payer_id)
+            for key_id, owner, key_purpose in (
+                ("sender", payer_id, KeyPurpose.EXECUTION_SIGNING),
+                ("receiver", beneficiary_id, KeyPurpose.EXECUTION_SIGNING),
+                ("fixture-destination-verifier", "MNO-001", KeyPurpose.BENEFICIARY_VERIFICATION),
+            ):
+                keys.generate(key_id=key_id, owner_id=owner, purpose=key_purpose,
+                              not_before=now-timedelta(days=1), not_after=now+timedelta(days=1))
+            bilateral = BilateralAuthorityService(signatures)
+            sender = bilateral.issue_sender_authority(
+                signed_quote=quote, signing_key_id="sender", authorized_at=now,
+                expires_at=now+timedelta(minutes=2),
+                beneficiary_verification=beneficiary_evidence(signatures, quote, now))
+            receiver = bilateral.issue_receiver_acceptance(
+                signed_quote=quote, sender=sender, signing_key_id="receiver",
+                accepted_at=now+timedelta(seconds=1), expires_at=now+timedelta(minutes=2))
+            authorities = {"sender_authority": sender, "receiver_authority": receiver}
         contract = QuoteAcceptanceService(
             signatures=signatures,
             authority=ExecutionAuthorityService(signatures),
-            store=contracts,
+            store=contracts, require_bilateral_p2p=p2p,
             utt_signing_key_id="R1CORE:execution:live",
             authority_signing_key_id="R1CORE:execution:live",
         ).accept(
             QuoteAcceptanceCommand(
                 signed_quote=quote,
-                origin=OriginContext(
-                    origin_system="AVIA", origin_intent_id="AVIA-LIVE-001",
-                    context_type=ContextType.MERCHANT,
-                    purpose=PaymentPurpose.SUPPLIER_PAYMENT,
-                    merchant_id="MER002", branch_id="BR001",
-                ),
-                authorization_method="MERCHANT_ACTOR_ATTESTATION",
-                authorization_reference="AUTH-LIVE-001",
+                origin=origin,
+                authorization_method="SIGNED_BILATERAL_ETK_V3" if p2p else "MERCHANT_ACTOR_ATTESTATION",
+                authorization_reference=receiver.payload["etk_r_id"] if p2p else "AUTH-LIVE-001",
+                **authorities,
                 idempotency_key="IDEM-LIVE-001",
             ),
             at=now + timedelta(seconds=1),
         ).contract
+        if p2p:
+            self.assertEqual(contract.signed_utt.payload["authority_version"], 4)
+            self.assertEqual(contract.signed_utt.payload["etk_r_digest"], receiver.protected["payload_sha256"])
         route = RouteCandidate(
             route_id="MPESA", source_institution_id="BANK-001",
             destination_institution_id="MNO-001", rail="MOBILE_MONEY",
-            provider="MPESA-KE", adapter="mpesa-sandbox-v1",
+            provider="MPESA-KE", adapter="railone.mpesa.ke.b2c@1.0.0" if mpesa_callback else "mpesa-sandbox-v1",
             currency_from="KES", currency_to="KES", min_amount_minor=100,
             max_amount_minor=1_000_000, latency_ms=500, congestion_bps=100,
             liquidity_capacity_minor=5_000_000, throughput_headroom_bps=9000,
@@ -281,7 +390,7 @@ class LivePostgresRuntimeTests(unittest.TestCase):
         )
         endpoint_resolver.register(
             institution_id="MNO-001", account_binding_id="BIND-LIVE-PAYEE",
-            provider_reference="PAYEE-REF",
+            provider_reference="254712345678" if mpesa_callback else "PAYEE-REF",
         )
         from railone_postgres import PostgresEconomicEffectFence, EconomicFenceViolation
         from railone_crypto.signature_service import ArtifactType
@@ -318,12 +427,32 @@ class LivePostgresRuntimeTests(unittest.TestCase):
         self.assertEqual(results.count("DENIED"), 1)
         with self.assertRaises(EconomicFenceViolation):
             reserve_once()
+        payment_adapter = AcceptedAdapter()
+        if mpesa_callback:
+            from tests.test_mpesa_adapter import FakeTransport, HttpResponse, adapter
+            from railone_institutions import InstitutionAdapterBridge
+            from railone_providers import mpesa_b2c_institution_plugin
+            class LostAcknowledgement(FakeTransport):
+                def request(self, **kwargs):
+                    response = super().request(**kwargs)
+                    if kwargs["method"] == "POST":
+                        raise TimeoutError("payment sent; response lost")
+                    return response
+
+            transport_factory = LostAcknowledgement if lose_ack else FakeTransport
+            transport = transport_factory(
+                HttpResponse(200, b'{"access_token":"synthetic","expires_in":"3599"}'),
+                HttpResponse(200, b'{"ResponseCode":"0","ConversationID":"AG_001",'
+                                  b'"OriginatorConversationID":"R1_ORIGIN_001"}'))
+            underlying = adapter(transport)
+            payment_adapter = InstitutionAdapterBridge(mpesa_b2c_institution_plugin(
+                underlying, source_institution_ids=("BANK-001",), destination_institution_ids=("MNO-001",)))
         submission = coordinator.dispatch(
-            rtt_id=attempt.rtt_id, adapter=AcceptedAdapter(), at=now + timedelta(seconds=4)
+            rtt_id=attempt.rtt_id, adapter=payment_adapter, at=now + timedelta(seconds=4)
         )
         fence.record_provider_outcome(
             utt_id=contract.utt_id, rtt_id=attempt.rtt_id,
-            outcome="ACCEPTED", at=now + timedelta(seconds=5),
+            outcome=submission.state.value, at=now + timedelta(seconds=5),
         )
         with self.assertRaises(EconomicFenceViolation):
             fence.assert_dispatch_safe(
@@ -331,6 +460,77 @@ class LivePostgresRuntimeTests(unittest.TestCase):
                 fence_epoch=1, release_evidence_ref=None,
                 at=now + timedelta(seconds=5),
             )
+        if mpesa_callback:
+            import json
+            from railone_callbacks import MpesaCallbackProcessor, MpesaIngressAuthenticator
+            from railone_notifications import SettlementNotificationService
+            from railone_postgres.callbacks import PostgresCallbackInboxStore
+            from railone_postgres.notifications import PostgresSettlementNotificationStore
+            from tests.test_mpesa_callbacks import FixedSecret, envelope, signature
+
+            keys.generate(key_id="sandbox-settlement", owner_id="RAILONE", purpose=KeyPurpose.SETTLEMENT_SIGNING,
+                          not_before=now-timedelta(days=1), not_after=now+timedelta(days=1))
+            processor = MpesaCallbackProcessor(
+                authenticator=MpesaIngressAuthenticator(FixedSecret()), inbox=PostgresCallbackInboxStore(database),
+                operations=operations, executions=executions, attempts=RttAttemptService(
+                    signatures=signatures, contracts=contracts, executions=executions,
+                    rtt_signing_key_id="R1CORE:execution:live"),
+                settlements=SettlementNotificationService(
+                    signatures=signatures, contracts=contracts, executions=executions,
+                    store=PostgresSettlementNotificationStore(database), settlement_signing_key_id="sandbox-settlement"))
+            def callback_body(code, **kwargs):
+                data = json.loads(envelope(code, **kwargs))
+                data["Result"]["ConversationID"] = submission.external_reference
+                return json.dumps(data).encode()
+            when = now + timedelta(seconds=6)
+            if lose_ack:
+                self.assertEqual(submission.state.value, "UNKNOWN")
+                self.assertIsNone(submission.external_reference)
+                body = envelope(0, transaction_id="TXN-UNMATCHED", transaction_amount=100)
+                for _ in range(2):
+                    with self.assertRaises(LookupError):
+                        processor.process_result(raw_body=body, ingress_signature=signature(body), at=when)
+                with self.assertRaises(EconomicFenceViolation):
+                    reserve_once()
+                with database.transaction() as con:
+                    receipts = con.execute("SELECT raw_payload,signature_valid,applied_at FROM "
+                                           "railone.provider_callback_inbox WHERE provider_id='MPESA-KE'").fetchall()
+                    self.assertEqual(receipts, [dict(raw_payload={"reason": "UNMATCHED_SUBMISSION",
+                                                                 "callback_type": "RESULT"},
+                                                     signature_valid=True, applied_at=None)])
+                    for table in ("settlement_evidence", "sms_notification_outbox"):
+                        self.assertEqual(con.execute(f"SELECT count(*) AS n FROM railone.{table} "
+                                                     "WHERE utt_id=%s", (contract.utt_id,)).fetchone()["n"], 0)
+                    self.assertEqual(con.execute("SELECT state FROM railone.utt_economic_fences WHERE utt_id=%s",
+                                                 (contract.utt_id,)).fetchone()["state"], "HELD")
+                self.assertEqual(sum(call["method"] == "POST" for call in transport.calls), 1)
+                return
+
+            timeout = callback_body(2001)
+            result = processor.process_timeout(raw_body=timeout, ingress_signature=signature(timeout), at=when)
+            self.assertEqual(result.disposition, "RECONCILIATION_REQUIRED")
+            success = callback_body(0, transaction_id="TXN-SETTLED-123", transaction_amount=100)
+            unrelated = success.replace(submission.external_reference.encode(), b"OTHER-CONVERSATION")
+            with self.assertRaises(LookupError):
+                processor.process_result(raw_body=unrelated, ingress_signature=signature(unrelated), at=when)
+            with database.transaction() as con:
+                hold = con.execute("SELECT state FROM railone.utt_economic_fences WHERE utt_id=%s",
+                                   (contract.utt_id,)).fetchone()
+                self.assertEqual(hold["state"], "HELD")
+            for expected in ("CONFIRMED_SUCCESS", "ALREADY_APPLIED"):
+                result = processor.process_result(raw_body=success, ingress_signature=signature(success), at=when)
+                self.assertEqual((result.disposition, result.rtt_id), (expected, attempt.rtt_id))
+            with database.transaction() as con:
+                proof = con.execute("SELECT provider_transaction_id FROM railone.settlement_evidence "
+                                    "WHERE utt_id=%s", (contract.utt_id,)).fetchall()
+                self.assertEqual(proof, [{"provider_transaction_id": "TXN-SETTLED-123"}])
+                events = con.execute("SELECT valid FROM railone.fence_event_integrity WHERE utt_id=%s "
+                                     "AND event_type='SETTLED'", (contract.utt_id,)).fetchall()
+                self.assertEqual(events, [{"valid": True}])
+                notifications = con.execute("SELECT count(*) AS n FROM railone.sms_notification_outbox "
+                                            "WHERE utt_id=%s", (contract.utt_id,)).fetchone()
+                self.assertEqual(notifications["n"], 2)
+            return
         # Synthetic no-effect assertion tests transition mechanics only; the
         # real signer must first verify actual authenticated provider evidence.
         evidence = signatures.sign_artifact(
@@ -442,9 +642,41 @@ class LivePostgresRuntimeTests(unittest.TestCase):
                 bank_db = PostgresDatabase(psycopg_connection_factory(bank_dsn))
                 metrics = PostgresBankMetricsReader(bank_db).list_metrics()
                 self.assertEqual([m.metric_value for m in metrics], [expected_value])
-                with self.assertRaises(Exception):
-                    with bank_db.transaction() as connection, connection.cursor() as cursor:
-                        cursor.execute("SELECT * FROM railone.route_decision_records LIMIT 1")
+                from psycopg.errors import InsufficientPrivilege
+                with bank_db.transaction() as connection, connection.cursor() as cursor:
+                    cursor.execute(sql.SQL("SET LOCAL ROLE {}").format(sql.Identifier(read_role)))
+                    cursor.execute("SELECT metric_value FROM railone_bank.metrics")
+                    self.assertEqual([r["metric_value"] for r in cursor.fetchall()], [expected_value])
+                for statement in (
+                    "SELECT * FROM railone.route_decision_records LIMIT 1",
+                    "SELECT * FROM railone.execution_authorities LIMIT 1",
+                    "SELECT * FROM railone.institution_security_audit LIMIT 1",
+                    "SELECT * FROM railone.economic_fence_events LIMIT 1",
+                    "UPDATE railone.bank_analytics_principals SET enabled=true WHERE false",
+                    "DELETE FROM railone.bank_analytics_publications WHERE false",
+                ):
+                    with self.subTest(statement=statement), self.assertRaises(InsufficientPrivilege):
+                        with bank_db.transaction() as connection, connection.cursor() as cursor:
+                            cursor.execute(statement)
+
+            bank_a = PostgresDatabase(psycopg_connection_factory(
+                make_conninfo(_DSN, user=a_login, password=password_a)))
+            reader = PostgresBankMetricsReader(bank_a)
+            for status in ("PAUSED", "OFFBOARDED", "ACTIVE"):
+                with database.transaction() as connection, connection.cursor() as cursor:
+                    cursor.execute("UPDATE railone.partner_institutions SET status=%s, version=version+1, updated_at=now() WHERE institution_id=%s",
+                                   (status, a_id))
+                self.assertEqual([m.metric_value for m in reader.list_metrics()],
+                                 [25] if status == "ACTIVE" else [])
+            # A replacement login with identical name and group permissions
+            # has a different PostgreSQL role OID and must be enrolled again.
+            with database.transaction() as connection, connection.cursor() as cursor:
+                cursor.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(a_login)))
+                cursor.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
+                    sql.Identifier(a_login), sql.Literal(password_a)))
+                cursor.execute(sql.SQL("GRANT {} TO {}").format(
+                    sql.Identifier(read_role), sql.Identifier(a_login)))
+            self.assertEqual(list(reader.list_metrics()), [])
         finally:
             # Role setup is restricted to a disposable CI database with a
             # privileged migrator; remove test role grants and mappings afterward.

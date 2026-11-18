@@ -104,6 +104,9 @@ class InMemoryContractStore:
             if contract.utt_id in self._utts:
                 raise RuntimeError("UTT identifier collision")
 
+            if (contract.receiver_authority is not None and
+                    contract.receiver_authority.payload.get("participation_mode") == "BENEFICIARY_PREAUTHORIZED"):
+                raise PermissionError("DELEGATED_ACCEPTANCE_REQUIRES_DURABLE_MANDATE")
             self._utts[contract.utt_id] = contract.signed_utt
             self._contracts[contract.utt_id] = contract
             self._quote_to_utt[contract.quote_id] = contract.utt_id

@@ -19,16 +19,27 @@ class RailOneApiFacade:
         guard: AuthenticatedRequestGuard,
         history: TransactionHistoryService,
         outcomes: ProviderOutcomeProjectionStore,
+        avia_merchant=None,
         bilateral_p2p: BilateralP2PApi | None = None,
     ) -> None:
         self._guard = guard
         self._history = history
         self._outcomes = outcomes
+        self.avia_merchant = avia_merchant
         self._bilateral_p2p = bilateral_p2p
 
     @property
     def bilateral_p2p_enabled(self) -> bool:
         return self._bilateral_p2p is not None
+
+    def create_avia_utt(self, *, bearer_token, request_id, body, idempotency_key, at=None):
+        if self.avia_merchant is None:
+            raise PermissionError("AVIA_API_NOT_CONFIGURED")
+        instant = at or datetime.now(timezone.utc)
+        return self._guard.execute(
+            bearer_token=bearer_token, request=ApiRequest(request_id, "POST", "/v1/avia/merchant/utts"),
+            operation=lambda principal: self.avia_merchant.create(principal, body, idempotency_key, instant),
+            at=instant)
 
     def verify_sender_intent(self, *, bearer_token: str, request_id: str,
                              body: dict, at: datetime | None = None):

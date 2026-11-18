@@ -1,0 +1,278 @@
+--- /dev/null
++++ b/docs/avia-merchant-sandbox.md
+@@ -0,0 +1,26 @@
++# AviaOS merchant sandbox intake
++
++The sandbox operator enables the merchant endpoint by passing
++`enable_avia_merchant=True` to `authenticated_p2p_facade`. This serves both
++channels on one API. The default composition serves the individual P2P routes.
++
++AviaOS posts to `/v1/avia/merchant/utts` with its bearer token and
++`Idempotency-Key`. The JSON body contains exactly `operation`, `branch_id`,
++`origin_intent_id`, and `signed_quote`. The response returns the UTT ID,
++acceptance status, and replay flag. Acceptance records the authenticated
++service principal. AviaOS owns its human operator approval workflow.
++
++The trusted token issuer provisions a MERCHANT_SERVICE credential for one
++merchant, its authorized branches, an explicit avia.PAY_SUPPLIER or
++avia.BRANCH_FUND_TRANSFER permission, and the endpoint grants derived by
++railone_api.avia.branch_permission. A debit grant binds the source branch
++to the institution and account binding in the signed quote. Branch transfers
++also require a credit grant for the distinct destination branch and endpoint.
++Supplier payments require a signed SUPPLIER beneficiary. The token issuer
++must verify branch and account ownership before assigning grants.
++
++Individual P2P clients use /v1/bilateral/p2p. The human payer and receiver
++sign ETK-S and ETK-R respectively; the scoped delegation profile supports a
++mandated destination institution. The payer submits the verified pair for UTT
++creation. Clients obtain their signed quotes, identities and keys through
++separately provisioned services. Neither endpoint gives clients adapter access.
+--- /dev/null
++++ b/railone_api/avia.py
+@@ -0,0 +1,62 @@
++"""Authenticated AviaOS merchant instruction intake for the institutional sandbox."""
++import hashlib
++import re
++
++from railone_contracts import ContextType, OriginContext, PaymentPurpose, QuoteAcceptanceCommand
++from railone_crypto.canonical_json import canonical_json_bytes
++from .auth import PrincipalType
++from .bilateral import _bounded, _envelope, _verify, _IDEMPOTENCY_KEY
++
++
++PURPOSES = {"PAY_SUPPLIER": PaymentPurpose.SUPPLIER_PAYMENT,
++            "BRANCH_FUND_TRANSFER": PaymentPurpose.BRANCH_FUND_TRANSFER}
++
++
++def branch_permission(direction, merchant, branch, endpoint):
++    """Issuer-provisioned grant for one institution/account binding at one branch."""
++    digest = hashlib.sha256(canonical_json_bytes(
++        [merchant, branch, endpoint["institution_id"], endpoint["account_binding_id"]])).hexdigest()
++    return f"avia.{direction}.{digest}"
++
++
++class AviaMerchantApi:
++    def __init__(self, acceptance):
++        self.acceptance = acceptance
++
++    def create(self, principal, body, key, at):
++        if principal.principal_type is not PrincipalType.MERCHANT_SERVICE:
++            raise PermissionError("AVIA_MERCHANT_REQUIRED")
++        _bounded(body)
++        if set(body) != {"operation", "branch_id", "signed_quote", "origin_intent_id"}:
++            raise PermissionError("INVALID_AVIA_REQUEST")
++        def accept():
++            op = body["operation"]
++            purpose = PURPOSES[op]
++            quote = _envelope(body, "signed_quote")
++            payer, recipient = quote.payload["payer"], quote.payload["beneficiary"]
++            merchant, branch = payer["actor_id"], body["branch_id"]
++            permissions = principal.scopes.permissions
++            if (not _IDEMPOTENCY_KEY.fullmatch(key) or
++                    not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", body["origin_intent_id"]) or
++                    principal.scopes.merchant_ids != (merchant,) or branch not in principal.scopes.branch_ids or
++                    f"avia.{op}" not in permissions or payer["actor_type"] != "MERCHANT" or
++                    quote.payload["purpose"] != purpose.value or
++                    branch_permission("debit", merchant, branch, payer["endpoint"]) not in permissions):
++                raise PermissionError("AVIA_SCOPE_MISMATCH")
++            if op == "PAY_SUPPLIER":
++                if recipient["actor_type"] != "SUPPLIER":
++                    raise PermissionError("AVIA_SUPPLIER_REQUIRED")
++            else:
++                dest = recipient["actor_id"]
++                if (recipient["actor_type"] != "BRANCH" or dest == branch or dest not in principal.scopes.branch_ids
++                        or branch_permission("credit", merchant, dest, recipient["endpoint"]) not in permissions):
++                    raise PermissionError("AVIA_DESTINATION_SCOPE_MISMATCH")
++            origin = OriginContext("AVIA", body["origin_intent_id"], ContextType.MERCHANT, purpose,
++                                   merchant_id=merchant, branch_id=branch)
++            # Namespace the merchant's retry key away from human and other merchant keys.
++            fingerprint = hashlib.sha256(canonical_json_bytes([merchant, branch, key])).hexdigest()
++            return self.acceptance.accept(QuoteAcceptanceCommand(
++                signed_quote=quote, origin=origin, idempotency_key="AVIA-"+fingerprint,
++                authorization_method="MERCHANT_SERVICE", authorization_reference=principal.principal_id), at=at)
++        result = _verify(accept)
++        return {"utt_id": result.contract.utt_id, "status": "ACCEPTED", "replayed": result.replayed}
+--- a/railone_api/facade.py
++++ b/railone_api/facade.py
+@@ -19,16 +19,27 @@
+         guard: AuthenticatedRequestGuard,
+         history: TransactionHistoryService,
+         outcomes: ProviderOutcomeProjectionStore,
++        avia_merchant=None,
+         bilateral_p2p: BilateralP2PApi | None = None,
+     ) -> None:
+         self._guard = guard
+         self._history = history
+         self._outcomes = outcomes
++        self.avia_merchant = avia_merchant
+         self._bilateral_p2p = bilateral_p2p
+ 
+     @property
+     def bilateral_p2p_enabled(self) -> bool:
+         return self._bilateral_p2p is not None
++
++    def create_avia_utt(self, *, bearer_token, request_id, body, idempotency_key, at=None):
++        if self.avia_merchant is None:
++            raise PermissionError("AVIA_API_NOT_CONFIGURED")
++        instant = at or datetime.now(timezone.utc)
++        return self._guard.execute(
++            bearer_token=bearer_token, request=ApiRequest(request_id, "POST", "/v1/avia/merchant/utts"),
++            operation=lambda principal: self.avia_merchant.create(principal, body, idempotency_key, instant),
++            at=instant)
+ 
+     def verify_sender_intent(self, *, bearer_token: str, request_id: str,
+                              body: dict, at: datetime | None = None):
+--- a/railone_api/http.py
++++ b/railone_api/http.py
+@@ -172,6 +172,22 @@
+             _rate_headers(response, decision)
+             return jsonable_encoder(result)
+ 
++    if facade.avia_merchant is not None:
++        @app.post("/v1/avia/merchant/utts")
++        def create_avia_utt(
++            response: Response,
++            body: dict = Body(...),
++            credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
++            request_id: str | None = Header(default=None, alias="X-Request-ID"),
++            idempotency_key: str = Header(default="", alias="Idempotency-Key"),
++        ):
++            result, decision = facade.create_avia_utt(
++                bearer_token=_token(credentials), request_id=_request_id(request_id),
++                body=body, idempotency_key=idempotency_key,
++            )
++            _rate_headers(response, decision)
++            return jsonable_encoder(result)
++
+     @app.get("/v1/auth/me")
+     def me(
+         response: Response,
+--- a/railone_sandbox/deployment.py
++++ b/railone_sandbox/deployment.py
+@@ -148,7 +148,7 @@
+     def authenticated_p2p_facade(
+         self, *, signatures: SignatureService, access_tokens,
+         utt_signing_key_id: str, authority_signing_key_id: str,
+-        api_audit_signing_key_id: str,
++        api_audit_signing_key_id: str, enable_avia_merchant: bool = False,
+     ):
+         """Compose the strict sender-first API atop durable PostgreSQL stores.
+ 
+@@ -162,6 +162,10 @@
+         from railone_authority.bilateral import BilateralAuthorityService
+         from railone_history import TransactionHistoryService
+         from railone_postgres import PostgresApiAuditStore, PostgresRateLimitStore
++        from railone_api.avia import AviaMerchantApi
++        acceptance = self.sender_first_p2p_acceptance(
++            signatures=signatures, utt_signing_key_id=utt_signing_key_id,
++            authority_signing_key_id=authority_signing_key_id)
+         return RailOneApiFacade(
+             guard=AuthenticatedRequestGuard(
+                 tokens=access_tokens,
+@@ -172,13 +176,10 @@
+             ),
+             history=TransactionHistoryService(self.history),
+             outcomes=self.projections,
++            avia_merchant=AviaMerchantApi(acceptance) if enable_avia_merchant else None,
+             bilateral_p2p=BilateralP2PApi(
+                 bilateral=BilateralAuthorityService(signatures),
+-                acceptance=self.sender_first_p2p_acceptance(
+-                    signatures=signatures,
+-                    utt_signing_key_id=utt_signing_key_id,
+-                    authority_signing_key_id=authority_signing_key_id,
+-                ),
++                acceptance=acceptance,
+             ),
+         )
+ 
+--- a/tests/test_authenticated_bilateral_api.py
++++ b/tests/test_authenticated_bilateral_api.py
+@@ -73,7 +73,9 @@
+             audits=self.audits, signatures=self.signatures,
+             audit_signing_key_id="api-audit",
+         )
++        from railone_api.avia import AviaMerchantApi
+         self.facade = RailOneApiFacade(
++            avia_merchant=AviaMerchantApi(self.fx.accept),
+             guard=self.guard,
+             history=TransactionHistoryService(InMemoryTransactionHistoryStore()),
+             outcomes=InMemoryProviderOutcomeProjectionStore(),
+@@ -110,6 +112,42 @@
+             json=self._body() if body is None else body,
+             headers=self._headers(token, key=key),
+         )
++
++    def test_avia_operations_and_cross_channel_denials(self):
++        from railone_api.avia import PURPOSES, branch_permission
++        for operation, purpose in PURPOSES.items():
++            with self.subTest(operation=operation):
++                terms = replace(self.fx.terms, purpose=purpose, request_id=operation,
++                                payer=replace(self.fx.terms.payer, actor_type="MERCHANT", actor_id="MER001"),
++                                beneficiary=replace(self.fx.terms.beneficiary,
++                                    actor_type="BRANCH" if operation == "BRANCH_FUND_TRANSFER" else "SUPPLIER",
++                                    actor_id="BR002" if operation == "BRANCH_FUND_TRANSFER" else "SUP001"))
++                quote = self.fx.make_quote(terms)
++                body = dict(operation=operation, signed_quote=quote.to_dict(), branch_id="BR001",
++                            origin_intent_id="AVIA-"+operation)
++                debit = branch_permission("debit", "MER001", "BR001", quote.payload["payer"]["endpoint"])
++                credit = branch_permission("credit", "MER001", "BR002", quote.payload["beneficiary"]["endpoint"])
++                def service(permissions, merchant="MER001"):
++                    return self.tokens.issue(principal_id="AVIA-SVC", principal_type=PrincipalType.MERCHANT_SERVICE,
++                        scopes=ActorScopes(merchant_ids=(merchant,), branch_ids=("BR001","BR002"),
++                                           permissions=permissions), key_id="api-token", at=self.fx.now)
++                def post(token, request):
++                    return self.client.post("/v1/avia/merchant/utts", json=request,
++                        headers=self._headers(token, key="IDEM-"+operation))
++                grants = ("avia."+operation, debit, credit)
++                token = service(grants)
++                self.assertEqual(self._post("utts", token, key="IDEM-P2P-DENY").status_code, 403)
++                self.assertEqual(post(self.sender_token, body).status_code, 403)
++                self.assertEqual(post(service(grants, "OTHER"), body).status_code, 403)
++                self.assertEqual(post(service((debit, credit)), body).status_code, 403)
++                self.assertEqual(post(token, {**body, "branch_id":"BR002"}).status_code, 403)
++                if operation == "BRANCH_FUND_TRANSFER":
++                    self.assertEqual(post(service(grants[:-1]), body).status_code, 403)
++                accepted = post(token, body)
++                self.assertEqual(accepted.status_code, 200, accepted.text)
++                self.assertFalse(accepted.json()["replayed"])
++                replay = post(token, body)
++                self.assertEqual(replay.json(), {**accepted.json(), "replayed":True})
+ 
+     def test_sender_receiver_then_utt_and_idempotent_replay(self):
+         s = self._post("etk-s/verify", self.sender_token)
+--- a/tests/test_postgres_live.py
++++ b/tests/test_postgres_live.py
+@@ -222,6 +222,33 @@
+                        provider_reference="SYNTHETIC-ENDPOINT")
+         self.assertEqual(vault.resolve(institution_id="SYNTHETIC-INST",
+                                        account_binding_id="SYNTHETIC-BIND"), "SYNTHETIC-ENDPOINT")
++
++    def test_merchant_and_individual_http_channels_on_postgres(self):
++        from fastapi.testclient import TestClient
++        from railone_sandbox.deployment import DeployedSandboxConfig, compose_deployed_sandbox
++        from tests.test_authenticated_bilateral_api import AuthenticatedBilateralApiTests
++        from tests.test_deployed_sandbox_composition import NoopConsumer, NoopKeyClient
++        self.setUpClass()
++        case = AuthenticatedBilateralApiTests("test_avia_operations_and_cross_channel_denials")
++        case.setUp()
++        config = DeployedSandboxConfig(
++            database_url="postgresql://synthetic", migrations_directory=self.migrations,
++            account_endpoint_key_id="synthetic-endpoint", contact_destination_key_id="synthetic-contact",
++            provider_credential_key_id="synthetic-credential", notification_body_key_id="synthetic-body",
++            worker_id="sandbox-api")
++        runtime = compose_deployed_sandbox(config=config, key_client=NoopKeyClient(),
++                                           effect_consumer=NoopConsumer(), connection_factory=self.factory)
++        facade = runtime.authenticated_p2p_facade(signatures=case.signatures, access_tokens=case.tokens,
++                    utt_signing_key_id="core", authority_signing_key_id="core",
++                    api_audit_signing_key_id="api-audit", enable_avia_merchant=True)
++        with TestClient(case.create_app(facade=facade)) as case.client:
++            case.test_avia_operations_and_cross_channel_denials()
++            response = case._post("utts", case.sender_token, key="IDEM-INDIVIDUAL-POSTGRES")
++            self.assertEqual(response.status_code, 200, response.text)
++        with self.factory() as connection:
++            rows = connection.execute("SELECT signed_envelope #>> '{payload,origin,context_type}' AS channel, "
++                                      "count(*) AS n FROM railone.accepted_utts GROUP BY 1").fetchall()
++            self.assertEqual({row["channel"]:row["n"] for row in rows}, {"MERCHANT":2,"P2P":1})
+ 
+     def test_mpesa_callback_timeout_then_settlement(self):
+         self.setUpClass()

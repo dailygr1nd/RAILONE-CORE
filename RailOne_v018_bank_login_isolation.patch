@@ -1,0 +1,94 @@
+--- /dev/null
++++ b/migrations/0017_bank_login_binding.sql
+@@ -0,0 +1,44 @@
++BEGIN;
++
++-- Existing mappings only identify a name. Require explicit re-enrolment
++-- before granting a currently existing role that institution's publications.
++ALTER TABLE railone.bank_analytics_principals ADD COLUMN login_oid oid;
++UPDATE railone.bank_analytics_principals SET enabled = false WHERE enabled;
++ALTER TABLE railone.bank_analytics_principals
++    ADD CONSTRAINT enabled_bank_has_login_oid CHECK (NOT enabled OR login_oid IS NOT NULL);
++
++CREATE FUNCTION railone.bind_bank_analytics_login() RETURNS trigger
++LANGUAGE plpgsql SET search_path = pg_catalog AS $$
++BEGIN
++    IF TG_OP = 'UPDATE' THEN
++        IF NEW.login_role IS DISTINCT FROM OLD.login_role
++           OR NEW.login_oid IS DISTINCT FROM OLD.login_oid
++           OR NEW.institution_id IS DISTINCT FROM OLD.institution_id THEN
++            RAISE EXCEPTION 'replace the bank mapping to change its binding';
++        END IF;
++    END IF;
++    IF NEW.enabled THEN
++        SELECT r.oid INTO STRICT NEW.login_oid FROM pg_catalog.pg_roles r
++        WHERE r.rolname = NEW.login_role AND r.rolcanlogin
++          AND NOT r.rolsuper AND NOT r.rolbypassrls
++          AND (NEW.login_oid IS NULL OR NEW.login_oid = r.oid);
++    ELSIF TG_OP = 'INSERT' THEN
++        NEW.login_oid := NULL;
++    END IF;
++    RETURN NEW;
++END;
++$$;
++CREATE TRIGGER bank_analytics_login_binding
++BEFORE INSERT OR UPDATE ON railone.bank_analytics_principals
++FOR EACH ROW EXECUTE FUNCTION railone.bind_bank_analytics_login();
++
++CREATE OR REPLACE FUNCTION railone_bank.current_institution_id() RETURNS text
++LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog AS $$
++    SELECT p.institution_id
++    FROM railone.bank_analytics_principals p
++    JOIN pg_catalog.pg_roles r ON r.oid = p.login_oid AND r.rolname = p.login_role
++    JOIN railone.partner_institutions i ON i.institution_id = p.institution_id
++    WHERE r.rolname = session_user AND r.rolcanlogin AND NOT r.rolsuper AND NOT r.rolbypassrls
++      AND p.enabled AND i.status = 'ACTIVE'
++$$;
++COMMIT;
+--- a/tests/test_postgres_live.py
++++ b/tests/test_postgres_live.py
+@@ -442,9 +442,41 @@
+                 bank_db = PostgresDatabase(psycopg_connection_factory(bank_dsn))
+                 metrics = PostgresBankMetricsReader(bank_db).list_metrics()
+                 self.assertEqual([m.metric_value for m in metrics], [expected_value])
+-                with self.assertRaises(Exception):
+-                    with bank_db.transaction() as connection, connection.cursor() as cursor:
+-                        cursor.execute("SELECT * FROM railone.route_decision_records LIMIT 1")
++                from psycopg.errors import InsufficientPrivilege
++                with bank_db.transaction() as connection, connection.cursor() as cursor:
++                    cursor.execute(sql.SQL("SET LOCAL ROLE {}").format(sql.Identifier(read_role)))
++                    cursor.execute("SELECT metric_value FROM railone_bank.metrics")
++                    self.assertEqual([r["metric_value"] for r in cursor.fetchall()], [expected_value])
++                for statement in (
++                    "SELECT * FROM railone.route_decision_records LIMIT 1",
++                    "SELECT * FROM railone.execution_authorities LIMIT 1",
++                    "SELECT * FROM railone.institution_security_audit LIMIT 1",
++                    "SELECT * FROM railone.economic_fence_events LIMIT 1",
++                    "UPDATE railone.bank_analytics_principals SET enabled=true WHERE false",
++                    "DELETE FROM railone.bank_analytics_publications WHERE false",
++                ):
++                    with self.subTest(statement=statement), self.assertRaises(InsufficientPrivilege):
++                        with bank_db.transaction() as connection, connection.cursor() as cursor:
++                            cursor.execute(statement)
++
++            bank_a = PostgresDatabase(psycopg_connection_factory(
++                make_conninfo(_DSN, user=a_login, password=password_a)))
++            reader = PostgresBankMetricsReader(bank_a)
++            for status in ("PAUSED", "OFFBOARDED", "ACTIVE"):
++                with database.transaction() as connection, connection.cursor() as cursor:
++                    cursor.execute("UPDATE railone.partner_institutions SET status=%s, version=version+1, updated_at=now() WHERE institution_id=%s",
++                                   (status, a_id))
++                self.assertEqual([m.metric_value for m in reader.list_metrics()],
++                                 [25] if status == "ACTIVE" else [])
++            # A replacement login with identical name and group permissions
++            # has a different PostgreSQL role OID and must be enrolled again.
++            with database.transaction() as connection, connection.cursor() as cursor:
++                cursor.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(a_login)))
++                cursor.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
++                    sql.Identifier(a_login), sql.Literal(password_a)))
++                cursor.execute(sql.SQL("GRANT {} TO {}").format(
++                    sql.Identifier(read_role), sql.Identifier(a_login)))
++            self.assertEqual(list(reader.list_metrics()), [])
+         finally:
+             # Role setup is restricted to a disposable CI database with a
+             # privileged migrator; remove test role grants and mappings afterward.

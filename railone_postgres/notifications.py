@@ -10,6 +10,7 @@ from railone_notifications import (
 from railone_security import EncryptedEnvelope, NotificationBodyProtector
 
 from .codec import envelope_from_db, json_object, json_text
+from .fencing import PostgresEconomicEffectFence
 from .runtime import PostgresDatabase
 
 
@@ -34,6 +35,8 @@ class PostgresSettlementNotificationStore(SettlementNotificationStore):
 
     def commit_settlement(self, evidence, notifications):
         with self._database.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT utt_id FROM railone.accepted_utts WHERE utt_id=%s FOR UPDATE",
+                           (evidence.utt_id,))
             cursor.execute(
                 """INSERT INTO railone.settlement_evidence
                    (evidence_id, utt_id, provider_id, provider_transaction_id,
@@ -73,6 +76,11 @@ class PostgresSettlementNotificationStore(SettlementNotificationStore):
                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                         _notification_params(notification, self._body_protector),
                     )
+            cursor.execute("SELECT 1 FROM railone.utt_economic_fences WHERE utt_id=%s", (evidence.utt_id,))
+            if cursor.fetchone() is not None:
+                PostgresEconomicEffectFence.finalize_locked(
+                    cursor, evidence.utt_id, stored_evidence.signed_evidence.payload["rtt_id"],
+                    stored_evidence.evidence_id, stored_evidence.settled_at)
             rows = []
             for notification in notifications:
                 cursor.execute(

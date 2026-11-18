@@ -89,6 +89,27 @@ def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver,
 
     payer_token = token(payer)
     receiver_token = token(beneficiary)
+    if fixture.delegated:
+        from railone_authority.bilateral import BilateralAuthorityService
+        from railone_authority.mandates import grant
+        terms = signed_quote.payload
+        endpoint = terms["beneficiary"]["endpoint"]
+        institution = endpoint["institution_id"]
+        def new_grant():
+            return grant(fixture.signatures, beneficiary=beneficiary, institution=institution,
+                       account_binding_id=endpoint["account_binding_id"], currency=terms["currency_to"],
+                       max_receive_minor=terms["receive_amount_minor"], issued_at=now,
+                       expires_at=now + timedelta(minutes=4), signing_key_id="fixture-receiver-v3")
+        fixture.keys.generate(key_id="fixture-delegate", owner_id=institution,
+                              purpose=KeyPurpose.EXECUTION_SIGNING,
+                              not_before=now-timedelta(days=1), not_after=now+timedelta(days=1))
+        def sign_acceptance(mandate):
+            return BilateralAuthorityService(fixture.signatures).issue_receiver_acceptance(
+                signed_quote=signed_quote, sender=sender, mandate=mandate, signing_key_id="fixture-delegate",
+                accepted_at=now+timedelta(seconds=7), expires_at=now+timedelta(minutes=2))
+        mandate = new_grant()
+        receiver = sign_acceptance(mandate)
+        receiver_token = token(institution, partner=True)
     hostile_token = token("AGG-COMPROMISED", partner=True)
     body = {
         "signed_quote": signed_quote.to_dict(),
@@ -130,15 +151,48 @@ def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver,
         test.assertEqual(cursor.fetchone()["n"], 0)
     emit("Compromised partner impersonation and amount tampering denied before UTT")
 
+    if fixture.delegated:
+        denied = post("etk-r/verify", hostile_token)
+        test.assertEqual(denied.status_code, 403, denied.text)
+        denied = post("utts", payer_token, idem="IDEM-OPS-001")
+        test.assertEqual(denied.status_code, 403, denied.text)
+        # Establish an actual row-lock wait before allowing revocation to commit.
+        from concurrent.futures import ThreadPoolExecutor
+        from time import monotonic, sleep
+        revoked = new_grant()
+        fixture.contracts.register_receiving_mandate(revoked, signatures=fixture.signatures)
+        revoked_body = {**body, "receiver_authority": sign_acceptance(revoked).to_dict()}
+        with ThreadPoolExecutor(max_workers=1) as pool, test.factory() as locker:
+            locker.execute("UPDATE railone.receiving_mandates SET revoked_at=clock_timestamp() "
+                           "WHERE mandate_id=%s", (revoked.payload["mandate_id"],))
+            pending = pool.submit(post, "utts", payer_token, payload=revoked_body, idem="IDEM-OPS-001")
+            deadline = monotonic() + 5
+            while monotonic() < deadline:
+                if locker.execute("SELECT EXISTS (SELECT FROM pg_stat_activity WHERE "
+                                  "pg_backend_pid() = ANY(pg_blocking_pids(pid))) AS blocked").fetchone()["blocked"]:
+                    break
+                locker.execute("SELECT pg_stat_clear_snapshot()")
+                sleep(0.02)
+            else:
+                test.fail("acceptance did not block on the revocation")
+            locker.commit()
+            denied = pending.result(timeout=5)
+            test.assertEqual(denied.status_code, 403, denied.text)
+        with database.transaction() as connection:
+            for table in ("accepted_utts", "execution_authorities", "acceptance_idempotency"):
+                test.assertEqual(connection.execute(f"SELECT count(*) AS n FROM railone.{table}").fetchone()["n"], 0)
+        fixture.contracts.register_receiving_mandate(mandate, signatures=fixture.signatures)
     response = post("utts", payer_token, idem="IDEM-OPS-001")
     test.assertEqual(response.status_code, 200, response.text)
     utt = response.json()
-    test.assertEqual(utt["authority_version"], 3)
+    test.assertEqual(utt["authority_version"], 4)
     test.assertFalse(utt["replayed"])
     with database.transaction() as connection, connection.cursor() as cursor:
         cursor.execute("SELECT COUNT(*) AS n FROM railone.accepted_utts")
         test.assertEqual(cursor.fetchone()["n"], 1)
     emit("Immutable bilateral UTT accepted by authenticated HTTP and persisted to PostgreSQL")
+    if fixture.delegated:
+        fixture.contracts.revoke_receiving_mandate(mandate.payload["mandate_id"])
     replay = post("utts", payer_token, idem="IDEM-OPS-001")
     test.assertEqual(replay.status_code, 200, replay.text)
     test.assertTrue(replay.json()["replayed"])
@@ -148,7 +202,7 @@ def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver,
 
 
 def exercise_institutional_dispatch(
-    test, database, *, scenario="accepted", report=None, http_bilateral=False,
+    test, database, *, scenario="accepted", report=None, http_bilateral=False, delegated=False, reconcile_no_effect=False, check_settlement=False,
 ):
     if scenario not in {"accepted", "timeout", "crash"}:
         raise ValueError("unsupported synthetic scenario")
@@ -169,6 +223,7 @@ def exercise_institutional_dispatch(
         )
 
     fixture._create_current_rtt = create
+    fixture.delegated = delegated
     fixture.core_owner_id = "RAILONE"
     if http_bilateral:
         # The HTTP facade validates against the wall clock; unlike historical
@@ -238,7 +293,7 @@ def exercise_institutional_dispatch(
     # the bilateral lock. Verify that both v3 authorities were persisted
     # atomically before creating the ExecutionPlan or RTT.
     sender, receiver = fixture.contracts.require_bilateral_authorities(attempt.utt_id)
-    test.assertEqual(utt["authority_version"], 3)
+    test.assertEqual(utt["authority_version"], 4)
     test.assertEqual(receiver.payload["etk_s_digest"], sender.protected["payload_sha256"])
     test.assertEqual(utt["etk_r_digest"], receiver.protected["payload_sha256"])
 
@@ -343,6 +398,103 @@ def exercise_institutional_dispatch(
                        (attempt.utt_id,))
         test.assertEqual(cursor.fetchone()["total"], 0)
     emit(f"RTT state {expected_fence}; economic hold HELD; settlement evidence count 0")
+    if check_settlement:
+        from railone_crypto import KeyPurpose
+        from railone_crypto.signature_service import ArtifactType
+        from railone_notifications import SettlementEvidenceRecord
+        from railone_postgres import PostgresSettlementNotificationStore
+
+        fixture.keys.generate(key_id="test-settlement", owner_id="RECONCILIATION",
+                              purpose=KeyPurpose.SETTLEMENT_SIGNING,
+                              not_before=at-timedelta(days=1), not_after=at+timedelta(days=1))
+        with database.transaction() as connection:
+            reference = connection.execute("SELECT external_reference FROM railone.provider_submissions "
+                                           "WHERE rtt_id=%s", (fixture.rtt_id,)).fetchone()["external_reference"]
+        def record(reference):
+            fields = dict(evidence_id="SET-SANDBOX", utt_id=attempt.utt_id, provider_id="PROVIDER-FAST",
+                          provider_transaction_id=reference, callback_event_id="CALLBACK-SANDBOX")
+            signed = fixture.signatures.sign_artifact(
+                artifact_type=ArtifactType.SETTLEMENT_EVIDENCE, key_id="test-settlement",
+                payload={**fields, "rtt_id": fixture.rtt_id}, issued_at=at)
+            return SettlementEvidenceRecord(**fields, signed_evidence=signed, settled_at=at)
+        store = PostgresSettlementNotificationStore(database)
+        with test.assertRaises(EconomicFenceViolation):
+            store.commit_settlement(record("UNRELATED-REFERENCE"), ())
+        if scenario == "accepted":
+            test.assertTrue(reference)
+            evidence = record(reference)
+            test.assertFalse(store.commit_settlement(evidence, ())[2])
+            test.assertTrue(store.commit_settlement(evidence, ())[2])
+        with database.transaction() as connection:
+            settled = connection.execute("SELECT count(*) AS n FROM railone.fence_event_integrity "
+                                         "WHERE utt_id=%s AND event_type='SETTLED' AND valid",
+                                         (attempt.utt_id,)).fetchone()["n"]
+            test.assertEqual(settled, int(scenario == "accepted"))
+            row = connection.execute("SELECT state FROM railone.utt_economic_fences WHERE utt_id=%s",
+                                     (attempt.utt_id,)).fetchone()
+            test.assertEqual(row["state"], "FINALIZED" if scenario == "accepted" else "HELD")
+            count = connection.execute("SELECT count(*) AS n FROM railone.settlement_evidence "
+                                       "WHERE utt_id=%s", (attempt.utt_id,)).fetchone()["n"]
+            test.assertEqual(count, settled)
+    if reconcile_no_effect:
+        test.assertEqual(scenario, "timeout")
+        from hashlib import sha256
+        from railone_crypto import KeyPurpose
+        from railone_crypto.signature_service import ArtifactType
+        from railone_postgres.fencing import PostgresEconomicEffectFence
+
+        signer_id = "sandbox-reconciliation"
+        fixture.keys.generate(key_id=signer_id, owner_id="RECONCILIATION",
+                              purpose=KeyPurpose.SETTLEMENT_SIGNING,
+                              not_before=at-timedelta(days=1), not_after=at+timedelta(days=1))
+        fence = PostgresEconomicEffectFence(database, signatures=fixture.signatures,
+                                           trusted_no_effect_signing_keys=frozenset({signer_id}))
+        checked = at + timedelta(seconds=5)
+        def proof(observed):
+            return fixture.signatures.sign_artifact(
+                artifact_type=ArtifactType.NO_EFFECT_EVIDENCE, key_id=signer_id, issued_at=checked,
+                payload=dict(evidence_id="EVID-RECONCILED", utt_id=attempt.utt_id, rtt_id=fixture.rtt_id,
+                             provider_id="PROVIDER-FAST", finding="NO_ECONOMIC_EFFECT",
+                             source_evidence_digest=sha256(b"synthetic provider reconciliation record").hexdigest(),
+                             observed_at_epoch=int(observed.timestamp())))
+        with test.assertRaises(EconomicFenceViolation):
+            fence.release_verified_no_effect(evidence=proof(at-timedelta(seconds=1)), at=checked)
+        evidence = proof(checked)
+        epoch = fence.release_verified_no_effect(evidence=evidence, at=checked)
+        test.assertEqual(epoch, 2)
+        with test.assertRaises(EconomicFenceViolation):
+            fence.release_verified_no_effect(evidence=evidence, at=checked)
+        with database.transaction() as connection:
+            row = connection.execute("SELECT state,fence_epoch FROM railone.utt_economic_fences "
+                                     "WHERE utt_id=%s", (attempt.utt_id,)).fetchone()
+            test.assertEqual(row, {"state": "OPEN", "fence_epoch": 2})
+            row = connection.execute("SELECT state FROM railone.rtt_operational_fences WHERE rtt_id=%s",
+                                     (fixture.rtt_id,)).fetchone()
+            test.assertEqual(row["state"], "RELEASED_NO_EFFECT")
+            row = connection.execute("SELECT count(*) AS n FROM railone.economic_fence_events "
+                                     "WHERE utt_id=%s AND event_type='VERIFIED_NO_EFFECT'",
+                                     (attempt.utt_id,)).fetchone()
+            test.assertEqual(row["n"], 1)
+        with database.transaction() as connection:
+            chain = connection.execute(
+                "SELECT event_type,valid FROM railone.fence_event_integrity "
+                "WHERE utt_id=%s ORDER BY chain_position", (attempt.utt_id,)
+            ).fetchall()
+            test.assertEqual([r["event_type"] for r in chain],
+                             ["RESERVED", "PROVIDER_UNKNOWN", "VERIFIED_NO_EFFECT"])
+            test.assertTrue(all(r["valid"] for r in chain))
+            # Rehash a changed copy without mutating the append-only stream.
+            matches = connection.execute(
+                """SELECT event_hash = railone.fence_event_hash(jsonb_populate_record(
+                       NULL::railone.economic_fence_events,
+                       to_jsonb(e) || jsonb_build_object('evidence_id','EVID-CHANGED'))) AS matches
+                   FROM railone.economic_fence_events e WHERE utt_id=%s AND chain_position=3""",
+                (attempt.utt_id,)
+            ).fetchone()
+            test.assertFalse(matches["matches"])
+        emit("Verified three linked economic fence records for this UTT")
+        test.assertEqual(len(observed), 1)
+        emit("Signed no-effect reconciliation released the hold at epoch 2; duplicate proof denied")
     if http_bilateral:
         with database.transaction() as connection, connection.cursor() as cursor:
             cursor.execute(
@@ -350,7 +502,8 @@ def exercise_institutional_dispatch(
                 "WHERE route_template LIKE '/v1/bilateral/p2p/%'"
             )
             events = cursor.fetchall()
-        test.assertEqual(len(events), 6)
-        test.assertEqual(sum(event["status_code"] == 403 for event in events), 2)
+        expected_denials = 5 if delegated else 2
+        test.assertEqual(len(events), 4 + expected_denials)
+        test.assertEqual(sum(event["status_code"] == 403 for event in events), expected_denials)
         test.assertEqual(sum(event["status_code"] == 200 for event in events), 4)
-        emit("Authenticated API audit: 4 allowed, 2 denied; all durably recorded")
+        emit(f"Authenticated API audit: 4 allowed, {expected_denials} denied; all durably recorded")

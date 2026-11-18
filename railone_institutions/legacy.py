@@ -81,6 +81,7 @@ class ProviderAdapterInstitutionPlugin:
         return InstitutionSubmissionResult(
             outcome, result.code, result.external_reference,
             FinalityLevel.PROCESSING if outcome is InstitutionOutcome.ACCEPTED_FOR_PROCESSING else FinalityLevel.NONE,
+            originator_conversation_id=dict(result.provider_context).get("originator_conversation_id"),
         )
 
     def query_status(self, *, external_reference: str) -> InstitutionStatusResult:
