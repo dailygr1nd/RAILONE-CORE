@@ -220,7 +220,7 @@ class PostgresEconomicEffectFence:
             raise EconomicFenceViolation("invalid no-effect evidence reference")
         if not isinstance(p["source_evidence_digest"], str) or not _HEX.fullmatch(p["source_evidence_digest"]):
             raise EconomicFenceViolation("no-effect source artifact must be digest-bound")
-        if type(p["observed_at_epoch"]) is not int or p["observed_at_epoch"] > int(instant.timestamp()):
+        if type(p["observed_at_epoch"]) is not int or not p["observed_at_epoch"] <= evidence.protected["iat"] <= int(instant.timestamp()):
             raise EconomicFenceViolation("no-effect evidence observation time is invalid")
         with self._database.transaction() as connection, connection.cursor() as cursor:
             # Use the same UTT lock order as reservation and settlement insertion,
@@ -241,12 +241,14 @@ class PostgresEconomicEffectFence:
             if row["fence_epoch"] >= 2**63 - 1:
                 raise EconomicFenceViolation("economic fence epoch exhausted")
             cursor.execute(
-                """SELECT 1 FROM railone.provider_submissions
-                   WHERE rtt_id=%s AND utt_id=%s AND provider_id=%s""",
-                (p["rtt_id"], p["utt_id"], p["provider_id"]),
+                """SELECT 1 FROM railone.provider_submissions s
+                   JOIN railone.rtt_operational_fences f USING (utt_id,rtt_id)
+                   WHERE s.rtt_id=%s AND s.utt_id=%s AND s.provider_id=%s
+                     AND f.created_at <= to_timestamp(%s)""",
+                (p["rtt_id"], p["utt_id"], p["provider_id"], p["observed_at_epoch"]),
             )
             if cursor.fetchone() is None:
-                raise EconomicFenceViolation("attested provider does not match submission")
+                raise EconomicFenceViolation("attestation does not match submission and reservation time")
             cursor.execute(
                 """SELECT 1 FROM railone.settlement_evidence
                    WHERE utt_id=%s""", (p["utt_id"],)

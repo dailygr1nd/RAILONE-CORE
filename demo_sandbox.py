@@ -22,7 +22,11 @@ def main() -> int:
         help="Write a sanitized machine-readable evidence report on success.",
     )
     parser.add_argument("--delegated", action="store_true", help="Use beneficiary-mandated institutional acceptance.")
+    parser.add_argument("--reconcile-no-effect", action="store_true",
+                        help="Resolve a timeout using a synthetic signed no-effect attestation.")
     args = parser.parse_args()
+    if args.reconcile_no_effect and args.scenario != "timeout":
+        parser.error("--reconcile-no-effect requires --scenario timeout")
     if args.delegated and not args.http_bilateral:
         parser.error("--delegated requires --http-bilateral")
     if not args.reset_disposable_db:
@@ -52,7 +56,7 @@ def main() -> int:
         exercise_institutional_dispatch(
             test, PostgresDatabase(test.factory), scenario=args.scenario,
             report=report,
-            http_bilateral=args.http_bilateral, delegated=args.delegated,
+            http_bilateral=args.http_bilateral, delegated=args.delegated, reconcile_no_effect=args.reconcile_no_effect,
         )
     except Exception as exc:
         # Avoid printing connection strings or raw account data from driver errors.

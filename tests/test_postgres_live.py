@@ -112,6 +112,12 @@ class LivePostgresRuntimeTests(unittest.TestCase):
             migrations_directory=cls.migrations,
         ).apply_all()
 
+    def test_unknown_reconciles_signed_no_effect_once(self):
+        from tests.institutional_live_support import exercise_institutional_dispatch
+        self.setUpClass()
+        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="timeout",
+                                        http_bilateral=True, reconcile_no_effect=True)
+
     def test_delegated_dispatch_accepted(self):
         from tests.institutional_live_support import exercise_institutional_dispatch
         self.setUpClass()

@@ -1,0 +1,129 @@
+--- a/demo_sandbox.py
++++ b/demo_sandbox.py
+@@ -22,7 +22,11 @@
+         help="Write a sanitized machine-readable evidence report on success.",
+     )
+     parser.add_argument("--delegated", action="store_true", help="Use beneficiary-mandated institutional acceptance.")
++    parser.add_argument("--reconcile-no-effect", action="store_true",
++                        help="Resolve a timeout using a synthetic signed no-effect attestation.")
+     args = parser.parse_args()
++    if args.reconcile_no_effect and args.scenario != "timeout":
++        parser.error("--reconcile-no-effect requires --scenario timeout")
+     if args.delegated and not args.http_bilateral:
+         parser.error("--delegated requires --http-bilateral")
+     if not args.reset_disposable_db:
+@@ -52,7 +56,7 @@
+         exercise_institutional_dispatch(
+             test, PostgresDatabase(test.factory), scenario=args.scenario,
+             report=report,
+-            http_bilateral=args.http_bilateral, delegated=args.delegated,
++            http_bilateral=args.http_bilateral, delegated=args.delegated, reconcile_no_effect=args.reconcile_no_effect,
+         )
+     except Exception as exc:
+         # Avoid printing connection strings or raw account data from driver errors.
+--- a/railone_postgres/fencing.py
++++ b/railone_postgres/fencing.py
+@@ -220,7 +220,7 @@
+             raise EconomicFenceViolation("invalid no-effect evidence reference")
+         if not isinstance(p["source_evidence_digest"], str) or not _HEX.fullmatch(p["source_evidence_digest"]):
+             raise EconomicFenceViolation("no-effect source artifact must be digest-bound")
+-        if type(p["observed_at_epoch"]) is not int or p["observed_at_epoch"] > int(instant.timestamp()):
++        if type(p["observed_at_epoch"]) is not int or not p["observed_at_epoch"] <= evidence.protected["iat"] <= int(instant.timestamp()):
+             raise EconomicFenceViolation("no-effect evidence observation time is invalid")
+         with self._database.transaction() as connection, connection.cursor() as cursor:
+             # Use the same UTT lock order as reservation and settlement insertion,
+@@ -241,12 +241,14 @@
+             if row["fence_epoch"] >= 2**63 - 1:
+                 raise EconomicFenceViolation("economic fence epoch exhausted")
+             cursor.execute(
+-                """SELECT 1 FROM railone.provider_submissions
+-                   WHERE rtt_id=%s AND utt_id=%s AND provider_id=%s""",
+-                (p["rtt_id"], p["utt_id"], p["provider_id"]),
+-            )
+-            if cursor.fetchone() is None:
+-                raise EconomicFenceViolation("attested provider does not match submission")
++                """SELECT 1 FROM railone.provider_submissions s
++                   JOIN railone.rtt_operational_fences f USING (utt_id,rtt_id)
++                   WHERE s.rtt_id=%s AND s.utt_id=%s AND s.provider_id=%s
++                     AND f.created_at <= to_timestamp(%s)""",
++                (p["rtt_id"], p["utt_id"], p["provider_id"], p["observed_at_epoch"]),
++            )
++            if cursor.fetchone() is None:
++                raise EconomicFenceViolation("attestation does not match submission and reservation time")
+             cursor.execute(
+                 """SELECT 1 FROM railone.settlement_evidence
+                    WHERE utt_id=%s""", (p["utt_id"],)
+--- a/tests/institutional_live_support.py
++++ b/tests/institutional_live_support.py
+@@ -202,7 +202,7 @@
+ 
+ 
+ def exercise_institutional_dispatch(
+-    test, database, *, scenario="accepted", report=None, http_bilateral=False, delegated=False,
++    test, database, *, scenario="accepted", report=None, http_bilateral=False, delegated=False, reconcile_no_effect=False,
+ ):
+     if scenario not in {"accepted", "timeout", "crash"}:
+         raise ValueError("unsupported synthetic scenario")
+@@ -398,6 +398,47 @@
+                        (attempt.utt_id,))
+         test.assertEqual(cursor.fetchone()["total"], 0)
+     emit(f"RTT state {expected_fence}; economic hold HELD; settlement evidence count 0")
++    if reconcile_no_effect:
++        test.assertEqual(scenario, "timeout")
++        from hashlib import sha256
++        from railone_crypto import KeyPurpose
++        from railone_crypto.signature_service import ArtifactType
++        from railone_postgres.fencing import PostgresEconomicEffectFence
++
++        signer_id = "sandbox-reconciliation"
++        fixture.keys.generate(key_id=signer_id, owner_id="RECONCILIATION",
++                              purpose=KeyPurpose.SETTLEMENT_SIGNING,
++                              not_before=at-timedelta(days=1), not_after=at+timedelta(days=1))
++        fence = PostgresEconomicEffectFence(database, signatures=fixture.signatures,
++                                           trusted_no_effect_signing_keys=frozenset({signer_id}))
++        checked = at + timedelta(seconds=5)
++        def proof(observed):
++            return fixture.signatures.sign_artifact(
++                artifact_type=ArtifactType.NO_EFFECT_EVIDENCE, key_id=signer_id, issued_at=checked,
++                payload=dict(evidence_id="EVID-RECONCILED", utt_id=attempt.utt_id, rtt_id=fixture.rtt_id,
++                             provider_id="PROVIDER-FAST", finding="NO_ECONOMIC_EFFECT",
++                             source_evidence_digest=sha256(b"synthetic provider reconciliation record").hexdigest(),
++                             observed_at_epoch=int(observed.timestamp())))
++        with test.assertRaises(EconomicFenceViolation):
++            fence.release_verified_no_effect(evidence=proof(at-timedelta(seconds=1)), at=checked)
++        evidence = proof(checked)
++        epoch = fence.release_verified_no_effect(evidence=evidence, at=checked)
++        test.assertEqual(epoch, 2)
++        with test.assertRaises(EconomicFenceViolation):
++            fence.release_verified_no_effect(evidence=evidence, at=checked)
++        with database.transaction() as connection:
++            row = connection.execute("SELECT state,fence_epoch FROM railone.utt_economic_fences "
++                                     "WHERE utt_id=%s", (attempt.utt_id,)).fetchone()
++            test.assertEqual(row, {"state": "OPEN", "fence_epoch": 2})
++            row = connection.execute("SELECT state FROM railone.rtt_operational_fences WHERE rtt_id=%s",
++                                     (fixture.rtt_id,)).fetchone()
++            test.assertEqual(row["state"], "RELEASED_NO_EFFECT")
++            row = connection.execute("SELECT count(*) AS n FROM railone.economic_fence_events "
++                                     "WHERE utt_id=%s AND event_type='VERIFIED_NO_EFFECT'",
++                                     (attempt.utt_id,)).fetchone()
++            test.assertEqual(row["n"], 1)
++        test.assertEqual(len(observed), 1)
++        emit("Signed no-effect reconciliation released the hold at epoch 2; duplicate proof denied")
+     if http_bilateral:
+         with database.transaction() as connection, connection.cursor() as cursor:
+             cursor.execute(
+--- a/tests/test_postgres_live.py
++++ b/tests/test_postgres_live.py
+@@ -111,6 +111,12 @@
+             connection_factory=cls.factory,
+             migrations_directory=cls.migrations,
+         ).apply_all()
++
++    def test_unknown_reconciles_signed_no_effect_once(self):
++        from tests.institutional_live_support import exercise_institutional_dispatch
++        self.setUpClass()
++        exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="timeout",
++                                        http_bilateral=True, reconcile_no_effect=True)
+ 
+     def test_delegated_dispatch_accepted(self):
+         from tests.institutional_live_support import exercise_institutional_dispatch

@@ -202,7 +202,7 @@ def _accept_via_http(test, database, fixture, *, signed_quote, sender, receiver,
 
 
 def exercise_institutional_dispatch(
-    test, database, *, scenario="accepted", report=None, http_bilateral=False, delegated=False,
+    test, database, *, scenario="accepted", report=None, http_bilateral=False, delegated=False, reconcile_no_effect=False,
 ):
     if scenario not in {"accepted", "timeout", "crash"}:
         raise ValueError("unsupported synthetic scenario")
@@ -398,6 +398,47 @@ def exercise_institutional_dispatch(
                        (attempt.utt_id,))
         test.assertEqual(cursor.fetchone()["total"], 0)
     emit(f"RTT state {expected_fence}; economic hold HELD; settlement evidence count 0")
+    if reconcile_no_effect:
+        test.assertEqual(scenario, "timeout")
+        from hashlib import sha256
+        from railone_crypto import KeyPurpose
+        from railone_crypto.signature_service import ArtifactType
+        from railone_postgres.fencing import PostgresEconomicEffectFence
+
+        signer_id = "sandbox-reconciliation"
+        fixture.keys.generate(key_id=signer_id, owner_id="RECONCILIATION",
+                              purpose=KeyPurpose.SETTLEMENT_SIGNING,
+                              not_before=at-timedelta(days=1), not_after=at+timedelta(days=1))
+        fence = PostgresEconomicEffectFence(database, signatures=fixture.signatures,
+                                           trusted_no_effect_signing_keys=frozenset({signer_id}))
+        checked = at + timedelta(seconds=5)
+        def proof(observed):
+            return fixture.signatures.sign_artifact(
+                artifact_type=ArtifactType.NO_EFFECT_EVIDENCE, key_id=signer_id, issued_at=checked,
+                payload=dict(evidence_id="EVID-RECONCILED", utt_id=attempt.utt_id, rtt_id=fixture.rtt_id,
+                             provider_id="PROVIDER-FAST", finding="NO_ECONOMIC_EFFECT",
+                             source_evidence_digest=sha256(b"synthetic provider reconciliation record").hexdigest(),
+                             observed_at_epoch=int(observed.timestamp())))
+        with test.assertRaises(EconomicFenceViolation):
+            fence.release_verified_no_effect(evidence=proof(at-timedelta(seconds=1)), at=checked)
+        evidence = proof(checked)
+        epoch = fence.release_verified_no_effect(evidence=evidence, at=checked)
+        test.assertEqual(epoch, 2)
+        with test.assertRaises(EconomicFenceViolation):
+            fence.release_verified_no_effect(evidence=evidence, at=checked)
+        with database.transaction() as connection:
+            row = connection.execute("SELECT state,fence_epoch FROM railone.utt_economic_fences "
+                                     "WHERE utt_id=%s", (attempt.utt_id,)).fetchone()
+            test.assertEqual(row, {"state": "OPEN", "fence_epoch": 2})
+            row = connection.execute("SELECT state FROM railone.rtt_operational_fences WHERE rtt_id=%s",
+                                     (fixture.rtt_id,)).fetchone()
+            test.assertEqual(row["state"], "RELEASED_NO_EFFECT")
+            row = connection.execute("SELECT count(*) AS n FROM railone.economic_fence_events "
+                                     "WHERE utt_id=%s AND event_type='VERIFIED_NO_EFFECT'",
+                                     (attempt.utt_id,)).fetchone()
+            test.assertEqual(row["n"], 1)
+        test.assertEqual(len(observed), 1)
+        emit("Signed no-effect reconciliation released the hold at epoch 2; duplicate proof denied")
     if http_bilateral:
         with database.transaction() as connection, connection.cursor() as cursor:
             cursor.execute(
