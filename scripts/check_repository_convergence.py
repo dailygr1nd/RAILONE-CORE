@@ -67,6 +67,11 @@ EXPECTED_MIGRATIONS = [
     "0014_drop_plaintext_secret_fingerprints.sql",
     "0015_durable_effect_fences_and_bank_analytics.sql",
     "0016_institution_security_audit.sql",
+    "0017_bank_login_binding.sql",
+    "0018_receiving_mandates.sql",
+    "0019_economic_fence_hash_chain.sql",
+    "0020_correlated_settlement_evidence.sql",
+    "0021_institutional_identity_admission.sql",
 ]
 
 
@@ -99,7 +104,7 @@ def validate() -> list[str]:
     migrations = sorted(path.name for path in (ROOT / "migrations").glob("*.sql"))
     if migrations != EXPECTED_MIGRATIONS:
         errors.append(
-            "migration chain differs from extended immutable 0001-0016 sequence: "
+            "migration chain differs from extended immutable 0001-0021 sequence: "
             + ", ".join(migrations)
         )
 

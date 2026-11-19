@@ -1,0 +1,11 @@
+{
+  "legal_name": "SavannaPay Processing Ltd",
+  "display_name": "SavannaPay",
+  "institution_class": "PSP",
+  "home_jurisdiction": "KE",
+  "registration_reference": "SYN-KE-REG-001",
+  "regulatory_evidence_refs": [
+    "EVID-REG-001",
+    "EVID-LICENSE-001"
+  ]
+}

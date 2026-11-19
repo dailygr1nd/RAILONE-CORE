@@ -19,6 +19,7 @@ from .partners import PostgresPartnerDirectory
 from .security import PostgresEncryptedSecretStore
 from .sandbox import PostgresSandboxEffectStore
 from .institutions import PostgresInstitutionManifestStore
+from .institution_identity import PostgresInstitutionIdentityRepository
 from .dispatch_wrappers import PostgresDispatchWrapperStore
 from .fencing import PostgresEconomicEffectFence, EconomicFenceViolation
 from .security_incidents import PostgresSecurityAuditStore
@@ -45,6 +46,7 @@ __all__ = [
     "PostgresEncryptedSecretStore",
     "PostgresSandboxEffectStore",
     "PostgresInstitutionManifestStore",
+    "PostgresInstitutionIdentityRepository",
     "PostgresDispatchWrapperStore",
     "PostgresEconomicEffectFence",
     "EconomicFenceViolation",

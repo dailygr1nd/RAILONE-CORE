@@ -28,6 +28,7 @@ class ArtifactType(StrEnum):
     ETK_R = "railone.etk_r"
     EXECUTION_EVENT = "railone.execution_event"
     IDENTITY_ATTESTATION = "railone.identity_attestation"
+    INSTITUTION_ONBOARDING_ATTESTATION = "railone.institution_onboarding_attestation"
     SETTLEMENT_EVIDENCE = "railone.settlement_evidence"
     REPLAY_CHECKPOINT = "railone.replay_checkpoint"
     API_REQUEST_AUDIT = "railone.api_request_audit"
@@ -47,6 +48,7 @@ _PURPOSE_BY_ARTIFACT = {
     ArtifactType.ETK_R: KeyPurpose.EXECUTION_SIGNING,
     ArtifactType.EXECUTION_EVENT: KeyPurpose.EXECUTION_SIGNING,
     ArtifactType.IDENTITY_ATTESTATION: KeyPurpose.IDENTITY_SIGNING,
+    ArtifactType.INSTITUTION_ONBOARDING_ATTESTATION: KeyPurpose.INSTITUTION_ONBOARDING_SIGNING,
     ArtifactType.SETTLEMENT_EVIDENCE: KeyPurpose.SETTLEMENT_SIGNING,
     ArtifactType.REPLAY_CHECKPOINT: KeyPurpose.REPLAY_SIGNING,
     ArtifactType.API_REQUEST_AUDIT: KeyPurpose.API_AUDIT_SIGNING,

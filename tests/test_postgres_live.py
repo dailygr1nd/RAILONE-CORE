@@ -148,6 +148,68 @@ class LivePostgresRuntimeTests(unittest.TestCase):
         exercise_institutional_dispatch(self, PostgresDatabase(self.factory), scenario="crash",
                                         http_bilateral=True, delegated=True)
 
+    def test_r1_ios_001_institution_identity_is_persisted_but_not_activated(self):
+        """Disposable-only SQL gate for signed institutional legal identity."""
+        self.setUpClass()  # Existing suite explicitly resets the disposable RailOne schemas.
+        from railone_crypto.key_provider import InMemoryEd25519KeyProvider, KeyPurpose
+        from railone_crypto.signature_service import ArtifactType, SignatureService
+        from railone_institutions import (
+            IdentityAdmissionState, InstitutionApplication, InstitutionClass,
+            InstitutionOnboardingService,
+        )
+        from railone_postgres import PostgresInstitutionIdentityRepository, PostgresDatabase
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        keys = InMemoryEd25519KeyProvider()
+        keys.generate(
+            key_id="R1-IOS-TEST-REVIEWER", owner_id="RAILONE",
+            purpose=KeyPurpose.INSTITUTION_ONBOARDING_SIGNING,
+            not_before=now-timedelta(days=1), not_after=now+timedelta(days=2),
+        )
+        signatures = SignatureService(keys)
+        database = PostgresDatabase(self.factory)
+        repo = PostgresInstitutionIdentityRepository(database)
+        service = InstitutionOnboardingService(repository=repo, signatures=signatures)
+        application = InstitutionApplication(
+            legal_name="SavannaPay Processing Ltd", display_name="SavannaPay",
+            institution_class=InstitutionClass.PSP, home_jurisdiction="KE",
+            registration_reference="SYN-KE-REG-001",
+            regulatory_evidence_refs=("EVID-REG-001", "EVID-LICENSE-001"),
+        )
+        registered = service.register(application, at=now)
+        self.assertEqual(registered.status, IdentityAdmissionState.PENDING_VERIFICATION)
+        self.assertEqual(repo.get(registered.institution_id), registered)
+        signed = signatures.sign_artifact(
+            artifact_type=ArtifactType.INSTITUTION_ONBOARDING_ATTESTATION,
+            payload={
+                "version": 1, "institution_id": registered.institution_id,
+                "application_sha256": application.fingerprint,
+                "decision": "LEGAL_AND_REGULATORY_VERIFIED",
+                "evidence_ref": "DUE-DILIGENCE-001", "evidence_sha256": "a"*64,
+                "expires_at": int((now+timedelta(days=1)).timestamp()),
+            },
+            key_id="R1-IOS-TEST-REVIEWER", issued_at=now+timedelta(seconds=1),
+        )
+        verified = service.verify(
+            registered.institution_id, signed, at=now+timedelta(seconds=2),
+        )
+        self.assertEqual(verified.status, IdentityAdmissionState.VERIFIED)
+        self.assertEqual(repo.get(verified.institution_id), verified)
+        with database.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT count(*) AS n FROM railone.institution_identity_verification_events WHERE institution_id=%s",
+                           (verified.institution_id,))
+            self.assertEqual(cursor.fetchone()["n"], 1)
+            cursor.execute("SELECT count(*) AS n FROM railone.partner_institutions WHERE institution_id=%s",
+                           (verified.institution_id,))
+            self.assertEqual(cursor.fetchone()["n"], 0)  # Legal verification grants no execution.
+        with self.assertRaises(Exception):
+            with database.transaction() as connection, connection.cursor() as cursor:
+                cursor.execute("UPDATE railone.institution_identity_registry SET legal_name=%s WHERE institution_id=%s",
+                               ("Imposter Corp", verified.institution_id))
+        with self.assertRaises(Exception):
+            with database.transaction() as connection, connection.cursor() as cursor:
+                cursor.execute("DELETE FROM railone.institution_identity_verification_events WHERE institution_id=%s",
+                               (verified.institution_id,))
+
     def test_v017_http_to_postgres_institutional_dispatch(self):
         """End-to-end: actor-scoped HTTP -> bilateral UTT -> RTT -> fenced adapter."""
         self.setUpClass()  # Explicit disposable reset; synthetic IDs are reused.

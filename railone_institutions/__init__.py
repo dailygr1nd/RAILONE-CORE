@@ -1,3 +1,8 @@
+from .identity import (
+    IdentityAdmissionState, InstitutionApplication, InstitutionClass,
+    InstitutionIdentityRecord, InstitutionOnboardingService,
+    InMemoryInstitutionIdentityRepository,
+)
 """Institution-agnostic integration boundary for RailOne execution providers."""
 
 from .admission import (
@@ -29,6 +34,9 @@ from .wrapper import (
 )
 
 __all__ = [
+    "IdentityAdmissionState", "InstitutionApplication", "InstitutionClass",
+    "InstitutionIdentityRecord", "InstitutionOnboardingService",
+    "InMemoryInstitutionIdentityRepository",
     "AuthoritativeSnapshotReader",
     "EconomicEffectFenceReader",
     "InstitutionalDispatchAdmissionGateway",
